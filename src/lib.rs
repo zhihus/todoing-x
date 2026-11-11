@@ -694,6 +694,7 @@ mod tests {
     fn json_index_id_coercion_matches_pydantic_v2() {
         let dir = tempdir().unwrap();
         let store = Store::new(dir.path());
+        store.ensure().unwrap();
         for (raw, expected) in [
             (r#"[{"id":"12","title":"task"}]"#, 12),
             (r#"[{"id":"1_000","title":"task"}]"#, 1000),
