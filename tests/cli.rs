@@ -159,6 +159,38 @@ fn commit_links_store_full_sha_and_deduplicate_resolved_refs() {
     assert_eq!(tasks[0]["commits"][0], full_sha);
 }
 
+#[test]
+fn reindex_restores_commit_refs_after_python_style_index_rewrite() {
+    let dir = tempdir().unwrap();
+    git(dir.path(), &["init", "-q"]);
+    git(dir.path(), &["config", "user.email", "todoing-test@example.invalid"]);
+    git(dir.path(), &["config", "user.name", "Todoing Test"]);
+    fs::write(dir.path().join("tracked.txt"), "initial").unwrap();
+    git(dir.path(), &["add", "tracked.txt"]);
+    git(dir.path(), &["commit", "-m", "initial"]);
+
+    assert!(run(dir.path(), &["add", "linked task"]).status.success());
+    assert!(run(dir.path(), &["commit", "1", "HEAD"]).status.success());
+    let markdown = fs::read_to_string(dir.path().join(".todoing/tasks/1.md")).unwrap();
+    assert!(markdown.contains("commits: ["));
+
+    // Python's Pydantic model ignores the Rust-only field when it rewrites index.json.
+    fs::write(
+        dir.path().join(".todoing/index.json"),
+        r#"[{"id":1,"title":"linked task","added_at":"2026-05-01T10:00:00","status":"todo","labels":[],"body":""}]"#,
+    ).unwrap();
+
+    let listed = run(dir.path(), &["ls", "--json"]);
+    assert!(listed.status.success());
+    let tasks: Value = serde_json::from_slice(&listed.stdout).unwrap();
+    assert!(tasks[0]["commits"].as_array().unwrap().is_empty());
+
+    let rebuilt = run(dir.path(), &["reindex", "--json"]);
+    assert!(rebuilt.status.success(), "{}", String::from_utf8_lossy(&rebuilt.stderr));
+    let tasks: Value = serde_json::from_slice(&rebuilt.stdout).unwrap();
+    assert_eq!(tasks[0]["commits"].as_array().unwrap().len(), 1);
+}
+
 #[cfg(unix)]
 #[test]
 fn edit_json_returns_updated_task_after_editor_and_reindex() {
