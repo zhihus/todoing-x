@@ -78,9 +78,9 @@ struct LabelArgs {
     id: String,
     #[arg(required=true, num_args=1..)]
     ops: Vec<String>,
-    #[arg(long="clear", action=clap::ArgAction::SetTrue)]
+    #[arg(long="clear", action=clap::ArgAction::SetTrue, overrides_with="no_clear")]
     clear: bool,
-    #[arg(long="no-clear", action=clap::ArgAction::SetTrue)]
+    #[arg(long="no-clear", action=clap::ArgAction::SetTrue, overrides_with="clear")]
     no_clear: bool,
 }
 #[derive(Args)]
