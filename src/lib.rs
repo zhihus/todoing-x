@@ -291,17 +291,16 @@ fn yaml11_numeric(s: &str) -> bool {
 
     let float = |value: &str| {
         let value = value.strip_prefix('+').or_else(|| value.strip_prefix('-')).unwrap_or(value);
-        let (mantissa, exponent) = match value.find(['e', 'E']) {
+        let mantissa = match value.find('e').or_else(|| value.find('E')) {
             Some(i) => {
                 let exp = &value[i + 1..];
                 if !(exp.starts_with('+') || exp.starts_with('-')) || !digits(&exp[1..]) {
                     return false;
                 }
-                (&value[..i], true)
+                &value[..i]
             }
-            None => (value, false),
+            None => value,
         };
-        let _ = exponent;
         match mantissa.split_once('.') {
             Some((whole, fraction)) => {
                 (digits(whole) || whole.is_empty())
