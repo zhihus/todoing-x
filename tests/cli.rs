@@ -400,9 +400,17 @@ fn run_with_input(root: &Path, args: &[&str], input: &str) -> std::process::Outp
 #[test]
 fn legacy_cli_keeps_original_output_order_and_filters() {
     let dir = tempdir().unwrap();
+    git(dir.path(), &["init", "-q"]);
+    git(dir.path(), &["config", "user.email", "todoing-test@example.invalid"]);
+    git(dir.path(), &["config", "user.name", "Todoing Test"]);
+    fs::write(dir.path().join("tracked.txt"), "initial").unwrap();
+    git(dir.path(), &["add", "tracked.txt"]);
+    git(dir.path(), &["commit", "-m", "initial"]);
     assert!(run(dir.path(), &["add", "first", "-l", "bug", "-l", "api"]).status.success());
     assert!(run(dir.path(), &["add", "second", "-s", "in_progress"]).status.success());
-    assert!(run(dir.path(), &["add", "third", "-l", "bug", "-s", "done"]).status.success());
+    assert!(run(dir.path(), &["add", "third", "-l", "bug"]).status.success());
+    assert!(run(dir.path(), &["commit", "3", "HEAD"]).status.success());
+    assert!(run(dir.path(), &["status", "3", "done"]).status.success());
 
     let listed = run(dir.path(), &["ls"]);
     let output = String::from_utf8_lossy(&listed.stdout);
