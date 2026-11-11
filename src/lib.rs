@@ -181,7 +181,7 @@ fn parse_decimal_digits(value: &str) -> Option<i64> {
     for c in value.chars() {
         let code = c as u32;
         let digit = ZEROES.iter().flat_map(|zero| if *zero == 0x1D7CE { vec![*zero, *zero + 10, *zero + 20, *zero + 30, *zero + 40] } else { vec![*zero] }).find_map(|zero| {
-            let n = code.checked_sub(*zero)?;
+            let n = code.checked_sub(zero)?;
             (n < 10).then_some(n as i64)
         })?;
         result = result.checked_mul(10)?.checked_add(digit)?;
