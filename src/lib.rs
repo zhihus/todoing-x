@@ -153,6 +153,7 @@ impl Store {
     }
     pub fn write_index(&self, tasks: &[Task]) -> Result<(), String> {
         self.ensure()?;
+        for task in tasks { task.validate()?; }
         let raw = serde_json::to_string_pretty(tasks).map_err(|e| e.to_string())?;
         atomic_write(&self.index, format!("{}\n", raw).as_bytes())
     }
@@ -272,6 +273,28 @@ mod tests {
         let found = store.filter(Some(TaskStatus::Done), &["BUG".into()], 0, Some("fir"), false).unwrap();
         assert_eq!(found.len(), 1);
         assert_eq!(found[0].id, 1);
+    }
+
+    #[test]
+    fn commit_references_round_trip() {
+        let dir = tempdir().unwrap();
+        let store = Store::new(dir.path());
+        let mut original = task(8, "linked commit");
+        original.commits.push("0123456789abcdef".into());
+        store.write_task(&original).unwrap();
+        let restored = store.read_task(8).unwrap().unwrap();
+        assert_eq!(restored.commits, original.commits);
+        store.write_index(&[original.clone()]).unwrap();
+        assert_eq!(store.read_index().unwrap()[0].commits, original.commits);
+    }
+
+    #[test]
+    fn invalid_identifiers_are_rejected() {
+        let dir = tempdir().unwrap();
+        let store = Store::new(dir.path());
+        assert!(store.write_task(&task(0, "invalid")).is_err());
+        assert!(Store::resolve_id("-1").is_err());
+        assert!(Store::resolve_id("0").is_err());
     }
 
     #[test]
