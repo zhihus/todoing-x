@@ -88,7 +88,7 @@ todoing commit 4 a1b2c3d
 todoing --json see 4
 ```
 
-The command resolves the supplied revision to a full commit SHA and stores it in the task frontmatter and JSON index. Existing task files without commit metadata remain valid.
+The command resolves the supplied revision to a full commit SHA and stores it in the task frontmatter and JSON index. Existing task files without commit metadata remain valid. The original Python implementation ignores this extension and may drop commit references if it rewrites a linked task; use the Rust version for tasks that contain commit links.
 
 ## Lifecycle hooks
 
