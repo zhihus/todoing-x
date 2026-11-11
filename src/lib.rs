@@ -21,6 +21,13 @@ impl TaskStatus {
             _ => Err(format!("Invalid status '{}'. Valid: todo, in_progress, done, cancelled", s)),
         }
     }
+    fn parse_stored(s: &str) -> Result<Self, String> {
+        match s {
+            "todo" => Ok(Self::Todo), "in_progress" => Ok(Self::InProgress),
+            "done" => Ok(Self::Done), "cancelled" => Ok(Self::Cancelled),
+            _ => Err(format!("Invalid stored status '{}'.", s)),
+        }
+    }
     pub fn as_str(self) -> &'static str {
         match self { Self::Todo => "todo", Self::InProgress => "in_progress", Self::Done => "done", Self::Cancelled => "cancelled" }
     }
@@ -404,7 +411,7 @@ impl Store {
             None => "todo",
             Some(value) => value.as_str().ok_or_else(|| format!("Invalid task status in {}", path.display()))?,
         };
-        let status = TaskStatus::parse(status)
+        let status = TaskStatus::parse_stored(status)
             .map_err(|_| format!("Invalid task status in {}", path.display()))?;
         let labels = match get("labels") {
             None => Vec::new(),
