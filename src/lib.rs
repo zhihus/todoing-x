@@ -270,7 +270,7 @@ impl Store {
         Ok(tasks)
     }
     fn parse_task_file(&self, path: &Path) -> Result<Option<Task>, String> {
-        let text = match fs::read_to_string(path) { Ok(s) => s.replace("\\r\\n", "\\n").replace('\\r', "\\n"), Err(_) => return Ok(None) };
+        let text = match fs::read_to_string(path) { Ok(s) => s.replace("\r\n", "\n").replace('\r', "\n"), Err(_) => return Ok(None) };
         if !text.starts_with("---") { eprintln!("Warning: Task file {} has no frontmatter, skipping", path.display()); return Ok(None); }
         let parts: Vec<&str> = text.splitn(3, "---").collect();
         if parts.len() < 3 { return Ok(None); }
@@ -482,10 +482,10 @@ mod tests {
         store.ensure().unwrap();
         fs::write(
             store.task_path(1),
-            "---\\r\\nid: 1\\r\\ntitle: windows\\r\\nstatus: todo\\r\\nlabels: []\\r\\n---\\r\\nfirst line\\r\\nsecond line\\r\\n",
+            "---\r\nid: 1\r\ntitle: windows\r\nstatus: todo\r\nlabels: []\r\n---\r\nfirst line\r\nsecond line\r\n",
         ).unwrap();
         let task = store.read_task(1).unwrap().unwrap();
-        assert_eq!(task.body, "first line\\nsecond line");
+        assert_eq!(task.body, "first line\nsecond line");
     }
 
     #[test]
