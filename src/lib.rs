@@ -276,7 +276,7 @@ impl Task {
 }
 
 fn python_strip(value: &str) -> &str {
-    value.trim_matches(|c: char| c.is_whitespace() || ('\\u{001c}'..='\\u{001f}').contains(&c))
+    value.trim_matches(|c: char| c.is_whitespace() || ('\u{001c}'..='\u{001f}').contains(&c))
 }
 
 fn yaml11_numeric(s: &str) -> bool {
@@ -1092,13 +1092,13 @@ mod tests {
     #[test]
     fn body_trimming_matches_python_str_strip_control_whitespace() {
         let mut value = task(88, "control whitespace");
-        value.body = "\\u{001c}body\\u{001f}".to_string();
-        assert!(value.format_see().ends_with("\\n\\nbody\\n"));
+        value.body = "\u{001c}body\u{001f}".to_string();
+        assert!(value.format_see().ends_with("\n\nbody\n"));
 
         let dir = tempdir().unwrap();
         let store = Store::new(dir.path());
         store.ensure().unwrap();
-        fs::write(store.task_path(88), "---\\nid: 88\\ntitle: body\\nstatus: todo\\n---\\n\\u{001c}body\\u{001f}").unwrap();
+        fs::write(store.task_path(88), "---\nid: 88\ntitle: body\nstatus: todo\n---\n\u{001c}body\u{001f}").unwrap();
         let restored = store.read_task(88).unwrap().unwrap();
         assert_eq!(restored.body, "body");
     }
