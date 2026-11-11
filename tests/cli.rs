@@ -104,7 +104,7 @@ fn edit_json_returns_updated_task_after_editor_and_reindex() {
     let dir = tempdir().unwrap();
     assert!(run(dir.path(), &["add", "editable"]).status.success());
     let editor = dir.path().join("fake-editor.sh");
-    fs::write(&editor, "#!/bin/sh\\nexit 0\\n").unwrap();
+    fs::write(&editor, "#!/bin/sh\nexit 0\n").unwrap();
     let mut permissions = fs::metadata(&editor).unwrap().permissions();
     permissions.set_mode(0o755);
     fs::set_permissions(&editor, permissions).unwrap();
