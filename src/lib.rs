@@ -530,7 +530,7 @@ mod tests {
         store.ensure().unwrap();
         fs::write(
             store.task_path(1),
-            "---\\nid: 1\\ntitle: task\\nstatus: todo\\nlabels: []\\ncommits: [123]\\n---\\n",
+            "---\nid: 1\ntitle: task\nstatus: todo\nlabels: []\ncommits: [123]\n---\n",
         ).unwrap();
 
         assert!(store.read_task(1).unwrap_err().contains("Invalid task commit reference"));
