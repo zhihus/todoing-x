@@ -122,7 +122,7 @@ A missing custom hook is a no-op; the built-in completion checks still run.
     before-done
 ```
 
-Task files remain Markdown with YAML frontmatter. `index.json` remains a rebuildable JSON array. Both task and index writes use a temporary file in the destination directory and atomic replacement to avoid partially written files.
+Task files remain Markdown with YAML frontmatter. `index.json` remains a rebuildable JSON array. Commit the entire `.todoing/` directory to Git so task files and their index are versioned with the project. Both task and index writes use a temporary file in the destination directory and atomic replacement to avoid partially written files.
 
 The four original statuses and user-controlled task queue are unchanged. No priorities, dependencies, event history, or automatic archiving are added.
 
