@@ -324,6 +324,36 @@ mod tests {
     }
 
     #[test]
+    fn corrupted_index_is_rebuilt_from_task_files() {
+        let dir = tempdir().unwrap();
+        let store = Store::new(dir.path());
+        store.write_task(&task(1, "recovered")).unwrap();
+        fs::write(&store.index, "not valid json {{{").unwrap();
+        let items = store.read_index().unwrap();
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].title, "recovered");
+    }
+
+    #[test]
+    fn malformed_task_files_are_skipped() {
+        let dir = tempdir().unwrap();
+        let store = Store::new(dir.path());
+        store.ensure().unwrap();
+        fs::write(store.task_path(1), "---\nid: 1\ntitle: [broken\n---\nbody").unwrap();
+        assert!(store.read_task(1).unwrap().is_none());
+    }
+
+    #[test]
+    fn missing_index_is_rebuilt() {
+        let dir = tempdir().unwrap();
+        let store = Store::new(dir.path());
+        store.write_task(&task(3, "rebuild")).unwrap();
+        let items = store.read_index().unwrap();
+        assert_eq!(items.len(), 1);
+        assert!(store.index.exists());
+    }
+
+    #[test]
     fn commit_references_round_trip() {
         let dir = tempdir().unwrap();
         let store = Store::new(dir.path());
