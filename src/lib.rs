@@ -165,6 +165,54 @@ fn atomic_write(path: &Path, content: &[u8]) -> Result<(), String> {
     Ok(())
 }
 
+
+fn parse_decimal_digits(value: &str) -> Option<i64> {
+    const ZEROES: &[u32] = &[
+        0x0030,0x0660,0x06F0,0x07C0,0x0966,0x09E6,0x0A66,0x0AE6,0x0B66,0x0BE6,
+        0x0C66,0x0CE6,0x0D66,0x0DE6,0x0E50,0x0ED0,0x0F20,0x1040,0x1090,0x17E0,
+        0x1810,0x1946,0x19D0,0x1A80,0x1A90,0x1B50,0x1BB0,0x1C40,0x1C50,0xA620,
+        0xA8D0,0xA900,0xA9D0,0xA9F0,0xAA50,0xABF0,0xFF10,0x104A0,0x10D30,0x11066,
+        0x110F0,0x11136,0x111D0,0x112F0,0x11450,0x114D0,0x11650,0x116C0,0x11730,
+        0x118E0,0x11950,0x11C50,0x11D50,0x11DA0,0x11F50,0x16A60,0x16AC0,0x16B50,
+        0x1D7CE,0x1E140,0x1E2F0,0x1E4F0,0x1E5F1,0x1E950,
+    ];
+    let mut result = 0i64;
+    if value.is_empty() { return None; }
+    for c in value.chars() {
+        let code = c as u32;
+        let digit = ZEROES.iter().find_map(|zero| {
+            let n = code.checked_sub(*zero)?;
+            (n < 10).then_some(n as i64)
+        })?;
+        result = result.checked_mul(10)?.checked_add(digit)?;
+    }
+    Some(result)
+}
+
+fn parse_python_integer_string(value: &str) -> Option<i64> {
+    let value = value.trim();
+    let (negative, digits) = if let Some(rest) = value.strip_prefix('-') {
+        (true, rest)
+    } else if let Some(rest) = value.strip_prefix('+') {
+        (false, rest)
+    } else {
+        (false, value)
+    };
+    let number = parse_decimal_digits(digits)?;
+    if negative { number.checked_neg() } else { Some(number) }
+}
+
+fn parse_yaml_python_integer(value: &serde_yaml::Value) -> Option<i64> {
+    match value {
+        serde_yaml::Value::Number(number) => number.as_i64()
+            .or_else(|| number.as_u64().and_then(|n| i64::try_from(n).ok()))
+            .or_else(|| number.as_f64().filter(|n| n.is_finite() && *n >= i64::MIN as f64 && *n < -(i64::MIN as f64)).map(|n| n.trunc() as i64)),
+        serde_yaml::Value::String(value) => parse_python_integer_string(value),
+        serde_yaml::Value::Bool(value) => Some(i64::from(*value)),
+        _ => None,
+    }
+}
+
 pub struct Store {
     root: PathBuf,
     todoing: PathBuf,
@@ -191,7 +239,7 @@ impl Store {
                 let p = entry.path();
                 if p.extension().and_then(|x| x.to_str()) == Some("md") {
                     if let Some(stem) = p.file_stem().and_then(|x| x.to_str()) {
-                        if let Ok(n) = stem.parse::<i64>() { max_id = max_id.max(n); }
+                        if let Some(n) = parse_decimal_digits(stem) { max_id = max_id.max(n); }
                     }
                 }
             }
@@ -200,10 +248,11 @@ impl Store {
     }
     pub fn resolve_id(raw: &str) -> Result<i64, String> {
         let value = raw.trim().trim_start_matches('#');
-        if value.is_empty() || !value.chars().all(|c| c.is_ascii_digit()) {
+        if value.is_empty() {
             return Err(format!("Invalid task ID: {}", value));
         }
-        let id = value.parse::<i64>().map_err(|_| format!("Invalid task ID: {}", value))?;
+        let id = parse_decimal_digits(value)
+            .ok_or_else(|| format!("Invalid task ID: {}", value))?;
         Ok(id)
     }
     fn task_path(&self, id: i64) -> PathBuf { self.tasks.join(format!("{}.md", id)) }
@@ -281,7 +330,7 @@ impl Store {
         if parts.len() < 3 { return Ok(None); }
         let fm: serde_yaml::Value = match serde_yaml::from_str(parts[1]) { Ok(v) => v, Err(_) => return Ok(None) };
         let get = |key: &str| fm.get(key);
-        let id = match get("id").and_then(|v| v.as_i64().or_else(|| v.as_str().and_then(|s| s.parse::<i64>().ok()))) { Some(v) => v, _ => return Ok(None) };
+        let id = match get("id").and_then(parse_yaml_python_integer) { Some(v) => v, _ => return Ok(None) };
         let title = match get("title").and_then(|v| v.as_str()) { Some(v) => v.to_string(), None => return Ok(None) };
         let status = get("status").and_then(|v| v.as_str()).unwrap_or("todo");
         let status = match TaskStatus::parse(status) { Ok(s) => s, Err(_) => return Ok(None) };
@@ -338,6 +387,31 @@ mod tests {
             added_at: TaskDateTime::Naive(NaiveDateTime::parse_from_str("2026-05-01T10:00:00", "%Y-%m-%dT%H:%M:%S").unwrap()),
             status: TaskStatus::Todo, labels: vec!["p1".into()], body: "details".into(),
         }
+    }
+
+
+    #[test]
+    fn unicode_decimal_ids_match_python() {
+        assert_eq!(Store::resolve_id("١٢").unwrap(), 12);
+        assert_eq!(Store::resolve_id("１２").unwrap(), 12);
+        assert!(Store::resolve_id("²").is_err());
+    }
+
+    #[test]
+    fn next_id_accepts_unicode_decimal_filename_stems() {
+        let dir = tempdir().unwrap();
+        let store = Store::new(dir.path());
+        store.ensure().unwrap();
+        fs::write(store.tasks.join("١٢.md"), "---\\nid: 12\\ntitle: twelve\\n---\\n").unwrap();
+        assert_eq!(store.next_id(), 13);
+    }
+
+    #[test]
+    fn yaml_id_conversion_matches_python_int() {
+        assert_eq!(parse_yaml_python_integer(&serde_yaml::from_str::<serde_yaml::Value>("'+12'").unwrap()), Some(12));
+        assert_eq!(parse_yaml_python_integer(&serde_yaml::from_str::<serde_yaml::Value>("'١٢'").unwrap()), Some(12));
+        assert_eq!(parse_yaml_python_integer(&serde_yaml::from_str::<serde_yaml::Value>("12.9").unwrap()), Some(12));
+        assert_eq!(parse_yaml_python_integer(&serde_yaml::from_str::<serde_yaml::Value>("true").unwrap()), Some(1));
     }
 
     #[test]
