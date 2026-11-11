@@ -76,6 +76,28 @@ fn completion_requires_git_commit_and_all_active_openspec_tasks() {
 }
 
 #[test]
+fn completion_rejects_unavailable_linked_commit_without_git_noise() {
+    let dir = tempdir().unwrap();
+    git(dir.path(), &["init", "-q"]);
+    assert!(run(dir.path(), &["add", "stale commit"]).status.success());
+
+    let task_path = dir.path().join(".todoing/tasks/1.md");
+    let contents = fs::read_to_string(&task_path).unwrap();
+    let contents = contents.replacen("id: 1\n", "commits: [0000000000000000000000000000000000000000]\nid: 1\n", 1);
+    fs::write(&task_path, contents).unwrap();
+
+    let rejected = run(dir.path(), &["status", "1", "done"]);
+    let stderr = String::from_utf8_lossy(&rejected.stderr);
+    assert!(!rejected.status.success());
+    assert!(stderr.contains("is not available in this repository"));
+    assert!(!stderr.contains("fatal:"));
+
+    let shown = run(dir.path(), &["see", "1", "--json"]);
+    let task: Value = serde_json::from_slice(&shown.stdout).unwrap();
+    assert_eq!(task["status"], "todo");
+}
+
+#[test]
 fn completion_checks_every_active_change_and_ignores_archive() {
     let dir = tempdir().unwrap();
     git(dir.path(), &["init", "-q"]);
