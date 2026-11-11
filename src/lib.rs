@@ -408,7 +408,12 @@ impl Store {
             .map_err(|_| format!("Invalid task status in {}", path.display()))?;
         let labels = match get("labels") {
             None => Vec::new(),
-            Some(value) if value.is_null() => Vec::new(),
+            Some(value) if value.is_null()
+                || value.as_bool() == Some(false)
+                || value.as_str() == Some("")
+                || value.as_f64() == Some(0.0)
+                || value.as_sequence().is_some_and(Vec::is_empty)
+                || value.as_mapping().is_some_and(std::collections::BTreeMap::is_empty) => Vec::new(),
             Some(value) => match value.as_sequence() {
                 Some(items) => {
                     let mut parsed = Vec::new();
@@ -502,6 +507,20 @@ mod tests {
         store.ensure().unwrap();
         fs::write(store.task_path(1), "---\nid: 1\nstatus: todo\n---\n").unwrap();
         assert!(store.rebuild_index().is_err());
+    }
+
+    #[test]
+    fn falsey_yaml_labels_match_python_empty_list_fallback() {
+        let dir = tempdir().unwrap();
+        let store = Store::new(dir.path());
+        store.ensure().unwrap();
+
+        for (id, labels) in [(1, "null"), (2, "false"), (3, "0"), (4, "''"), (5, "{}"), (6, "[]")] {
+            let contents = format!("---\\nid: {id}\\ntitle: task\\nstatus: todo\\nlabels: {labels}\\n---\\n");
+            fs::write(store.task_path(id), contents).unwrap();
+            let task = store.read_task(id).unwrap().unwrap();
+            assert!(task.labels.is_empty(), "labels value {labels} should become []");
+        }
     }
 
     #[test]
