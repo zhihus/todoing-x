@@ -573,6 +573,36 @@ fn body_append_and_label_operations_persist() {
     assert!(!text.contains("line one"));
 }
 
+
+#[test]
+fn commit_metadata_survives_body_label_and_status_mutations() {
+    let dir = tempdir().unwrap();
+    git(dir.path(), &["init", "-q"]);
+    git(dir.path(), &["config", "user.email", "todoing-test@example.invalid"]);
+    git(dir.path(), &["config", "user.name", "Todoing Test"]);
+    fs::write(dir.path().join("tracked.txt"), "initial").unwrap();
+    git(dir.path(), &["add", "tracked.txt"]);
+    git(dir.path(), &["commit", "-m", "initial"]);
+
+    assert!(run(dir.path(), &["add", "mutable linked task", "-b", "initial body"]).status.success());
+    assert!(run(dir.path(), &["commit", "1", "HEAD"]).status.success());
+    assert!(run(dir.path(), &["body", "1", "replacement body"]).status.success());
+    assert!(run(dir.path(), &["append", "1", "appended body"]).status.success());
+    assert!(run(dir.path(), &["label", "1", "+verified"]).status.success());
+    assert!(run(dir.path(), &["status", "1", "in_progress"]).status.success());
+
+    let shown = run(dir.path(), &["see", "1", "--json"]);
+    assert!(shown.status.success(), "{}", String::from_utf8_lossy(&shown.stderr));
+    let task: Value = serde_json::from_slice(&shown.stdout).unwrap();
+    assert_eq!(task["body"], "replacement body\\n\\nappended body");
+    assert_eq!(task["labels"], serde_json::json!(["verified"]));
+    assert_eq!(task["status"], "in_progress");
+    assert_eq!(task["commits"].as_array().unwrap().len(), 1);
+
+    let markdown = fs::read_to_string(dir.path().join(".todoing/tasks/1.md")).unwrap();
+    assert!(markdown.contains("commits: ["));
+}
+
 #[test]
 fn creating_done_task_cannot_bypass_completion_gates() {
     let dir = tempdir().unwrap();
