@@ -200,8 +200,9 @@ fn run() {
             if json { emit_json(&task); } else { print!("{}", task.format_see()); }
         }
         Some(Commands::Edit(a)) => {
-            let (id, _) = task_or_fail(&store, &a.id);
+            let id = Store::resolve_id(&a.id).unwrap_or_else(|e| fail(e));
             let path = std::env::current_dir().unwrap_or_default().join(".todoing/tasks").join(format!("{}.md", id));
+            if !path.is_file() { fail(format!("Task #{} not found.", id)); }
             let editor = std::env::var("EDITOR").unwrap_or_else(|_| "vim".into());
             let status = Command::new(editor).arg(path).status().unwrap_or_else(|e| fail(e.to_string()));
             if !status.success() { fail(format!("Editor exited with code {}", status.code().unwrap_or(1))); }
