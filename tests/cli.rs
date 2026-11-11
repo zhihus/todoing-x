@@ -625,3 +625,54 @@ fn label_clear_flags_follow_last_option_like_click() {
     let output = String::from_utf8_lossy(&shown.stdout);
     assert!(output.contains("labels: [new, another]"));
 }
+
+
+#[test]
+fn legacy_cli_preserves_missing_task_errors_and_version_output() {
+    let dir = tempdir().unwrap();
+
+    for args in [
+        vec!["see", "99"],
+        vec!["body", "99", "text"],
+        vec!["append", "99", "text"],
+        vec!["status", "99", "done"],
+        vec!["label", "99", "+label"],
+        vec!["delete", "99", "--force"],
+    ] {
+        let result = run(dir.path(), &args);
+        assert!(!result.status.success(), "command unexpectedly succeeded: {args:?}");
+        assert!(
+            String::from_utf8_lossy(&result.stderr).contains("not found"),
+            "unexpected error for {args:?}: {}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+    }
+
+    let version = run(dir.path(), &["version"]);
+    assert!(version.status.success());
+    assert_eq!(
+        String::from_utf8_lossy(&version.stdout).trim(),
+        env!("CARGO_PKG_VERSION")
+    );
+}
+
+#[test]
+fn legacy_cli_accepts_every_original_status_value() {
+    let dir = tempdir().unwrap();
+    let added = run(dir.path(), &["add", "status compatibility"]);
+    assert!(added.status.success());
+
+    for status in ["todo", "in_progress", "done", "cancelled"] {
+        let changed = run(dir.path(), &["status", "1", status]);
+        assert!(
+            changed.status.success(),
+            "status {status} rejected: {}",
+            String::from_utf8_lossy(&changed.stderr)
+        );
+    }
+
+    let shown = run(dir.path(), &["see", "1", "--json"]);
+    assert!(shown.status.success());
+    let task: Value = serde_json::from_slice(&shown.stdout).unwrap();
+    assert_eq!(task["status"], "cancelled");
+}
