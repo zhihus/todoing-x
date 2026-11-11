@@ -1102,10 +1102,10 @@ mod tests {
         let restored = store.read_task(88).unwrap().unwrap();
         assert_eq!(restored.body, "body");
 
-        let mut blank = task(89, "\\u{001c}\\u{001f}");
+        let mut blank = task(89, "\u{001c}\u{001f}");
         assert!(blank.validate_for_creation().is_err());
         blank.title = "valid".into();
-        blank.labels = vec!["\\u{001c}".into()];
+        blank.labels = vec!["\u{001c}".into()];
         assert!(blank.validate_for_creation().is_err());
     }
 
