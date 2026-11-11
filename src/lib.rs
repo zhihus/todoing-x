@@ -32,13 +32,19 @@ impl TaskStatus {
 pub struct Task {
     pub id: i64,
     pub title: String,
+    #[serde(default = "default_added_at")]
     pub added_at: NaiveDateTime,
+    #[serde(default)]
     pub status: TaskStatus,
+    #[serde(default)]
     pub labels: Vec<String>,
+    #[serde(default)]
     pub body: String,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub commits: Vec<String>,
 }
+
+fn default_added_at() -> NaiveDateTime { Local::now().naive_local() }
 
 impl Task {
     pub fn new(id: i64, title: String, status: TaskStatus, labels: Vec<String>, body: String) -> Self {
