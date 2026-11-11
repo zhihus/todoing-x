@@ -78,8 +78,10 @@ struct LabelArgs {
     id: String,
     #[arg(required=true, num_args=1..)]
     ops: Vec<String>,
-    #[arg(long="clear")]
+    #[arg(long="clear", action=clap::ArgAction::SetTrue)]
     clear: bool,
+    #[arg(long="no-clear", action=clap::ArgAction::SetTrue)]
+    no_clear: bool,
 }
 #[derive(Args)]
 struct CommitArgs {
@@ -234,7 +236,7 @@ fn run() {
         }
         Some(Commands::Label(a)) => {
             let (_, mut task) = task_or_fail(&store, &a.id);
-            let mut current = if a.clear { Vec::new() } else { task.labels.clone() };
+            let mut current = if a.clear && !a.no_clear { Vec::new() } else { task.labels.clone() };
             let mut adds = Vec::new();
             let mut removes = Vec::new();
             for op in a.ops {
