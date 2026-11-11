@@ -198,7 +198,19 @@ fn parse_python_integer_string(value: &str) -> Option<i64> {
     } else {
         (false, value)
     };
-    let number = parse_decimal_digits(digits)?;
+    let mut normalized = String::new();
+    let chars: Vec<char> = digits.chars().collect();
+    for (index, ch) in chars.iter().enumerate() {
+        if *ch == '_' {
+            if index == 0 || index + 1 == chars.len()
+                || parse_decimal_digits(&chars[index - 1].to_string()).is_none()
+                || parse_decimal_digits(&chars[index + 1].to_string()).is_none()
+            { return None; }
+        } else {
+            normalized.push(*ch);
+        }
+    }
+    let number = parse_decimal_digits(&normalized)?;
     if negative { number.checked_neg() } else { Some(number) }
 }
 
@@ -329,11 +341,20 @@ impl Store {
         let parts: Vec<&str> = text.splitn(3, "---").collect();
         if parts.len() < 3 { return Ok(None); }
         let fm: serde_yaml::Value = match serde_yaml::from_str(parts[1]) { Ok(v) => v, Err(_) => return Ok(None) };
+        if !fm.is_mapping() {
+            return Err(format!("Invalid task frontmatter in {}", path.display()));
+        }
         let get = |key: &str| fm.get(key);
-        let id = match get("id").and_then(parse_yaml_python_integer) { Some(v) => v, _ => return Ok(None) };
-        let title = match get("title").and_then(|v| v.as_str()) { Some(v) => v.to_string(), None => return Ok(None) };
-        let status = get("status").and_then(|v| v.as_str()).unwrap_or("todo");
-        let status = match TaskStatus::parse(status) { Ok(s) => s, Err(_) => return Ok(None) };
+        let id = get("id").and_then(parse_yaml_python_integer)
+            .ok_or_else(|| format!("Invalid or missing task ID in {}", path.display()))?;
+        let title = get("title").and_then(|v| v.as_str()).map(str::to_owned)
+            .ok_or_else(|| format!("Invalid or missing task title in {}", path.display()))?;
+        let status = match get("status") {
+            None => "todo",
+            Some(value) => value.as_str().ok_or_else(|| format!("Invalid task status in {}", path.display()))?,
+        };
+        let status = TaskStatus::parse(status)
+            .map_err(|_| format!("Invalid task status in {}", path.display()))?;
         let labels = match get("labels") {
             None => Vec::new(),
             Some(value) if value.is_null() => Vec::new(),
@@ -342,11 +363,11 @@ impl Store {
                     let mut parsed = Vec::new();
                     for item in items {
                         if let Some(label) = item.as_str() { parsed.push(label.to_owned()); }
-                        else { return Ok(None); }
+                        else { return Err(format!("Invalid task label in {}", path.display())); }
                     }
                     parsed
                 }
-                None => return Ok(None),
+                None => return Err(format!("Invalid task labels in {}", path.display())),
             },
         };
         let commits = match get("commits") {
@@ -361,14 +382,14 @@ impl Store {
                     }
                     parsed
                 }
-                None => return Ok(None),
+                None => return Err(format!("Invalid task commits in {}", path.display())),
             },
         };
         let added_at = match get("added_at") {
             None => TaskDateTime::Naive(Local::now().naive_local()),
             Some(value) => match value.as_str().and_then(|s| TaskDateTime::parse_iso(s).ok()) {
                 Some(value) => value,
-                None => return Ok(None),
+                None => return Err(format!("Invalid task added_at in {}", path.display())),
             },
         };
         Ok(Some(Task { id, title, added_at, status, labels, body: parts[2].trim().to_string(), commits }))
