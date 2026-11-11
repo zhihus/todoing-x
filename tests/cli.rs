@@ -534,6 +534,15 @@ fn body_append_and_label_operations_persist() {
 }
 
 #[test]
+fn creating_done_task_cannot_bypass_completion_gates() {
+    let dir = tempdir().unwrap();
+    let rejected = run(dir.path(), &["add", "prematurely done", "--status", "done"]);
+    assert!(!rejected.status.success());
+    assert!(String::from_utf8_lossy(&rejected.stderr).contains("link at least one Git commit"));
+    assert!(!dir.path().join(".todoing/tasks/1.md").exists());
+}
+
+#[test]
 fn task_creation_rejects_blank_required_title_without_writing_files() {
     let dir = tempdir().unwrap();
     for title in ["", "   ", "\t\n"] {
