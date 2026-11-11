@@ -128,6 +128,20 @@ fn completion_checks_every_active_change_and_ignores_archive() {
     assert!(accepted.status.success(), "{}", String::from_utf8_lossy(&accepted.stderr));
 }
 
+#[cfg(windows)]
+#[test]
+fn on_create_cmd_hook_can_reject_task_creation() {
+    let dir = tempdir().unwrap();
+    let hooks = dir.path().join(".todoing/hooks");
+    fs::create_dir_all(&hooks).unwrap();
+    fs::write(hooks.join("on-create.cmd"), "@echo off\r\nexit /b 9\r\n").unwrap();
+
+    let rejected = run(dir.path(), &["add", "guarded task"]);
+    assert!(!rejected.status.success());
+    assert!(String::from_utf8_lossy(&rejected.stderr).contains("on-create hook rejected"));
+    assert!(!dir.path().join(".todoing/tasks/1.md").exists());
+}
+
 #[cfg(unix)]
 #[test]
 fn before_done_hook_can_reject_transition_without_mutating_task() {
