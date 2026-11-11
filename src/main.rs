@@ -268,7 +268,8 @@ fn run() {
         Some(Commands::Delete(a)) => {
             let (id, task) = task_or_fail(&store, &a.id);
             if !a.force {
-                eprint!("Delete (#{}) {}? [y/N] ", id, task.title);
+                print!("Delete (#{}) {}? [y/N] ", id, task.title);
+                let _ = std::io::stdout().flush();
                 let mut answer = String::new();
                 let _ = std::io::stdin().read_line(&mut answer);
                 if !matches!(answer.trim().to_lowercase().as_str(), "y" | "yes") { println!("Aborted."); return; }
