@@ -574,6 +574,34 @@ fn body_append_and_label_operations_persist() {
 }
 
 
+
+#[test]
+fn deleting_task_preserves_other_tasks_commit_metadata() {
+    let dir = tempdir().unwrap();
+    git(dir.path(), &["init", "-q"]);
+    git(dir.path(), &["config", "user.email", "todoing-test@example.invalid"]);
+    git(dir.path(), &["config", "user.name", "Todoing Test"]);
+    fs::write(dir.path().join("tracked.txt"), "initial").unwrap();
+    git(dir.path(), &["add", "tracked.txt"]);
+    git(dir.path(), &["commit", "-m", "initial"]);
+
+    assert!(run(dir.path(), &["add", "delete me"]).status.success());
+    assert!(run(dir.path(), &["add", "keep me"]).status.success());
+    assert!(run(dir.path(), &["commit", "1", "HEAD"]).status.success());
+    assert!(run(dir.path(), &["commit", "2", "HEAD"]).status.success());
+    assert!(run(dir.path(), &["delete", "1", "--force"]).status.success());
+
+    let listed = run(dir.path(), &["ls", "--json"]);
+    assert!(listed.status.success(), "{}", String::from_utf8_lossy(&listed.stderr));
+    let tasks: Value = serde_json::from_slice(&listed.stdout).unwrap();
+    assert_eq!(tasks.as_array().unwrap().len(), 1);
+    assert_eq!(tasks[0]["id"], 2);
+    assert_eq!(tasks[0]["commits"].as_array().unwrap().len(), 1);
+
+    let markdown = fs::read_to_string(dir.path().join(".todoing/tasks/2.md")).unwrap();
+    assert!(markdown.contains("commits: ["));
+}
+
 #[test]
 fn commit_metadata_survives_body_label_and_status_mutations() {
     let dir = tempdir().unwrap();
