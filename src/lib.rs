@@ -286,10 +286,26 @@ impl Store {
     pub fn read_index(&self) -> Result<Vec<Task>, String> {
         if !self.index.exists() { return self.rebuild_index(); }
         let raw = fs::read_to_string(&self.index).map_err(|e| e.to_string())?;
-        match serde_json::from_str::<Vec<Task>>(&raw) {
-            Ok(v) if v.iter().all(|task| task.validate().is_ok()) => Ok(v),
-            _ => self.rebuild_index(),
+        let data: serde_json::Value = match serde_json::from_str(&raw) {
+            Ok(value) => value,
+            Err(_) => return self.rebuild_index(),
+        };
+        let Some(items) = data.as_array() else {
+            return self.rebuild_index();
+        };
+        if items.iter().any(|item| {
+            item.as_object().is_none_or(|object| !object.contains_key("id") || !object.contains_key("title"))
+        }) {
+            return self.rebuild_index();
         }
+        let mut tasks = Vec::with_capacity(items.len());
+        for item in items {
+            let task: Task = serde_json::from_value(item.clone())
+                .map_err(|error| format!("Invalid task in index: {}", error))?;
+            task.validate()?;
+            tasks.push(task);
+        }
+        Ok(tasks)
     }
     pub fn write_index(&self, tasks: &[Task]) -> Result<(), String> {
         self.ensure()?;
