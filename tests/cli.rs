@@ -173,6 +173,64 @@ fn negative_list_limit_is_treated_as_unlimited() {
 }
 
 #[test]
+fn scan_rebuilds_index_from_task_markdown_files() {
+    let dir = tempdir().unwrap();
+    assert!(run(dir.path(), &["add", "indexed task"]).status.success());
+    fs::write(
+        dir.path().join(".todoing/tasks/2.md"),
+        "---\\nadded_at: '2026-05-01T10:00:00'\\nid: 2\\nlabels: []\\nstatus: todo\\ntitle: scanned task\\n---\\n",
+    ).unwrap();
+
+    let before = run(dir.path(), &["ls"]);
+    assert!(!String::from_utf8_lossy(&before.stdout).contains("scanned task"));
+
+    let scanned = run(dir.path(), &["ls", "--scan"]);
+    assert!(scanned.status.success());
+    let output = String::from_utf8_lossy(&scanned.stdout);
+    assert!(output.contains("scanned task"));
+    assert!(output.contains("indexed task"));
+}
+
+#[test]
+fn query_searches_body_labels_and_status() {
+    let dir = tempdir().unwrap();
+    assert!(run(dir.path(), &["add", "alpha", "-b", "needle in body"]).status.success());
+    assert!(run(dir.path(), &["add", "beta", "-l", "special-label"]).status.success());
+    assert!(run(dir.path(), &["add", "gamma", "-s", "in_progress"]).status.success());
+
+    for query in ["needle", "special-label", "in_progress"] {
+        let result = run(dir.path(), &["ls", "-q", query]);
+        assert!(result.status.success());
+        assert_eq!(String::from_utf8_lossy(&result.stdout).lines().count(), 1, "query: {query}");
+    }
+}
+
+#[test]
+fn combined_query_and_label_filters_use_and_semantics() {
+    let dir = tempdir().unwrap();
+    assert!(run(dir.path(), &["add", "auth bug", "-l", "bug", "-s", "in_progress"]).status.success());
+    assert!(run(dir.path(), &["add", "ui bug", "-l", "bug"]).status.success());
+    let result = run(dir.path(), &["ls", "-q", "auth", "-l", "bug"]);
+    let output = String::from_utf8_lossy(&result.stdout);
+    assert!(result.status.success());
+    assert!(output.contains("auth bug"));
+    assert!(!output.contains("ui bug"));
+}
+
+#[test]
+fn add_with_body_and_labels_is_readable() {
+    let dir = tempdir().unwrap();
+    let added = run(dir.path(), &["add", "documented", "-l", "urgent", "-l", "p0", "-b", "details"]);
+    assert!(added.status.success());
+    assert!(String::from_utf8_lossy(&added.stdout).contains("(#1) documented"));
+
+    let shown = run(dir.path(), &["see", "1"]);
+    let output = String::from_utf8_lossy(&shown.stdout);
+    assert!(output.contains("details"));
+    assert!(output.contains("labels: [urgent, p0]"));
+}
+
+#[test]
 fn body_append_and_label_operations_persist() {
     let dir = tempdir().unwrap();
     assert!(run(dir.path(), &["add", "mutable", "-l", "old", "-b", "line one"]).status.success());
