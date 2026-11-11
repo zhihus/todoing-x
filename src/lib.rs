@@ -180,7 +180,7 @@ fn parse_decimal_digits(value: &str) -> Option<i64> {
     if value.is_empty() { return None; }
     for c in value.chars() {
         let code = c as u32;
-        let digit = ZEROES.iter().flat_map(|zero| [*zero, *zero + 10, *zero + 20, *zero + 30, *zero + 40].into_iter()).find_map(|zero| {
+        let digit = ZEROES.iter().flat_map(|zero| if *zero == 0x1D7CE { vec![*zero, *zero + 10, *zero + 20, *zero + 30, *zero + 40] } else { vec![*zero] }).find_map(|zero| {
             let n = code.checked_sub(*zero)?;
             (n < 10).then_some(n as i64)
         })?;
