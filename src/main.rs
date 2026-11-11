@@ -47,7 +47,7 @@ struct AddArgs {
 #[derive(Args)]
 struct ListArgs {
     #[arg(short='n', long="limit", default_value_t=0)]
-    limit: usize,
+    limit: i64,
     #[arg(short='s', long="status")]
     status: Option<String>,
     #[arg(short='l', long="label")]
