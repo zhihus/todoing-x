@@ -175,21 +175,7 @@ impl From<NaiveDateTime> for TaskDateTime {
 }
 
 fn parse_python_json_integer(value: &str) -> Option<i64> {
-    let value = value.trim();
-    let digits = value.strip_prefix(['+', '-']).unwrap_or(value);
-    let chars: Vec<char> = digits.chars().collect();
-    if chars.is_empty() { return None; }
-    for (index, ch) in chars.iter().enumerate() {
-        if *ch == '_' {
-            if index == 0 || index + 1 == chars.len()
-                || !chars[index - 1].is_ascii_digit()
-                || !chars[index + 1].is_ascii_digit()
-            { return None; }
-        } else if !ch.is_ascii_digit() {
-            return None;
-        }
-    }
-    value.replace('_', "").parse::<i64>().ok()
+    parse_python_integer_string(value)
 }
 
 fn deserialize_python_int<'de, D>(deserializer: D) -> Result<i64, D::Error>
@@ -205,10 +191,10 @@ where D: Deserializer<'de> {
             i64::try_from(value).map_err(E::custom)
         }
         fn visit_f64<E>(self, value: f64) -> Result<i64, E> where E: de::Error {
-            if value.is_finite() && value.fract() == 0.0 && value >= i64::MIN as f64 && value < -(i64::MIN as f64) {
-                Ok(value as i64)
+            if value.is_finite() && value >= i64::MIN as f64 && value < -(i64::MIN as f64) {
+                Ok(value.trunc() as i64)
             } else {
-                Err(E::custom("float must be a finite whole number within the i64 range"))
+                Err(E::custom("float must be finite and within the i64 range"))
             }
         }
         fn visit_str<E>(self, value: &str) -> Result<i64, E> where E: de::Error {
@@ -727,6 +713,8 @@ mod tests {
             (r#"[{"id":"12","title":"task"}]"#, 12),
             (r#"[{"id":"1_000","title":"task"}]"#, 1000),
             (r#"[{"id":12.0,"title":"task"}]"#, 12),
+            (r#"[{"id":12.9,"title":"task"}]"#, 12),
+            (r#"[{"id":"١٢","title":"task"}]"#, 12),
             (r#"[{"id":true,"title":"task"}]"#, 1),
         ] {
             fs::write(&store.index, raw).unwrap();
@@ -734,8 +722,6 @@ mod tests {
             assert_eq!(tasks[0].id, expected, "input: {raw}");
         }
         for raw in [
-            r#"[{"id":12.5,"title":"task"}]"#,
-            r#"[{"id":"١٢","title":"task"}]"#,
             r#"[{"id":null,"title":"task"}]"#,
         ] {
             fs::write(&store.index, raw).unwrap();
