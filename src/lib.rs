@@ -356,6 +356,18 @@ mod tests {
     }
 
     #[test]
+    fn reads_unquoted_python_yaml_timestamp() {
+        let dir = tempdir().unwrap();
+        let store = Store::new(dir.path());
+        store.ensure().unwrap();
+        let fixture = "---\nadded_at: 2026-05-01T17:15:52.337350\nid: 2\nlabels: []\nstatus: todo\ntitle: timestamp\n---\n";
+        fs::write(store.task_path(2), fixture).unwrap();
+
+        let task = store.read_task(2).unwrap().unwrap();
+        assert_eq!(task.added_at.isoformat(), "2026-05-01T17:15:52.337350");
+    }
+
+    #[test]
     fn reads_task_file_written_by_original_python_version() {
         let dir = tempdir().unwrap();
         let store = Store::new(dir.path());
