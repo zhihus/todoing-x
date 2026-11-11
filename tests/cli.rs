@@ -96,6 +96,31 @@ fn json_interface_covers_remaining_commands() {
     assert!(version["version"].is_string());
 }
 
+#[cfg(unix)]
+#[test]
+fn edit_json_returns_updated_task_after_editor_and_reindex() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = tempdir().unwrap();
+    assert!(run(dir.path(), &["add", "editable"]).status.success());
+    let editor = dir.path().join("fake-editor.sh");
+    fs::write(&editor, "#!/bin/sh\\nexit 0\\n").unwrap();
+    let mut permissions = fs::metadata(&editor).unwrap().permissions();
+    permissions.set_mode(0o755);
+    fs::set_permissions(&editor, permissions).unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_todoing"))
+        .current_dir(dir.path())
+        .env("EDITOR", &editor)
+        .args(["edit", "1", "--json"])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    let task: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(task["id"], 1);
+    assert_eq!(task["title"], "editable");
+}
+
 #[test]
 fn completion_requires_git_commit_and_all_active_openspec_tasks() {
     let dir = tempdir().unwrap();
