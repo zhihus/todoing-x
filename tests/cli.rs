@@ -77,6 +77,39 @@ fn completion_requires_git_commit_and_all_active_openspec_tasks() {
 
 #[cfg(unix)]
 #[test]
+fn before_done_hook_can_reject_transition_without_mutating_task() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = tempdir().unwrap();
+    git(dir.path(), &["init", "-q"]);
+    git(dir.path(), &["config", "user.email", "todoing-test@example.invalid"]);
+    git(dir.path(), &["config", "user.name", "Todoing Test"]);
+    fs::write(dir.path().join("tracked.txt"), "initial").unwrap();
+    git(dir.path(), &["add", "tracked.txt"]);
+    git(dir.path(), &["commit", "-m", "initial"]);
+
+    assert!(run(dir.path(), &["add", "guarded task", "-s", "in_progress"]).status.success());
+    assert!(run(dir.path(), &["commit", "1", "HEAD"]).status.success());
+
+    let hooks = dir.path().join(".todoing/hooks");
+    fs::create_dir_all(&hooks).unwrap();
+    let hook = hooks.join("before-done");
+    fs::write(&hook, "#!/bin/sh\ncat >/dev/null\nexit 9\n").unwrap();
+    let mut permissions = fs::metadata(&hook).unwrap().permissions();
+    permissions.set_mode(0o755);
+    fs::set_permissions(&hook, permissions).unwrap();
+
+    let rejected = run(dir.path(), &["status", "1", "done"]);
+    assert!(!rejected.status.success());
+    assert!(String::from_utf8_lossy(&rejected.stderr).contains("before-done hook rejected"));
+
+    let shown = run(dir.path(), &["see", "1", "--json"]);
+    let task: Value = serde_json::from_slice(&shown.stdout).unwrap();
+    assert_eq!(task["status"], "in_progress");
+}
+
+#[cfg(unix)]
+#[test]
 fn on_create_hook_can_reject_task_creation() {
     use std::os::unix::fs::PermissionsExt;
 
