@@ -283,6 +283,17 @@ fn invalid_status_and_identifier_are_rejected() {
 }
 
 #[test]
+fn delete_confirmation_treats_eof_as_abort_error() {
+    let dir = tempdir().unwrap();
+    assert!(run(dir.path(), &["add", "keep me"]).status.success());
+
+    let output = run_with_input(dir.path(), &["delete", "1"], "");
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("Aborted!"));
+    assert!(String::from_utf8_lossy(&run(dir.path(), &["ls"]).stdout).contains("keep me"));
+}
+
+#[test]
 fn delete_confirmation_preserves_or_removes_task() {
     let dir = tempdir().unwrap();
     assert!(run(dir.path(), &["add", "keep me"]).status.success());
