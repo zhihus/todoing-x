@@ -711,7 +711,7 @@ mod tests {
         store.ensure().unwrap();
         fs::write(
             store.task_path(1),
-            "---\\nadded_at: 1700000000\\nid: 1\\ntitle: timestamp\\nstatus: todo\\nlabels: []\\n---\\n",
+            "---\nadded_at: 1700000000\nid: 1\ntitle: timestamp\nstatus: todo\nlabels: []\n---\n",
         ).unwrap();
 
         let task = store.read_task(1).unwrap().unwrap();
