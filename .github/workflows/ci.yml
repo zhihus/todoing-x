@@ -7,7 +7,11 @@ on:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -17,6 +21,12 @@ jobs:
       - name: Install binary into isolated directory
         run: cargo install --path . --root target/install-check
       - name: Smoke-test installed binary
+        shell: bash
         run: |
-          target/install-check/bin/todoing --help
-          target/install-check/bin/todoing version
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            target/install-check/bin/todoing.exe --help
+            target/install-check/bin/todoing.exe version
+          else
+            target/install-check/bin/todoing --help
+            target/install-check/bin/todoing version
+          fi
