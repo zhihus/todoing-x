@@ -151,6 +151,17 @@ fn body_append_and_label_operations_persist() {
 }
 
 #[test]
+fn task_creation_rejects_blank_required_title_without_writing_files() {
+    let dir = tempdir().unwrap();
+    for title in ["", "   ", "\\t\\n"] {
+        let rejected = run(dir.path(), &["add", title]);
+        assert!(!rejected.status.success());
+        assert!(String::from_utf8_lossy(&rejected.stderr).contains("Task title cannot be empty"));
+    }
+    assert!(!dir.path().join(".todoing/tasks/1.md").exists());
+}
+
+#[test]
 fn invalid_status_and_identifier_are_rejected() {
     let dir = tempdir().unwrap();
     let bad_status = run(dir.path(), &["add", "invalid", "-s", "blocked"]);
