@@ -243,10 +243,10 @@ impl Task {
         Self { id, title, added_at: TaskDateTime::Naive(added_at), status, labels, body, commits: Vec::new() }
     }
     pub fn validate_for_creation(&self) -> Result<(), String> {
-        if self.title.trim().is_empty() {
+        if python_strip(&self.title).is_empty() {
             return Err("Task title cannot be empty".into());
         }
-        if self.labels.iter().any(|label| label.trim().is_empty()) {
+        if self.labels.iter().any(|label| python_strip(label).is_empty()) {
             return Err("Task labels cannot be empty".into());
         }
         Ok(())
@@ -269,10 +269,14 @@ impl Task {
         let commits = if self.commits.is_empty() { String::new() } else { format!("commits: [{}]\n", self.commits.iter().map(|s| yaml_scalar(s)).collect::<Vec<_>>().join(", ")) };
         let mut out = format!("---\nadded_at: '{}'\n{}id: {}\nlabels: [{}]\n", dt, commits, self.id, labels);
         out.push_str(&format!("status: {}\ntitle: {}\n---\n", self.status.as_str(), yaml_scalar(&self.title)));
-        let body = self.body.trim();
+        let body = python_strip(&self.body);
         if !body.is_empty() { out.push_str("\n"); out.push_str(body); out.push('\n'); }
         out
     }
+}
+
+fn python_strip(value: &str) -> &str {
+    value.trim_matches(|c: char| c.is_whitespace() || ('\\u{001c}'..='\\u{001f}').contains(&c))
 }
 
 fn yaml11_numeric(s: &str) -> bool {
@@ -1083,6 +1087,20 @@ mod tests {
 
         let offset = TaskDateTime::parse_iso("2026-05-01 17:15:52+03:00").unwrap();
         assert_eq!(offset.isoformat(), "2026-05-01T17:15:52+03:00");
+    }
+
+    #[test]
+    fn body_trimming_matches_python_str_strip_control_whitespace() {
+        let mut value = task(88, "control whitespace");
+        value.body = "\\u{001c}body\\u{001f}".to_string();
+        assert!(value.format_see().ends_with("\\n\\nbody\\n"));
+
+        let dir = tempdir().unwrap();
+        let store = Store::new(dir.path());
+        store.ensure().unwrap();
+        fs::write(store.task_path(88), "---\\nid: 88\\ntitle: body\\nstatus: todo\\n---\\n\\u{001c}body\\u{001f}").unwrap();
+        let restored = store.read_task(88).unwrap().unwrap();
+        assert_eq!(restored.body, "body");
     }
 
     #[test]
