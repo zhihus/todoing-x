@@ -268,8 +268,13 @@ fn run() {
         Some(Commands::Delete(a)) => {
             let (id, task) = task_or_fail(&store, &a.id);
             if !a.force {
-                print!("Delete (#{}) {}? [y/N]: ", id, task.title);
-                let _ = std::io::stdout().flush();
+                if json {
+                    eprint!("Delete (#{}) {}? [y/N]: ", id, task.title);
+                    let _ = std::io::stderr().flush();
+                } else {
+                    print!("Delete (#{}) {}? [y/N]: ", id, task.title);
+                    let _ = std::io::stdout().flush();
+                }
                 let mut answer = String::new();
                 let bytes_read = std::io::stdin().read_line(&mut answer).unwrap_or_else(|_| {
                     eprintln!("Aborted!");
@@ -279,7 +284,11 @@ fn run() {
                     eprintln!("Aborted!");
                     std::process::exit(1);
                 }
-                if !matches!(answer.trim().to_lowercase().as_str(), "y" | "yes") { println!("Aborted."); return; }
+                if !matches!(answer.trim().to_lowercase().as_str(), "y" | "yes") {
+                    if json { emit_json(&serde_json::json!({"id": id, "deleted": false})); }
+                    else { println!("Aborted."); }
+                    return;
+                }
             }
             store.delete_task_file(id).unwrap_or_else(|e| fail(e));
             store.sync_delete(id).unwrap_or_else(|e| fail(e));
