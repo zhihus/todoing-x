@@ -594,7 +594,7 @@ fn commit_metadata_survives_body_label_and_status_mutations() {
     let shown = run(dir.path(), &["see", "1", "--json"]);
     assert!(shown.status.success(), "{}", String::from_utf8_lossy(&shown.stderr));
     let task: Value = serde_json::from_slice(&shown.stdout).unwrap();
-    assert_eq!(task["body"], "replacement body\\n\\nappended body");
+    assert_eq!(task["body"], "replacement body\n\nappended body");
     assert_eq!(task["labels"], serde_json::json!(["verified"]));
     assert_eq!(task["status"], "in_progress");
     assert_eq!(task["commits"].as_array().unwrap().len(), 1);
