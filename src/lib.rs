@@ -73,12 +73,9 @@ impl Task {
 }
 
 fn yaml_scalar(s: &str) -> String {
-    if s.is_empty() { return "''".into(); }
-    if s.chars().any(|c| matches!(c, '\n' | '\r' | ':' | '#' | '[' | ']' | '{' | '}' | ',' | '&' | '*' | '!' | '|' | '>' | '\\'' | '"' | '%' | '@' | '`'))
-        || s.trim() != s || matches!(s.to_lowercase().as_str(), "null" | "true" | "false" | "yes" | "no" | "on" | "off")
-    {
-        format!("'{}'", s.replace('\'', "''"))
-    } else { s.to_string() }
+    serde_yaml::to_string(s)
+        .map(|yaml| yaml.trim_end().to_string())
+        .unwrap_or_else(|_| format!("{:?}", s))
 }
 
 fn atomic_write(path: &Path, content: &[u8]) -> Result<(), String> {
@@ -126,6 +123,9 @@ impl Store {
     }
     pub fn resolve_id(raw: &str) -> Result<i64, String> {
         let value = raw.trim().trim_start_matches('#');
+        if value.is_empty() || !value.chars().all(|c| c.is_ascii_digit()) {
+            return Err(format!("Invalid task ID: {}", value));
+        }
         let id = value.parse::<i64>().map_err(|_| format!("Invalid task ID: {}", value))?;
         if id <= 0 { return Err(format!("Invalid task ID: {}", value)); }
         Ok(id)
@@ -269,6 +269,16 @@ mod tests {
     #[test]
     fn list_format_matches_reference() {
         assert_eq!(task(5, "write docs").format_list(), "(#5) [p1] {⏳} write docs");
+    }
+
+    #[test]
+    fn yaml_scalar_preserves_numeric_and_special_titles_as_strings() {
+        let dir = tempdir().unwrap();
+        let store = Store::new(dir.path());
+        let original = task(12, "123");
+        store.write_task(&original).unwrap();
+        let restored = store.read_task(12).unwrap().unwrap();
+        assert_eq!(restored.title, "123");
     }
 
     #[test]
