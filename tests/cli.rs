@@ -177,6 +177,31 @@ fn completion_requires_git_commit_and_all_active_openspec_tasks() {
 }
 
 #[test]
+fn commit_rejects_tree_object_without_mutating_task() {
+    let dir = tempdir().unwrap();
+    git(dir.path(), &["init", "-q"]);
+    git(dir.path(), &["config", "user.email", "todoing-test@example.invalid"]);
+    git(dir.path(), &["config", "user.name", "Todoing Test"]);
+    fs::write(dir.path().join("tracked.txt"), "initial").unwrap();
+    git(dir.path(), &["add", "tracked.txt"]);
+    git(dir.path(), &["commit", "-m", "initial"]);
+
+    assert!(run(dir.path(), &["add", "commit validation"]).status.success());
+    let tree = Command::new("git").current_dir(dir.path()).args(["rev-parse", "HEAD^{tree}"])
+        .output().unwrap();
+    assert!(tree.status.success());
+    let tree_sha = String::from_utf8(tree.stdout).unwrap().trim().to_string();
+
+    let rejected = run(dir.path(), &["commit", "1", &tree_sha]);
+    assert!(!rejected.status.success());
+    assert!(String::from_utf8_lossy(&rejected.stderr).contains("not a valid Git commit"));
+
+    let shown = run(dir.path(), &["see", "1", "--json"]);
+    let task: Value = serde_json::from_slice(&shown.stdout).unwrap();
+    assert!(task.get("commits").is_none() || task["commits"].as_array().unwrap().is_empty());
+}
+
+#[test]
 fn completion_rejects_unavailable_linked_commit_without_git_noise() {
     let dir = tempdir().unwrap();
     git(dir.path(), &["init", "-q"]);
