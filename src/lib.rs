@@ -36,13 +36,15 @@ pub struct Task {
     pub status: TaskStatus,
     pub labels: Vec<String>,
     pub body: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub commits: Vec<String>,
 }
 
 impl Task {
     pub fn new(id: i64, title: String, status: TaskStatus, labels: Vec<String>, body: String) -> Self {
         let mut seen = HashSet::new();
         let labels = labels.into_iter().filter(|s| seen.insert(s.clone())).collect();
-        Self { id, title, added_at: Local::now().naive_local(), status, labels, body }
+        Self { id, title, added_at: Local::now().naive_local(), status, labels, body, commits: Vec::new() }
     }
     pub fn format_list(&self) -> String {
         format!("(#{}) [{}] {{{}}} {}", self.id, self.labels.join(","), self.status.icon(), self.title)
@@ -53,7 +55,8 @@ impl Task {
         let micros = self.added_at.and_utc().timestamp_subsec_micros();
         let dt = if micros == 0 { base } else { format!("{}.{:06}", base, micros) };
         let labels = self.labels.iter().map(|s| yaml_scalar(s)).collect::<Vec<_>>().join(", ");
-        let mut out = format!("---\nadded_at: '{}'\nid: {}\nlabels: [{}]\n", dt, self.id, labels);
+        let commits = if self.commits.is_empty() { String::new() } else { format!("commits: [{}]\n", self.commits.iter().map(|s| yaml_scalar(s)).collect::<Vec<_>>().join(", ")) };
+        let mut out = format!("---\nadded_at: '{}'\n{}id: {}\nlabels: [{}]\n", dt, commits, self.id, labels);
         out.push_str(&format!("status: {}\ntitle: {}\n---\n", self.status.as_str(), yaml_scalar(&self.title)));
         let body = self.body.trim();
         if !body.is_empty() { out.push_str("\n"); out.push_str(body); out.push('\n'); }
@@ -192,10 +195,11 @@ impl Store {
         let status = get("status").and_then(|v| v.as_str()).unwrap_or("todo");
         let status = match TaskStatus::parse(status) { Ok(s) => s, Err(_) => return Ok(None) };
         let labels = get("labels").and_then(|v| v.as_sequence()).map(|xs| xs.iter().filter_map(|x| x.as_str().map(str::to_owned)).collect()).unwrap_or_default();
+        let commits = get("commits").and_then(|v| v.as_sequence()).map(|xs| xs.iter().filter_map(|x| x.as_str().map(str::to_owned)).collect()).unwrap_or_default();
         let added_at = get("added_at").and_then(|v| v.as_str())
             .and_then(|s| NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S%.f").ok())
             .unwrap_or_else(|| Local::now().naive_local());
-        Ok(Some(Task { id, title, added_at, status, labels, body: parts[2].trim().to_string() }))
+        Ok(Some(Task { id, title, added_at, status, labels, body: parts[2].trim().to_string(), commits }))
     }
 }
 
@@ -207,7 +211,7 @@ mod tests {
 
     fn task(id: i64, title: &str) -> Task {
         Task {
-            id, title: title.into(),
+            id, title: title.into(), commits: Vec::new(),
             added_at: NaiveDateTime::parse_from_str("2026-05-01T10:00:00", "%Y-%m-%dT%H:%M:%S").unwrap(),
             status: TaskStatus::Todo, labels: vec!["p1".into()], body: "details".into(),
         }
