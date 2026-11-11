@@ -304,7 +304,12 @@ impl Store {
             .filter(|p| p.extension().and_then(|x| x.to_str()) == Some("md")).collect();
         paths.sort_by_key(|p| p.file_stem().and_then(|s| s.to_str()).and_then(|s| parse_decimal_digits(s)).unwrap_or(0));
         let mut tasks = Vec::new();
-        for p in paths { if let Ok(Some(t)) = self.parse_task_file(&p) { tasks.push(t); } }
+        for p in paths {
+            match self.parse_task_file(&p)? {
+                Some(task) => tasks.push(task),
+                None => {}
+            }
+        }
         self.write_index(&tasks)?; Ok(tasks)
     }
     pub fn sync_mutation(&self, task: &Task) -> Result<(), String> {
