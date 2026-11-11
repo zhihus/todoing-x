@@ -449,7 +449,7 @@ mod tests {
         let dir = tempdir().unwrap();
         let store = Store::new(dir.path());
         store.ensure().unwrap();
-        fs::write(store.task_path(1), "---\\nid: 1\\nstatus: todo\\n---\\n").unwrap();
+        fs::write(store.task_path(1), "---\nid: 1\nstatus: todo\n---\n").unwrap();
         assert!(store.rebuild_index().is_err());
     }
 
@@ -458,7 +458,7 @@ mod tests {
         let dir = tempdir().unwrap();
         let store = Store::new(dir.path());
         store.ensure().unwrap();
-        fs::write(store.task_path(1), "---\\nid: 1\\ntitle: task\\nstatus: null\\n---\\n").unwrap();
+        fs::write(store.task_path(1), "---\nid: 1\ntitle: task\nstatus: null\n---\n").unwrap();
         assert!(store.read_task(1).is_err());
     }
 
