@@ -60,7 +60,7 @@ impl Task {
         format!("(#{}) [{}] {{{}}} {}", self.id, self.labels.join(","), self.status.icon(), self.title)
     }
     pub fn format_see(&self) -> String {
-        // Match PyYAML's sorted frontmatter key order and block-list representation.
+        // Match PyYAML's sorted frontmatter key order and inline scalar-list representation.
         let base = self.added_at.format("%Y-%m-%dT%H:%M:%S").to_string();
         let micros = self.added_at.and_utc().timestamp_subsec_micros();
         let dt = if micros == 0 { base } else { format!("{}.{:06}", base, micros) };
@@ -213,6 +213,7 @@ impl Store {
         let status = match TaskStatus::parse(status) { Ok(s) => s, Err(_) => return Ok(None) };
         let labels = match get("labels") {
             None => Vec::new(),
+            Some(value) if value.is_null() => Vec::new(),
             Some(value) => match value.as_sequence() {
                 Some(items) => {
                     let mut parsed = Vec::new();
@@ -227,6 +228,7 @@ impl Store {
         };
         let commits = match get("commits") {
             None => Vec::new(),
+            Some(value) if value.is_null() => Vec::new(),
             Some(value) => match value.as_sequence() {
                 Some(items) => {
                     let mut parsed = Vec::new();
