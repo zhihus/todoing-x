@@ -49,15 +49,9 @@ impl Task {
     pub fn format_see(&self) -> String {
         // Match PyYAML's sorted frontmatter key order and block-list representation.
         let dt = self.added_at.format("%Y-%m-%dT%H:%M:%S").to_string();
-        let mut out = format!("---\nadded_at: '{}'\nid: {}\nlabels:", dt, self.id);
-        if self.labels.is_empty() { out.push_str(" []\n"); }
-        else {
-            out.push('\n');
-            for label in &self.labels {
-                out.push_str(&format!("- {}\n", yaml_scalar(label)));
-            }
-        }
-        out.push_str(&format!("status: {}\ntitle: {}\n---\n", self.status.as_str(), yaml_scalar(&self.title)));
+        let labels = self.labels.iter().map(|s| yaml_scalar(s)).collect::<Vec<_>>().join(", ");
+        let mut out = format!("---\\nadded_at: '{}'\\nid: {}\\nlabels: [{}]\\n", dt, self.id, labels);
+        out.push_str(&format!("status: {}\\ntitle: {}\\n---\\n", self.status.as_str(), yaml_scalar(&self.title)));
         let body = self.body.trim();
         if !body.is_empty() { out.push_str("\n"); out.push_str(body); out.push('\n'); }
         out
