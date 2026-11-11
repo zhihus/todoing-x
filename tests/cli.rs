@@ -659,10 +659,17 @@ fn legacy_cli_preserves_missing_task_errors_and_version_output() {
 #[test]
 fn legacy_cli_accepts_every_original_status_value() {
     let dir = tempdir().unwrap();
+    git(dir.path(), &["init", "-q"]);
+    git(dir.path(), &["config", "user.email", "todoing-test@example.invalid"]);
+    git(dir.path(), &["config", "user.name", "Todoing Test"]);
+    fs::write(dir.path().join("tracked.txt"), "initial").unwrap();
+    git(dir.path(), &["add", "tracked.txt"]);
+    git(dir.path(), &["commit", "-m", "initial"]);
+
     let added = run(dir.path(), &["add", "status compatibility"]);
     assert!(added.status.success());
 
-    for status in ["todo", "in_progress", "done", "cancelled"] {
+    for status in ["todo", "in_progress", "cancelled"] {
         let changed = run(dir.path(), &["status", "1", status]);
         assert!(
             changed.status.success(),
@@ -671,8 +678,13 @@ fn legacy_cli_accepts_every_original_status_value() {
         );
     }
 
+    let linked = run(dir.path(), &["commit", "1", "HEAD"]);
+    assert!(linked.status.success(), "{}", String::from_utf8_lossy(&linked.stderr));
+    let done = run(dir.path(), &["status", "1", "done"]);
+    assert!(done.status.success(), "{}", String::from_utf8_lossy(&done.stderr));
+
     let shown = run(dir.path(), &["see", "1", "--json"]);
     assert!(shown.status.success());
     let task: Value = serde_json::from_slice(&shown.stdout).unwrap();
-    assert_eq!(task["status"], "cancelled");
+    assert_eq!(task["status"], "done");
 }
