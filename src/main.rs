@@ -238,10 +238,10 @@ fn run() {
             let (_, mut task) = task_or_fail(&store, &a.id);
             let mut current = if a.clear && !a.no_clear { Vec::new() } else { task.labels.clone() };
             let mut adds = Vec::new();
-            let mut removes = Vec::new();
+            let mut removes = std::collections::HashSet::new();
             for op in a.ops {
                 if let Some(v) = op.strip_prefix('+') { adds.push(v.to_string()); }
-                else if let Some(v) = op.strip_prefix('-') { removes.push(v.to_string()); }
+                else if let Some(v) = op.strip_prefix('-') { removes.insert(v.to_string()); }
                 else { fail(format!("Invalid label operation '{}'. Use +label to add or -label to remove.", op)); }
             }
             for r in removes { if let Some(pos) = current.iter().position(|x| x == &r) { current.remove(pos); } }
