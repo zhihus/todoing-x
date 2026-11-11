@@ -813,7 +813,7 @@ mod tests {
         let dir = tempdir().unwrap();
         let store = Store::new(dir.path());
         store.ensure().unwrap();
-        let fixture = "---\\nadded_at: '2026-05-01T17:15:52.337350'\\nid: 2\\nlabels: [enhancement]\\nstatus: done\\ntitle: 'skill: package for distribution'\\n---\\n\\nCreate a proper packaging story — pypi, uv tool install, or similar.\\n";
+        let fixture = "---\nadded_at: '2026-05-01T17:15:52.337350'\nid: 2\nlabels: [enhancement]\nstatus: done\ntitle: 'skill: package for distribution'\n---\n\nCreate a proper packaging story — pypi, uv tool install, or similar.\n";
         fs::write(store.task_path(2), fixture).unwrap();
 
         let original = store.read_task(2).unwrap().unwrap();
@@ -827,7 +827,7 @@ mod tests {
 
         let mut changed = rewritten;
         changed.status = TaskStatus::InProgress;
-        changed.body.push_str("\\n\\nImplementation verified.");
+        changed.body.push_str("\n\nImplementation verified.");
         store.write_task(&changed).unwrap();
         assert_eq!(store.read_task(2).unwrap().unwrap(), changed);
     }
@@ -837,7 +837,7 @@ mod tests {
         let dir = tempdir().unwrap();
         let store = Store::new(dir.path());
         store.ensure().unwrap();
-        let fixture = "---\\nadded_at: '2026-05-01T17:15:52.478460'\\nid: 3\\nlabels: [enhancement]\\nstatus: todo\\ntitle: 'skill: shell completion'\\n---\\n";
+        let fixture = "---\nadded_at: '2026-05-01T17:15:52.478460'\nid: 3\nlabels: [enhancement]\nstatus: todo\ntitle: 'skill: shell completion'\n---\n";
         fs::write(store.task_path(3), fixture).unwrap();
 
         let original = store.read_task(3).unwrap().unwrap();
@@ -852,7 +852,7 @@ mod tests {
         let dir = tempdir().unwrap();
         let store = Store::new(dir.path());
         store.ensure().unwrap();
-        let fixture = "---\\nadded_at: '2026-05-01T17:59:21.359817'\\nid: 5\\nlabels: []\\nstatus: done\\ntitle: implement version subcommand\\n---\\n\\nAdd a version subcommand that prints the current package version from pyproject.toml.\\n";
+        let fixture = "---\nadded_at: '2026-05-01T17:59:21.359817'\nid: 5\nlabels: []\nstatus: done\ntitle: implement version subcommand\n---\n\nAdd a version subcommand that prints the current package version from pyproject.toml.\n";
         fs::write(store.task_path(5), fixture).unwrap();
 
         let original = store.read_task(5).unwrap().unwrap();
