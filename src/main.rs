@@ -268,7 +268,7 @@ fn run() {
         Some(Commands::Delete(a)) => {
             let (id, task) = task_or_fail(&store, &a.id);
             if !a.force {
-                print!("Delete (#{}) {}? [y/N] ", id, task.title);
+                print!("Delete (#{}) {}? [y/N]: ", id, task.title);
                 let _ = std::io::stdout().flush();
                 let mut answer = String::new();
                 let bytes_read = std::io::stdin().read_line(&mut answer).unwrap_or_else(|_| {
