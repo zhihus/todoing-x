@@ -37,13 +37,18 @@ pub enum TaskDateTime {
 
 impl TaskDateTime {
     pub fn parse_iso(value: &str) -> Result<Self, String> {
-        if let Ok(value) = NaiveDateTime::parse_from_str(value, "%Y-%m-%dT%H:%M:%S%.f") {
+        let normalized = if value.as_bytes().get(10) == Some(&b' ') {
+            format!("{}T{}", &value[..10], &value[11..])
+        } else {
+            value.to_string()
+        };
+        if let Ok(value) = NaiveDateTime::parse_from_str(&normalized, "%Y-%m-%dT%H:%M:%S%.f") {
             return Ok(Self::Naive(value));
         }
-        if let Ok(value) = NaiveDateTime::parse_from_str(value, "%Y-%m-%dT%H:%M:%S") {
+        if let Ok(value) = NaiveDateTime::parse_from_str(&normalized, "%Y-%m-%dT%H:%M:%S") {
             return Ok(Self::Naive(value));
         }
-        DateTime::parse_from_rfc3339(value)
+        DateTime::parse_from_rfc3339(&normalized)
             .map(Self::Offset)
             .map_err(|e| e.to_string())
     }
@@ -404,6 +409,15 @@ mod tests {
     fn naive_added_at_remains_without_timezone_suffix() {
         let value = TaskDateTime::parse_iso("2026-05-01T17:15:52.337350").unwrap();
         assert_eq!(value.isoformat(), "2026-05-01T17:15:52.337350");
+    }
+
+    #[test]
+    fn python_space_separated_iso_datetime_is_accepted() {
+        let naive = TaskDateTime::parse_iso("2026-05-01 17:15:52.337350").unwrap();
+        assert_eq!(naive.isoformat(), "2026-05-01T17:15:52.337350");
+
+        let offset = TaskDateTime::parse_iso("2026-05-01 17:15:52+03:00").unwrap();
+        assert_eq!(offset.isoformat(), "2026-05-01T17:15:52+03:00");
     }
 
     #[test]
