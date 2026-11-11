@@ -119,6 +119,10 @@ fn status_arguments_are_case_insensitive_like_python() {
 
     let changed = run(dir.path(), &["status", "1", "CANCELLED"]);
     assert!(changed.status.success(), "{}", String::from_utf8_lossy(&changed.stderr));
+    let filtered = run(dir.path(), &["ls", "--status", "CANCELLED", "--json"]);
+    assert!(filtered.status.success(), "{}", String::from_utf8_lossy(&filtered.stderr));
+    let filtered_tasks: Value = serde_json::from_slice(&filtered.stdout).unwrap();
+    assert_eq!(filtered_tasks.as_array().unwrap().len(), 1);
     let shown = run(dir.path(), &["see", "1", "--json"]);
     let task: Value = serde_json::from_slice(&shown.stdout).unwrap();
     assert_eq!(task["status"], "cancelled");
