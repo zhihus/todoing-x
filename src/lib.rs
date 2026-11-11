@@ -80,7 +80,7 @@ impl TaskDateTime {
     }
 
     pub fn parse_iso(value: &str) -> Result<Self, String> {
-        let normalized = if value.as_bytes().get(10) == Some(&b' ') {
+        let normalized = if matches!(value.as_bytes().get(10), Some(b' ') | Some(b't') | Some(b'T')) {
             format!("{}T{}", &value[..10], &value[11..])
         } else {
             value.to_string()
@@ -918,6 +918,12 @@ mod tests {
     fn python_comma_fractional_seconds_are_accepted() {
         let parsed = TaskDateTime::parse_iso("2026-05-01T17:15:52,123456+0300").unwrap();
         assert_eq!(parsed.isoformat(), "2026-05-01T17:15:52.123456+03:00");
+    }
+
+    #[test]
+    fn python_lowercase_t_datetime_separator_is_accepted() {
+        let parsed = TaskDateTime::parse_iso("2026-05-01t17:15:52").unwrap();
+        assert_eq!(parsed.isoformat(), "2026-05-01T17:15:52");
     }
 
     #[test]
