@@ -149,7 +149,10 @@ impl Store {
     pub fn read_index(&self) -> Result<Vec<Task>, String> {
         if !self.index.exists() { return self.rebuild_index(); }
         let raw = fs::read_to_string(&self.index).map_err(|e| e.to_string())?;
-        match serde_json::from_str::<Vec<Task>>(&raw) { Ok(v) => Ok(v), Err(_) => self.rebuild_index() }
+        match serde_json::from_str::<Vec<Task>>(&raw) {
+            Ok(v) if v.iter().all(|task| task.validate().is_ok()) => Ok(v),
+            _ => self.rebuild_index(),
+        }
     }
     pub fn write_index(&self, tasks: &[Task]) -> Result<(), String> {
         self.ensure()?;
@@ -206,12 +209,45 @@ impl Store {
         let title = match get("title").and_then(|v| v.as_str()) { Some(v) => v.to_string(), None => return Ok(None) };
         let status = get("status").and_then(|v| v.as_str()).unwrap_or("todo");
         let status = match TaskStatus::parse(status) { Ok(s) => s, Err(_) => return Ok(None) };
-        let labels = get("labels").and_then(|v| v.as_sequence()).map(|xs| xs.iter().filter_map(|x| x.as_str().map(str::to_owned)).collect()).unwrap_or_default();
-        let commits = get("commits").and_then(|v| v.as_sequence()).map(|xs| xs.iter().filter_map(|x| x.as_str().map(str::to_owned)).collect()).unwrap_or_default();
-        let added_at = get("added_at").and_then(|v| v.as_str())
-            .and_then(|s| NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S%.f")
-                .or_else(|_| NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S")).ok())
-            .unwrap_or_else(|| Local::now().naive_local());
+        let labels = match get("labels") {
+            None => Vec::new(),
+            Some(value) => match value.as_sequence() {
+                Some(items) => {
+                    let mut parsed = Vec::new();
+                    for item in items {
+                        if let Some(label) = item.as_str() { parsed.push(label.to_owned()); }
+                        else { return Ok(None); }
+                    }
+                    parsed
+                }
+                None => return Ok(None),
+            },
+        };
+        let commits = match get("commits") {
+            None => Vec::new(),
+            Some(value) => match value.as_sequence() {
+                Some(items) => {
+                    let mut parsed = Vec::new();
+                    for item in items {
+                        if let Some(sha) = item.as_str() { parsed.push(sha.to_owned()); }
+                        else { return Ok(None); }
+                    }
+                    parsed
+                }
+                None => return Ok(None),
+            },
+        };
+        let added_at = match get("added_at") {
+            None => Local::now().naive_local(),
+            Some(value) => match value.as_str().and_then(|s| {
+                NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S%.f")
+                    .or_else(|_| NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S"))
+                    .ok()
+            }) {
+                Some(value) => value,
+                None => return Ok(None),
+            },
+        };
         Ok(Some(Task { id, title, added_at, status, labels, body: parts[2].trim().to_string(), commits }))
     }
 }
