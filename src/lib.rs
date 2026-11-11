@@ -319,7 +319,9 @@ fn yaml11_numeric(s: &str) -> bool {
         let mantissa = match value.find('e').or_else(|| value.find('E')) {
             Some(i) => {
                 let exp = &value[i + 1..];
-                if !(exp.starts_with('+') || exp.starts_with('-')) || !digits(&exp[1..]) {
+                if !(exp.starts_with('+') || exp.starts_with('-'))
+                    || exp[1..].is_empty()
+                    || !exp[1..].bytes().all(|b| b.is_ascii_digit()) {
                     return false;
                 }
                 &value[..i]
@@ -859,6 +861,9 @@ mod tests {
             assert_eq!(yaml_scalar(value), value);
         }
         assert!(yaml_scalar("1.0e+3").starts_with('\''));
+        for value in ["1.0e+1_0", ".5e+1_0"] {
+            assert_eq!(yaml_scalar(value), value);
+        }
         for value in ["08", "09", "099", "0_9"] {
             assert_eq!(yaml_scalar(value), value);
         }
