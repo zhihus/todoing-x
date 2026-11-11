@@ -434,4 +434,94 @@ mod tests {
     fn resolve_hash_prefixed_id() {
         assert_eq!(Store::resolve_id("  #42 ").unwrap(), 42);
     }
+    #[test]
+    fn next_id_uses_maximum_existing_numeric_filename() {
+        let dir = tempdir().unwrap();
+        let store = Store::new(dir.path());
+        assert_eq!(store.next_id(), 1);
+        store.write_task(&task(1, "one")).unwrap();
+        store.write_task(&task(3, "three")).unwrap();
+        assert_eq!(store.next_id(), 4);
+    }
+
+    #[test]
+    fn missing_and_malformed_task_files_are_ignored() {
+        let dir = tempdir().unwrap();
+        let store = Store::new(dir.path());
+        store.ensure().unwrap();
+        assert!(store.read_task(99).unwrap().is_none());
+        fs::write(store.task_path(98), "plain text").unwrap();
+        fs::write(store.task_path(97), "---\\nkey: [broken\\n---\\nbody").unwrap();
+        assert!(store.read_task(98).unwrap().is_none());
+        assert!(store.read_task(97).unwrap().is_none());
+    }
+
+    #[test]
+    fn delete_task_file_reports_existing_and_missing_files() {
+        let dir = tempdir().unwrap();
+        let store = Store::new(dir.path());
+        store.write_task(&task(4, "delete")).unwrap();
+        assert!(store.delete_task_file(4).unwrap());
+        assert!(!store.delete_task_file(4).unwrap());
+    }
+
+    #[test]
+    fn corrupt_and_missing_indexes_rebuild_from_markdown() {
+        let dir = tempdir().unwrap();
+        let store = Store::new(dir.path());
+        store.write_task(&task(2, "recover")).unwrap();
+        assert_eq!(store.read_index().unwrap()[0].title, "recover");
+        fs::write(&store.index, "{ invalid json").unwrap();
+        assert_eq!(store.read_index().unwrap()[0].title, "recover");
+    }
+
+    #[test]
+    fn rebuild_skips_malformed_task_files_and_sorts_by_id() {
+        let dir = tempdir().unwrap();
+        let store = Store::new(dir.path());
+        store.write_task(&task(3, "third")).unwrap();
+        store.write_task(&task(1, "first")).unwrap();
+        store.ensure().unwrap();
+        fs::write(store.task_path(2), "not a task").unwrap();
+        let rebuilt = store.rebuild_index().unwrap();
+        assert_eq!(rebuilt.iter().map(|t| t.id).collect::<Vec<_>>(), vec![1, 3]);
+    }
+
+    #[test]
+    fn sync_mutation_inserts_and_updates_without_duplicates() {
+        let dir = tempdir().unwrap();
+        let store = Store::new(dir.path());
+        let first = task(1, "first");
+        store.sync_mutation(&first).unwrap();
+        let mut updated = first.clone();
+        updated.title = "updated".into();
+        store.sync_mutation(&updated).unwrap();
+        let index = store.read_index().unwrap();
+        assert_eq!(index.len(), 1);
+        assert_eq!(index[0].title, "updated");
+    }
+
+    #[test]
+    fn sync_delete_removes_existing_and_ignores_missing_ids() {
+        let dir = tempdir().unwrap();
+        let store = Store::new(dir.path());
+        store.write_index(&[task(1, "one"), task(2, "two")]).unwrap();
+        store.sync_delete(1).unwrap();
+        store.sync_delete(999).unwrap();
+        let index = store.read_index().unwrap();
+        assert_eq!(index.iter().map(|t| t.id).collect::<Vec<_>>(), vec![2]);
+    }
+
+    #[test]
+    fn filter_matches_status_value_case_insensitively() {
+        let dir = tempdir().unwrap();
+        let store = Store::new(dir.path());
+        let mut item = task(1, "task");
+        item.status = TaskStatus::InProgress;
+        store.write_index(&[item]).unwrap();
+        let found = store.filter(None, &[], 0, Some("IN_PROGRESS"), false).unwrap();
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].id, 1);
+    }
+
 }
