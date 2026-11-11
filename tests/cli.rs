@@ -289,6 +289,7 @@ fn delete_confirmation_preserves_or_removes_task() {
 
     let refused = run_with_input(dir.path(), &["delete", "1"], "n\n");
     assert!(refused.status.success());
+    assert!(String::from_utf8_lossy(&refused.stdout).contains("Delete (#1) keep me? [y/N]"));
     assert!(String::from_utf8_lossy(&refused.stdout).contains("Aborted."));
     assert!(String::from_utf8_lossy(&run(dir.path(), &["ls"]).stdout).contains("keep me"));
 
