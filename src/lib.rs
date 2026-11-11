@@ -126,7 +126,9 @@ impl Store {
     }
     pub fn resolve_id(raw: &str) -> Result<i64, String> {
         let value = raw.trim().trim_start_matches('#');
-        value.parse::<i64>().map_err(|_| format!("Invalid task ID: {}", value))
+        let id = value.parse::<i64>().map_err(|_| format!("Invalid task ID: {}", value))?;
+        if id <= 0 { return Err(format!("Invalid task ID: {}", value)); }
+        Ok(id)
     }
     fn task_path(&self, id: i64) -> PathBuf { self.tasks.join(format!("{}.md", id)) }
     pub fn read_task(&self, id: i64) -> Result<Option<Task>, String> {
@@ -135,6 +137,7 @@ impl Store {
         self.parse_task_file(&p)
     }
     pub fn write_task(&self, task: &Task) -> Result<(), String> {
+        task.validate()?;
         self.ensure()?;
         atomic_write(&self.task_path(task.id), task.format_see().as_bytes())
     }
