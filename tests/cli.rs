@@ -178,7 +178,7 @@ fn scan_rebuilds_index_from_task_markdown_files() {
     assert!(run(dir.path(), &["add", "indexed task"]).status.success());
     fs::write(
         dir.path().join(".todoing/tasks/2.md"),
-        "---\\nadded_at: '2026-05-01T10:00:00'\\nid: 2\\nlabels: []\\nstatus: todo\\ntitle: scanned task\\n---\\n",
+        "---\nadded_at: '2026-05-01T10:00:00'\nid: 2\nlabels: []\nstatus: todo\ntitle: scanned task\n---\n",
     ).unwrap();
 
     let before = run(dir.path(), &["ls"]);
