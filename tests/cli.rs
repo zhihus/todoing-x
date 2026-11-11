@@ -159,6 +159,9 @@ fn task_creation_rejects_blank_required_title_without_writing_files() {
         assert!(!rejected.status.success());
         assert!(String::from_utf8_lossy(&rejected.stderr).contains("Task title cannot be empty"));
     }
+    let empty_label = run(dir.path(), &["add", "valid title", "-l", "   "]);
+    assert!(!empty_label.status.success());
+    assert!(String::from_utf8_lossy(&empty_label.stderr).contains("Task labels cannot be empty"));
     assert!(!dir.path().join(".todoing/tasks/1.md").exists());
 }
 
