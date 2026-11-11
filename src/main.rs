@@ -211,10 +211,10 @@ fn run() {
             let status = TaskStatus::parse(&a.status).unwrap_or_else(|e| fail(e));
             let task = Task::new(store.next_id(), a.title, status, a.labels, a.body);
             task.validate_for_creation().unwrap_or_else(|e| fail(e));
-            run_hook("on-create", &task).unwrap_or_else(|e| fail(e));
             if task.status == TaskStatus::Done {
                 validate_before_done(&task).unwrap_or_else(|e| fail(e));
             }
+            run_hook("on-create", &task).unwrap_or_else(|e| fail(e));
             store.write_task(&task).unwrap_or_else(|e| fail(e));
             store.sync_mutation(&task).unwrap_or_else(|e| fail(e));
             emit_task(&task, json, format!("(#{}) {}", task.id, task.title));
