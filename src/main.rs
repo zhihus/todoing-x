@@ -2,7 +2,7 @@ use clap::{Args, Parser, Subcommand};
 use serde::Serialize;
 use std::{
     fs,
-    io::{Read, Write},
+    io::Write,
     path::PathBuf,
     process::{Command, Stdio},
 };
