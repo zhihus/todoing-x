@@ -523,6 +523,33 @@ mod tests {
         }
     }
 
+    #[test]
+    fn atomic_write_replaces_existing_file_without_leaving_temporary_files() {
+        let dir = tempdir().unwrap();
+        let target = dir.path().join("task.md");
+        fs::write(&target, "old contents").unwrap();
+
+        atomic_write(&target, b"new contents").unwrap();
+
+        assert_eq!(fs::read_to_string(&target).unwrap(), "new contents");
+        let entries: Vec<_> = fs::read_dir(dir.path()).unwrap().collect();
+        assert_eq!(entries.len(), 1, "temporary file should be removed after persist");
+    }
+
+    #[test]
+    fn atomic_write_failure_preserves_existing_directory() {
+        let dir = tempdir().unwrap();
+        let target = dir.path().join("task.md");
+        fs::create_dir(&target).unwrap();
+        fs::write(target.join("keep.txt"), "original").unwrap();
+
+        assert!(atomic_write(&target, b"replacement").is_err());
+
+        assert!(target.is_dir());
+        assert_eq!(fs::read_to_string(target.join("keep.txt")).unwrap(), "original");
+        assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 1);
+    }
+
 
     #[test]
     fn unicode_decimal_ids_match_python() {
