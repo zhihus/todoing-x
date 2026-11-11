@@ -92,3 +92,109 @@ fn on_create_hook_can_reject_task_creation() {
     assert!(!rejected.status.success());
     assert!(!dir.path().join(".todoing/tasks/1.md").exists());
 }
+
+
+fn run_with_input(root: &Path, args: &[&str], input: &str) -> std::process::Output {
+    use std::process::Stdio;
+    let mut child = Command::new(env!("CARGO_BIN_EXE_todoing"))
+        .current_dir(root)
+        .args(args)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("todoing binary should run");
+    child.stdin.take().unwrap().write_all(input.as_bytes()).unwrap();
+    child.wait_with_output().unwrap()
+}
+
+#[test]
+fn legacy_cli_keeps_original_output_order_and_filters() {
+    let dir = tempdir().unwrap();
+    assert!(run(dir.path(), &["add", "first", "-l", "bug", "-l", "api"]).status.success());
+    assert!(run(dir.path(), &["add", "second", "-s", "in_progress"]).status.success());
+    assert!(run(dir.path(), &["add", "third", "-l", "bug", "-s", "done"]).status.success());
+
+    let listed = run(dir.path(), &["ls"]);
+    let output = String::from_utf8_lossy(&listed.stdout);
+    let lines: Vec<_> = output.lines().collect();
+    assert_eq!(lines.len(), 3);
+    assert!(lines[0].contains("third"));
+    assert!(lines[1].contains("second"));
+    assert!(lines[2].contains("first"));
+
+    let filtered = run(dir.path(), &["ls", "-s", "done", "-l", "BUG"]);
+    assert_eq!(String::from_utf8_lossy(&filtered.stdout).lines().count(), 1);
+    assert!(String::from_utf8_lossy(&filtered.stdout).contains("third"));
+
+    let searched = run(dir.path(), &["ls", "-q", "API"]);
+    assert!(String::from_utf8_lossy(&searched.stdout).contains("first"));
+
+    let reversed = run(dir.path(), &["ls", "-r", "-n", "2"]);
+    let reversed = String::from_utf8_lossy(&reversed.stdout);
+    assert!(reversed.lines().next().unwrap().contains("first"));
+}
+
+#[test]
+fn body_append_and_label_operations_persist() {
+    let dir = tempdir().unwrap();
+    assert!(run(dir.path(), &["add", "mutable", "-l", "old", "-b", "line one"]).status.success());
+    assert!(run(dir.path(), &["body", "1", "replacement"]).status.success());
+    assert!(run(dir.path(), &["append", "1", "second paragraph"]).status.success());
+    assert!(run(dir.path(), &["label", "1", "+new", "--", "-old"]).status.success());
+
+    let shown = run(dir.path(), &["see", "1"]);
+    let text = String::from_utf8_lossy(&shown.stdout);
+    assert!(text.contains("replacement\n\nsecond paragraph"));
+    assert!(text.contains("labels: [new]"));
+    assert!(!text.contains("line one"));
+}
+
+#[test]
+fn invalid_status_and_identifier_are_rejected() {
+    let dir = tempdir().unwrap();
+    let bad_status = run(dir.path(), &["add", "invalid", "-s", "blocked"]);
+    assert!(!bad_status.status.success());
+    assert!(String::from_utf8_lossy(&bad_status.stderr).contains("Invalid status"));
+
+    let bad_id = run(dir.path(), &["see", "+1"]);
+    assert!(!bad_id.status.success());
+    assert!(String::from_utf8_lossy(&bad_id.stderr).contains("Invalid task ID"));
+}
+
+#[test]
+fn delete_confirmation_preserves_or_removes_task() {
+    let dir = tempdir().unwrap();
+    assert!(run(dir.path(), &["add", "keep me"]).status.success());
+
+    let refused = run_with_input(dir.path(), &["delete", "1"], "n\n");
+    assert!(refused.status.success());
+    assert!(String::from_utf8_lossy(&refused.stdout).contains("Aborted."));
+    assert!(String::from_utf8_lossy(&run(dir.path(), &["ls"]).stdout).contains("keep me"));
+
+    let accepted = run_with_input(dir.path(), &["delete", "1"], "yes\n");
+    assert!(accepted.status.success());
+    assert!(String::from_utf8_lossy(&run(dir.path(), &["ls"]).stdout).contains("No tasks."));
+}
+
+#[test]
+fn reindex_recovers_missing_index_from_markdown() {
+    let dir = tempdir().unwrap();
+    assert!(run(dir.path(), &["add", "recover me"]).status.success());
+    fs::remove_file(dir.path().join(".todoing/index.json")).unwrap();
+
+    let rebuilt = run(dir.path(), &["reindex"]);
+    assert!(rebuilt.status.success());
+    assert!(String::from_utf8_lossy(&rebuilt.stdout).contains("1 tasks"));
+    assert!(String::from_utf8_lossy(&run(dir.path(), &["ls"]).stdout).contains("recover me"));
+}
+
+#[test]
+fn special_title_and_multiline_body_round_trip() {
+    let dir = tempdir().unwrap();
+    assert!(run(dir.path(), &["add", "123", "-b", "line one\nline two"]).status.success());
+    let shown = run(dir.path(), &["see", "#1"]);
+    let text = String::from_utf8_lossy(&shown.stdout);
+    assert!(text.contains("title: '123'") || text.contains("title: \"123\""));
+    assert!(text.contains("line one\nline two"));
+}
