@@ -342,7 +342,11 @@ fn yaml_scalar(s: &str) -> String {
             && mantissa.bytes().all(|b| b.is_ascii_digit() || b == b'.' || b == b'_' || b == b'+' || b == b'-')
             && (!mantissa.contains('.') || !matches!(exponent.as_bytes().first(), Some(b'+') | Some(b'-')))
     });
-    if exponent_looks_like_string {
+    let unsigned = s.strip_prefix('+').or_else(|| s.strip_prefix('-')).unwrap_or(s);
+    let leading_zero_non_octal = unsigned.starts_with('0') && unsigned.len() > 1
+        && unsigned.bytes().all(|b| b.is_ascii_digit() || b == b'_')
+        && unsigned.bytes().any(|b| b == b'8' || b == b'9');
+    if exponent_looks_like_string || leading_zero_non_octal {
         return s.to_owned();
     }
     if yaml11_numeric(s) || yaml11_date(s) || yaml11_boolean_or_null {
@@ -830,7 +834,9 @@ mod tests {
             assert_eq!(yaml_scalar(value), value);
         }
         assert!(yaml_scalar("1.0e+3").starts_with('\''));
-        assert_eq!(yaml_scalar("09"), "09");
+        for value in ["08", "09", "099", "0_9"] {
+            assert_eq!(yaml_scalar(value), value);
+        }
         assert_eq!(yaml_scalar("2026-05-01abc"), "2026-05-01abc");
         for value in ["12:34", "1:20.5", "0x10", "0b10"] {
             assert!(yaml_scalar(value).starts_with('\''), "{value:?} was not quoted");
