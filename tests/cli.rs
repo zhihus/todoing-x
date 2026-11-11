@@ -137,6 +137,17 @@ fn legacy_cli_keeps_original_output_order_and_filters() {
 }
 
 #[test]
+fn negative_list_limit_is_treated_as_unlimited() {
+    let dir = tempdir().unwrap();
+    for title in ["one", "two", "three"] {
+        assert!(run(dir.path(), &["add", title]).status.success());
+    }
+    let listed = run(dir.path(), &["ls", "-n", "-1"]);
+    assert!(listed.status.success());
+    assert_eq!(String::from_utf8_lossy(&listed.stdout).lines().count(), 3);
+}
+
+#[test]
 fn body_append_and_label_operations_persist() {
     let dir = tempdir().unwrap();
     assert!(run(dir.path(), &["add", "mutable", "-l", "old", "-b", "line one"]).status.success());
