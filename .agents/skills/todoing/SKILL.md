@@ -97,7 +97,9 @@ Before a task transitions to `done`, todoing requires at least one linked Git co
 
 Optional hooks are stored in `.todoing/hooks/`:
 - `on-create`: receives the new task as JSON on stdin before it is saved.
-- `before-done`: receives the task as JSON on stdin whenever a task is marked `done`, including creation with an initial `done` status.
+- `before-done`: receives the task as JSON on stdin before a transition to `done` through the `status` command.
+
+Do not create tasks with `--status done`: a new task cannot yet have a linked Git commit. Create it, link a commit, then mark it done.
 
 Exit code 0 allows the operation; a non-zero exit code rejects it. On Unix, use executable files named exactly `on-create` and `before-done`. On Windows, use `.cmd` or `.bat` files.
 
