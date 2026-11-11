@@ -1,4 +1,5 @@
-use chrono::{Local, NaiveDateTime, Timelike};
+use chrono::{DateTime, FixedOffset, Local, NaiveDateTime, SecondsFormat, Timelike};
+use serde::{de, Deserializer, Serializer};
 use serde::{Deserialize, Serialize};
 use std::{collections::HashSet, fs, io::Write, path::{Path, PathBuf}};
 use tempfile::NamedTempFile;
@@ -28,12 +29,62 @@ impl TaskStatus {
     }
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum TaskDateTime {
+    Naive(NaiveDateTime),
+    Offset(DateTime<FixedOffset>),
+}
+
+impl TaskDateTime {
+    pub fn parse_iso(value: &str) -> Result<Self, String> {
+        if let Ok(value) = NaiveDateTime::parse_from_str(value, "%Y-%m-%dT%H:%M:%S%.f") {
+            return Ok(Self::Naive(value));
+        }
+        if let Ok(value) = NaiveDateTime::parse_from_str(value, "%Y-%m-%dT%H:%M:%S") {
+            return Ok(Self::Naive(value));
+        }
+        DateTime::parse_from_rfc3339(value)
+            .map(Self::Offset)
+            .map_err(|e| e.to_string())
+    }
+
+    pub fn isoformat(&self) -> String {
+        match self {
+            Self::Naive(value) => {
+                let base = value.format("%Y-%m-%dT%H:%M:%S").to_string();
+                let micros = value.and_utc().timestamp_subsec_micros();
+                if micros == 0 { base } else { format!("{}.{:06}", base, micros) }
+            }
+            Self::Offset(value) => value.to_rfc3339_opts(SecondsFormat::AutoSi, false),
+        }
+    }
+}
+
+impl Serialize for TaskDateTime {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where S: Serializer {
+        serializer.serialize_str(&self.isoformat())
+    }
+}
+
+impl<'de> Deserialize<'de> for TaskDateTime {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where D: Deserializer<'de> {
+        let value = String::deserialize(deserializer)?;
+        Self::parse_iso(&value).map_err(de::Error::custom)
+    }
+}
+
+impl From<NaiveDateTime> for TaskDateTime {
+    fn from(value: NaiveDateTime) -> Self { Self::Naive(value) }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct Task {
     pub id: i64,
     pub title: String,
     #[serde(default = "default_added_at")]
-    pub added_at: NaiveDateTime,
+    pub added_at: TaskDateTime,
     #[serde(default)]
     pub status: TaskStatus,
     #[serde(default)]
@@ -44,7 +95,7 @@ pub struct Task {
     pub commits: Vec<String>,
 }
 
-fn default_added_at() -> NaiveDateTime { Local::now().naive_local() }
+fn default_added_at() -> TaskDateTime { TaskDateTime::Naive(Local::now().naive_local()) }
 
 impl Task {
     pub fn new(id: i64, title: String, status: TaskStatus, labels: Vec<String>, body: String) -> Self {
@@ -52,7 +103,7 @@ impl Task {
         let labels = labels.into_iter().filter(|s| seen.insert(s.clone())).collect();
         let now = Local::now().naive_local();
         let added_at = now.with_nanosecond((now.nanosecond() / 1_000) * 1_000).unwrap_or(now);
-        Self { id, title, added_at, status, labels, body, commits: Vec::new() }
+        Self { id, title, added_at: TaskDateTime::Naive(added_at), status, labels, body, commits: Vec::new() }
     }
     pub fn validate_for_creation(&self) -> Result<(), String> {
         if self.title.trim().is_empty() {
@@ -76,9 +127,7 @@ impl Task {
     }
     pub fn format_see(&self) -> String {
         // Match PyYAML's sorted frontmatter key order and inline scalar-list representation.
-        let base = self.added_at.format("%Y-%m-%dT%H:%M:%S").to_string();
-        let micros = self.added_at.and_utc().timestamp_subsec_micros();
-        let dt = if micros == 0 { base } else { format!("{}.{:06}", base, micros) };
+        let dt = self.added_at.isoformat();
         let labels = self.labels.iter().map(|s| yaml_scalar(s)).collect::<Vec<_>>().join(", ");
         let commits = if self.commits.is_empty() { String::new() } else { format!("commits: [{}]\n", self.commits.iter().map(|s| yaml_scalar(s)).collect::<Vec<_>>().join(", ")) };
         let mut out = format!("---\nadded_at: '{}'\n{}id: {}\nlabels: [{}]\n", dt, commits, self.id, labels);
@@ -257,11 +306,7 @@ impl Store {
         };
         let added_at = match get("added_at") {
             None => Local::now().naive_local(),
-            Some(value) => match value.as_str().and_then(|s| {
-                NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S%.f")
-                    .or_else(|_| NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S"))
-                    .ok()
-            }) {
+            Some(value) => match value.as_str().and_then(|s| TaskDateTime::parse_iso(s).ok()) {
                 Some(value) => value,
                 None => return Ok(None),
             },
@@ -279,7 +324,7 @@ mod tests {
     fn task(id: i64, title: &str) -> Task {
         Task {
             id, title: title.into(), commits: Vec::new(),
-            added_at: NaiveDateTime::parse_from_str("2026-05-01T10:00:00", "%Y-%m-%dT%H:%M:%S").unwrap(),
+            added_at: TaskDateTime::Naive(NaiveDateTime::parse_from_str("2026-05-01T10:00:00", "%Y-%m-%dT%H:%M:%S").unwrap()),
             status: TaskStatus::Todo, labels: vec!["p1".into()], body: "details".into(),
         }
     }
@@ -315,8 +360,32 @@ mod tests {
         assert_eq!(task.body, "Create a proper packaging story.");
         assert_eq!(
             task.added_at,
-            NaiveDateTime::parse_from_str("2026-05-01T17:15:52.337350", "%Y-%m-%dT%H:%M:%S%.f").unwrap()
+            TaskDateTime::Naive(NaiveDateTime::parse_from_str("2026-05-01T17:15:52.337350", "%Y-%m-%dT%H:%M:%S%.f").unwrap())
         );
+    }
+
+    #[test]
+    fn timezone_aware_added_at_round_trips_without_losing_offset() {
+        let dir = tempdir().unwrap();
+        let store = Store::new(dir.path());
+        store.ensure().unwrap();
+        let fixture = "---\nadded_at: '2026-05-01T17:15:52.337350+03:00'\nid: 7\nlabels: []\nstatus: todo\ntitle: zoned task\n---\n";
+        fs::write(store.task_path(7), fixture).unwrap();
+        let task = store.read_task(7).unwrap().unwrap();
+        assert_eq!(task.added_at.isoformat(), "2026-05-01T17:15:52.337350+03:00");
+        store.write_index(&[task.clone()]).unwrap();
+        let raw = fs::read_to_string(&store.index).unwrap();
+        assert!(raw.contains("2026-05-01T17:15:52.337350+03:00"));
+        assert_eq!(store.read_index().unwrap()[0], task);
+        store.write_task(&task).unwrap();
+        let markdown = fs::read_to_string(store.task_path(7)).unwrap();
+        assert!(markdown.contains("2026-05-01T17:15:52.337350+03:00"));
+    }
+
+    #[test]
+    fn naive_added_at_remains_without_timezone_suffix() {
+        let value = TaskDateTime::parse_iso("2026-05-01T17:15:52.337350").unwrap();
+        assert_eq!(value.isoformat(), "2026-05-01T17:15:52.337350");
     }
 
     #[test]
