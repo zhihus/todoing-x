@@ -197,7 +197,7 @@ impl Store {
         items.retain(|t| t.id != id);
         self.write_index(&items)
     }
-    pub fn filter(&self, status: Option<TaskStatus>, labels: &[String], limit: usize, q: Option<&str>, reverse: bool) -> Result<Vec<Task>, String> {
+    pub fn filter(&self, status: Option<TaskStatus>, labels: &[String], limit: i64, q: Option<&str>, reverse: bool) -> Result<Vec<Task>, String> {
         let mut tasks = self.read_index()?;
         if let Some(s) = status { tasks.retain(|t| t.status == s); }
         if !labels.is_empty() {
@@ -211,7 +211,7 @@ impl Store {
         }
         tasks.sort_by_key(|t| t.id);
         if !reverse { tasks.reverse(); }
-        if limit > 0 { tasks.truncate(limit); }
+        if limit > 0 { tasks.truncate(limit as usize); }
         Ok(tasks)
     }
     fn parse_task_file(&self, path: &Path) -> Result<Option<Task>, String> {
@@ -343,6 +343,15 @@ mod tests {
         assert!(raw.contains("2026-05-01T10:00:00"));
         assert!(!raw.contains("+00:00"));
         assert_eq!(store.read_index().unwrap()[0], original);
+    }
+
+    #[test]
+    fn negative_limit_matches_original_unlimited_behavior() {
+        let dir = tempdir().unwrap();
+        let store = Store::new(dir.path());
+        store.write_index(&[task(1, "one"), task(2, "two"), task(3, "three")]).unwrap();
+        let found = store.filter(None, &[], -1, None, false).unwrap();
+        assert_eq!(found.iter().map(|t| t.id).collect::<Vec<_>>(), vec![3, 2, 1]);
     }
 
     #[test]
