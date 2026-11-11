@@ -52,6 +52,9 @@ impl Task {
         if self.title.trim().is_empty() {
             return Err("Task title cannot be empty".into());
         }
+        if self.labels.iter().any(|label| label.trim().is_empty()) {
+            return Err("Task labels cannot be empty".into());
+        }
         Ok(())
     }
 
