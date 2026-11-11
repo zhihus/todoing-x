@@ -333,6 +333,19 @@ fn yaml_scalar(s: &str) -> String {
         "y" | "yes" | "n" | "no" | "true" | "false" | "on" | "off" | "null" | "~"
             | ".inf" | "+.inf" | "-.inf" | ".nan"
     );
+    let exponent_looks_like_string = s.find(['e', 'E']).is_some_and(|i| {
+        let mantissa = &s[..i];
+        let exponent = &s[i + 1..];
+        let exponent_digits = exponent.strip_prefix('+').or_else(|| exponent.strip_prefix('-')).unwrap_or(exponent);
+        !exponent_digits.is_empty()
+            && exponent_digits.bytes().all(|b| b.is_ascii_digit())
+            && !mantissa.is_empty()
+            && mantissa.bytes().all(|b| b.is_ascii_digit() || b == b'.' || b == b'_' || b == b'+' || b == b'-')
+            && (!mantissa.contains('.') || !matches!(exponent.as_bytes().first(), Some(b'+') | Some(b'-')))
+    });
+    if exponent_looks_like_string {
+        return s.to_owned();
+    }
     if yaml11_numeric(s) || yaml11_date(s) || yaml11_boolean_or_null {
         return format!("'{}'", s.replace('\'', "''"));
     }
@@ -814,7 +827,10 @@ mod tests {
             assert!(serialized.starts_with('\''), "{value:?} was not quoted: {serialized}");
         }
         assert_eq!(yaml_scalar("123abc"), "123abc");
-        assert_eq!(yaml_scalar("1e3"), "1e3");
+        for value in ["1e3", "1e+3", "1.0e3", "12e34"] {
+            assert_eq!(yaml_scalar(value), value);
+        }
+        assert!(yaml_scalar("1.0e+3").starts_with('\''));
 
         let dir = tempdir().unwrap();
         let store = Store::new(dir.path());
