@@ -84,7 +84,12 @@ impl TaskDateTime {
             format!("{}T{}", &value[..10], &value[11..])
         } else {
             value.to_string()
-        }.replace(',', ".");
+        };
+        let normalized = if normalized.contains('T') {
+            normalized.replace(',', ".")
+        } else {
+            normalized
+        };
         if let Some(timestamp) = parse_decimal_datetime_timestamp(&normalized) {
             return Self::from_unix_timestamp(timestamp).ok_or_else(|| "timestamp is out of range".to_string());
         }
@@ -891,6 +896,7 @@ mod tests {
         assert_eq!(TaskDateTime::parse_iso(".5").unwrap().isoformat(), "1970-01-01T00:00:00.500000+00:00");
         assert_eq!(TaskDateTime::parse_iso("+1.5").unwrap().isoformat(), "1970-01-01T00:00:01.500000+00:00");
         assert!(TaskDateTime::parse_iso("1e3").is_err());
+        assert!(TaskDateTime::parse_iso("1,5").is_err());
         assert!(TaskDateTime::parse_iso(" 1 ").is_err());
     }
 
