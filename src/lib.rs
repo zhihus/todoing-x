@@ -328,13 +328,15 @@ fn yaml11_numeric(s: &str) -> bool {
             }
             None => value,
         };
+        if let Some(fraction) = mantissa.strip_prefix('.') {
+            return fraction.as_bytes().first().is_some_and(|b| b.is_ascii_digit())
+                && fraction.bytes().all(|b| b.is_ascii_digit() || b == b'_');
+        }
         match mantissa.split_once('.') {
             Some((whole, fraction)) => {
-                (digits(whole) || whole.is_empty())
-                    && (fraction.is_empty() || digits(fraction))
-                    && (!whole.is_empty() || !fraction.is_empty())
-                    && (whole.is_empty() || whole.bytes().any(|b| b.is_ascii_digit()))
-                    && (fraction.is_empty() || fraction.bytes().any(|b| b.is_ascii_digit()))
+                whole.as_bytes().first().is_some_and(|b| b.is_ascii_digit())
+                    && whole.bytes().all(|b| b.is_ascii_digit() || b == b'_')
+                    && fraction.bytes().all(|b| b.is_ascii_digit() || b == b'_')
             }
             None => false,
         }
@@ -861,7 +863,7 @@ mod tests {
             assert_eq!(yaml_scalar(value), value);
         }
         assert!(yaml_scalar("1.0e+3").starts_with('\''));
-        for value in ["1.0e+1_0", ".5e+1_0"] {
+        for value in ["1.0e+1_0", ".5e+1_0", "_.5", "._5"] {
             assert_eq!(yaml_scalar(value), value);
         }
         for value in ["08", "09", "099", "0_9"] {
