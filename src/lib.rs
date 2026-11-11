@@ -435,6 +435,33 @@ mod tests {
         assert_eq!(parse_yaml_python_integer(&serde_yaml::from_str::<serde_yaml::Value>("true").unwrap()), Some(1));
     }
 
+
+    #[test]
+    fn yaml_integer_strings_accept_python_underscore_syntax() {
+        assert_eq!(parse_python_integer_string("1_000"), Some(1000));
+        assert_eq!(parse_python_integer_string("-١_٢"), Some(-12));
+        assert_eq!(parse_python_integer_string("_12"), None);
+        assert_eq!(parse_python_integer_string("12_"), None);
+    }
+
+    #[test]
+    fn rebuild_propagates_invalid_required_frontmatter_fields() {
+        let dir = tempdir().unwrap();
+        let store = Store::new(dir.path());
+        store.ensure().unwrap();
+        fs::write(store.task_path(1), "---\\nid: 1\\nstatus: todo\\n---\\n").unwrap();
+        assert!(store.rebuild_index().is_err());
+    }
+
+    #[test]
+    fn null_status_is_not_treated_as_missing_status() {
+        let dir = tempdir().unwrap();
+        let store = Store::new(dir.path());
+        store.ensure().unwrap();
+        fs::write(store.task_path(1), "---\\nid: 1\\ntitle: task\\nstatus: null\\n---\\n").unwrap();
+        assert!(store.read_task(1).is_err());
+    }
+
     #[test]
     fn list_format_matches_reference() {
         assert_eq!(task(5, "write docs").format_list(), "(#5) [p1] {⏳} write docs");
