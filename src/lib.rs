@@ -830,6 +830,11 @@ mod tests {
             assert_eq!(yaml_scalar(value), value);
         }
         assert!(yaml_scalar("1.0e+3").starts_with('\''));
+        assert_eq!(yaml_scalar("09"), "09");
+        assert_eq!(yaml_scalar("2026-05-01abc"), "2026-05-01abc");
+        for value in ["12:34", "1:20.5", "0x10", "0b10"] {
+            assert!(yaml_scalar(value).starts_with('\''), "{value:?} was not quoted");
+        }
 
         let dir = tempdir().unwrap();
         let store = Store::new(dir.path());
