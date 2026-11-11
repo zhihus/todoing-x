@@ -25,13 +25,13 @@ enum Commands {
     #[command(about="List tasks, newest first.")]
     Ls(ListArgs),
     #[command(about="Show a task as markdown with frontmatter.")]
-    See(IdArg),
+    See(SeeArgs),
     #[command(about="Open the task file in $EDITOR.")]
-    Edit(IdArg),
+    Edit(EditArgs),
     #[command(about="Replace the description body of a task.")]
-    Body(TextArgs),
+    Body(BodyArgs),
     #[command(about="Append text to the description body of a task.")]
-    Append(TextArgs),
+    Append(AppendArgs),
     #[command(about="Change a task's status.")]
     Status(StatusArgs),
     #[command(about="Modify task labels with add/remove operations.")]
@@ -73,14 +73,27 @@ struct ListArgs {
     scan: bool,
 }
 #[derive(Args)]
-struct IdArg {
-    #[arg(help="Task ID")]
+struct SeeArgs {
+    #[arg(help="Task ID, e.g. #1 or 1")]
     id: String,
 }
 #[derive(Args)]
-struct TextArgs {
+struct EditArgs {
+    #[arg(help="Task ID to edit")]
     id: String,
-    #[arg(help="Text")]
+}
+#[derive(Args)]
+struct BodyArgs {
+    #[arg(help="Task ID")]
+    id: String,
+    #[arg(help="New description body text")]
+    text: String,
+}
+#[derive(Args)]
+struct AppendArgs {
+    #[arg(help="Task ID")]
+    id: String,
+    #[arg(help="Text to append to the description body")]
     text: String,
 }
 #[derive(Args)]
