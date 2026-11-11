@@ -96,6 +96,37 @@ fn json_interface_covers_remaining_commands() {
     assert!(version["version"].is_string());
 }
 
+#[test]
+fn commit_links_store_full_sha_and_deduplicate_resolved_refs() {
+    let dir = tempdir().unwrap();
+    git(dir.path(), &["init", "-q"]);
+    git(dir.path(), &["config", "user.email", "todoing-test@example.invalid"]);
+    git(dir.path(), &["config", "user.name", "Todoing Test"]);
+    fs::write(dir.path().join("tracked.txt"), "initial").unwrap();
+    git(dir.path(), &["add", "tracked.txt"]);
+    git(dir.path(), &["commit", "-m", "initial"]);
+
+    let added = run(dir.path(), &["add", "linked task"]);
+    assert!(added.status.success());
+    let head = Command::new("git").current_dir(dir.path()).args(["rev-parse", "HEAD"])
+        .output().unwrap();
+    assert!(head.status.success());
+    let full_sha = String::from_utf8(head.stdout).unwrap().trim().to_string();
+
+    for reference in ["HEAD", "HEAD"] {
+        let linked = run(dir.path(), &["commit", "1", reference, "--json"]);
+        assert!(linked.status.success(), "{}", String::from_utf8_lossy(&linked.stderr));
+        let task: Value = serde_json::from_slice(&linked.stdout).unwrap();
+        assert_eq!(task["commits"].as_array().unwrap().len(), 1);
+        assert_eq!(task["commits"][0], full_sha);
+    }
+
+    let rebuilt = run(dir.path(), &["reindex", "--json"]);
+    assert!(rebuilt.status.success());
+    let tasks: Value = serde_json::from_slice(&rebuilt.stdout).unwrap();
+    assert_eq!(tasks[0]["commits"][0], full_sha);
+}
+
 #[cfg(unix)]
 #[test]
 fn edit_json_returns_updated_task_after_editor_and_reindex() {
