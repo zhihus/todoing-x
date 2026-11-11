@@ -620,8 +620,16 @@ mod tests {
 
     #[test]
     fn yaml_date_only_added_at_matches_python_midnight_datetime() {
-        let value = TaskDateTime::parse_iso("2026-05-01").unwrap();
-        assert_eq!(value.isoformat(), "2026-05-01T00:00:00");
+        let dir = tempdir().unwrap();
+        let store = Store::new(dir.path());
+        store.ensure().unwrap();
+        fs::write(
+            store.task_path(1),
+            "---\\nadded_at: 2026-05-01\\nid: 1\\ntitle: date-only\\nstatus: todo\\nlabels: []\\n---\\n",
+        ).unwrap();
+
+        let task = store.read_task(1).unwrap().unwrap();
+        assert_eq!(task.added_at.isoformat(), "2026-05-01T00:00:00");
     }
 
     #[test]
