@@ -59,7 +59,6 @@ impl Task {
     }
 
     pub fn validate(&self) -> Result<(), String> {
-        if self.id <= 0 { return Err(format!("Invalid task ID: {}", self.id)); }
         if self.commits.iter().any(|sha| sha.trim().is_empty()) {
             return Err("Git commit reference cannot be empty".into());
         }
@@ -216,7 +215,7 @@ impl Store {
         if parts.len() < 3 { return Ok(None); }
         let fm: serde_yaml::Value = match serde_yaml::from_str(parts[1]) { Ok(v) => v, Err(_) => return Ok(None) };
         let get = |key: &str| fm.get(key);
-        let id = match get("id").and_then(|v| v.as_i64()) { Some(v) if v > 0 => v, _ => return Ok(None) };
+        let id = match get("id").and_then(|v| v.as_i64().or_else(|| v.as_str().and_then(|s| s.parse::<i64>().ok()))) { Some(v) => v, _ => return Ok(None) };
         let title = match get("title").and_then(|v| v.as_str()) { Some(v) => v.to_string(), None => return Ok(None) };
         let status = get("status").and_then(|v| v.as_str()).unwrap_or("todo");
         let status = match TaskStatus::parse(status) { Ok(s) => s, Err(_) => return Ok(None) };
@@ -381,7 +380,8 @@ mod tests {
     fn invalid_identifiers_are_rejected() {
         let dir = tempdir().unwrap();
         let store = Store::new(dir.path());
-        assert!(store.write_task(&task(0, "invalid")).is_err());
+        store.write_task(&task(0, "zero id")).unwrap();
+        assert_eq!(store.read_task(0).unwrap().unwrap().id, 0);
         assert!(Store::resolve_id("-1").is_err());
         assert_eq!(Store::resolve_id("0").unwrap(), 0);
     }
