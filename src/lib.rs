@@ -275,24 +275,65 @@ impl Task {
     }
 }
 
+fn yaml11_numeric(s: &str) -> bool {
+    let unsigned = s.strip_prefix(['+', '-']).unwrap_or(s);
+    let digits = |value: &str| !value.is_empty() && value.bytes().all(|b| b.is_ascii_digit() || b == b'_');
+    let integer = unsigned == "0"
+        || (unsigned.starts_with('0') && unsigned.len() > 1
+            && unsigned.bytes().all(|b| matches!(b, b'0'..=b'7' | b'_')))
+        || unsigned.strip_prefix("0x").or_else(|| unsigned.strip_prefix("0X"))
+            .is_some_and(|v| !v.is_empty() && v.bytes().all(|b| b.is_ascii_hexdigit() || b == b'_'))
+        || unsigned.strip_prefix("0b").or_else(|| unsigned.strip_prefix("0B"))
+            .is_some_and(|v| !v.is_empty() && v.bytes().all(|b| matches!(b, b'0' | b'1' | b'_')))
+        || (unsigned.as_bytes().first().is_some_and(|b| (b'1'..=b'9').contains(b))
+            && digits(unsigned));
+    if integer { return true; }
+
+    let float = |value: &str| {
+        let value = value.strip_prefix(['+', '-']).unwrap_or(value);
+        let (mantissa, exponent) = match value.find(['e', 'E']) {
+            Some(i) => {
+                let exp = &value[i + 1..];
+                if !(exp.starts_with('+') || exp.starts_with('-')) || !digits(&exp[1..]) {
+                    return false;
+                }
+                (&value[..i], true)
+            }
+            None => (value, false),
+        };
+        let _ = exponent;
+        match mantissa.split_once('.') {
+            Some((whole, fraction)) => {
+                (digits(whole) || whole.is_empty())
+                    && (fraction.is_empty() || digits(fraction))
+                    && (!whole.is_empty() || !fraction.is_empty())
+                    && (whole.is_empty() || whole.bytes().any(|b| b.is_ascii_digit()))
+                    && (fraction.is_empty() || fraction.bytes().any(|b| b.is_ascii_digit()))
+            }
+            None => false,
+        }
+    };
+    float(s)
+}
+
+fn yaml11_date(s: &str) -> bool {
+    let Some((year, rest)) = s.split_once('-') else { return false };
+    let Some((month, day)) = rest.split_once('-') else { return false };
+    year.len() == 4 && year.bytes().all(|b| b.is_ascii_digit())
+        && !month.is_empty() && month.len() <= 2 && month.bytes().all(|b| b.is_ascii_digit())
+        && !day.is_empty() && day.len() <= 2 && day.bytes().all(|b| b.is_ascii_digit())
+}
+
 fn yaml_scalar(s: &str) -> String {
-    // PyYAML uses YAML 1.1 implicit scalar resolution (yes/no/on/off,
-    // dates, numbers, etc.). Quote these strings so Python keeps them as str.
+    // Match PyYAML's YAML 1.1 implicit scalar types without quoting arbitrary
+    // strings that merely begin with a digit (for example, "123abc" or "1e3").
     let lower = s.to_ascii_lowercase();
-    let bytes = s.as_bytes();
-    let numeric_prefix = bytes.first().is_some_and(u8::is_ascii_digit)
-        || (matches!(bytes.first(), Some(b'+') | Some(b'-'))
-            && (bytes.get(1).is_some_and(u8::is_ascii_digit)
-                || (bytes.get(1) == Some(&b'.')
-                    && bytes.get(2).is_some_and(u8::is_ascii_digit))))
-        || (bytes.first() == Some(&b'.')
-            && bytes.get(1).is_some_and(u8::is_ascii_digit));
     let yaml11_boolean_or_null = matches!(
         lower.as_str(),
         "y" | "yes" | "n" | "no" | "true" | "false" | "on" | "off" | "null" | "~"
             | ".inf" | "+.inf" | "-.inf" | ".nan"
     );
-    if numeric_prefix || yaml11_boolean_or_null {
+    if yaml11_numeric(s) || yaml11_date(s) || yaml11_boolean_or_null {
         return format!("'{}'", s.replace('\'', "''"));
     }
     serde_yaml::to_string(s)
@@ -768,10 +809,12 @@ mod tests {
 
     #[test]
     fn yaml_scalar_preserves_python_yaml_11_string_types() {
-        for value in ["123", "01", "yes", "NO", "on", "off", "null", "~", "2026-05-01", "1e3", ".5", "+.5", "-.5"] {
+        for value in ["123", "01", "yes", "NO", "on", "off", "null", "~", "2026-05-01", ".5", "+.5", "-.5"] {
             let serialized = yaml_scalar(value);
             assert!(serialized.starts_with('\''), "{value:?} was not quoted: {serialized}");
         }
+        assert_eq!(yaml_scalar("123abc"), "123abc");
+        assert_eq!(yaml_scalar("1e3"), "1e3");
 
         let dir = tempdir().unwrap();
         let store = Store::new(dir.path());
