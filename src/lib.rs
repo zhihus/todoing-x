@@ -914,7 +914,7 @@ mod tests {
         let dir = tempdir().unwrap();
         let store = Store::new(dir.path());
         store.ensure().unwrap();
-        let fixture = "---\nid: 10\ntitle: delimiter\nstatus: todo\nlabels: []\n---\nBefore\n---\nAfter\n";
+        let fixture = "---\nadded_at: '2026-05-02T12:00:00.000000'\nid: 10\ntitle: delimiter\nstatus: todo\nlabels: []\n---\nBefore\n---\nAfter\n";
         fs::write(store.task_path(10), fixture).unwrap();
 
         let original = store.read_task(10).unwrap().unwrap();
