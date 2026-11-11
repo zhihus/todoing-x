@@ -97,6 +97,34 @@ fn json_interface_covers_remaining_commands() {
 }
 
 #[test]
+fn list_scan_rebuilds_index_from_markdown_files() {
+    let dir = tempdir().unwrap();
+    let tasks = dir.path().join(".todoing/tasks");
+    fs::create_dir_all(&tasks).unwrap();
+    fs::write(tasks.join("7.md"), "---\nid: 7\ntitle: scanned task\nstatus: todo\nlabels: []\n---\n").unwrap();
+
+    let listed = run(dir.path(), &["ls", "--scan", "--json"]);
+    assert!(listed.status.success(), "{}", String::from_utf8_lossy(&listed.stderr));
+    let tasks: Value = serde_json::from_slice(&listed.stdout).unwrap();
+    assert_eq!(tasks.as_array().unwrap().len(), 1);
+    assert_eq!(tasks[0]["id"], 7);
+    assert!(dir.path().join(".todoing/index.json").exists());
+}
+
+#[test]
+fn status_arguments_are_case_insensitive_like_python() {
+    let dir = tempdir().unwrap();
+    let added = run(dir.path(), &["add", "case insensitive", "--status", "IN_PROGRESS"]);
+    assert!(added.status.success(), "{}", String::from_utf8_lossy(&added.stderr));
+
+    let changed = run(dir.path(), &["status", "1", "CANCELLED"]);
+    assert!(changed.status.success(), "{}", String::from_utf8_lossy(&changed.stderr));
+    let shown = run(dir.path(), &["see", "1", "--json"]);
+    let task: Value = serde_json::from_slice(&shown.stdout).unwrap();
+    assert_eq!(task["status"], "cancelled");
+}
+
+#[test]
 fn commit_links_store_full_sha_and_deduplicate_resolved_refs() {
     let dir = tempdir().unwrap();
     git(dir.path(), &["init", "-q"]);
