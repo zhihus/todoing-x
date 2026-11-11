@@ -416,3 +416,21 @@ fn special_title_and_multiline_body_round_trip() {
     assert!(text.contains("title: '123'") || text.contains("title: \"123\""));
     assert!(text.contains("line one\nline two"));
 }
+
+
+#[test]
+fn label_clear_flags_follow_last_option_like_click() {
+    let dir = tempdir().unwrap();
+    assert!(run(dir.path(), &["add", "labels", "-l", "existing"]).status.success());
+
+    let clear_last = run(dir.path(), &["label", "1", "+new", "--no-clear", "--clear"]);
+    assert!(clear_last.status.success(), "{}", String::from_utf8_lossy(&clear_last.stderr));
+    let shown = run(dir.path(), &["see", "1"]);
+    assert!(String::from_utf8_lossy(&shown.stdout).contains("labels: [new]"));
+
+    let no_clear_last = run(dir.path(), &["label", "1", "+another", "--clear", "--no-clear"]);
+    assert!(no_clear_last.status.success(), "{}", String::from_utf8_lossy(&no_clear_last.stderr));
+    let shown = run(dir.path(), &["see", "1"]);
+    let output = String::from_utf8_lossy(&shown.stdout);
+    assert!(output.contains("labels: [new, another]"));
+}
