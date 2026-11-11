@@ -352,6 +352,46 @@ fn yaml11_date(s: &str) -> bool {
         && day.len() == 2 && day.bytes().all(|b| b.is_ascii_digit())
 }
 
+fn yaml11_timestamp(s: &str) -> bool {
+    if yaml11_date(s) { return true; }
+    let Some((date, time)) = s.split_once(|c| c == 'T' || c == 't' || c == ' ' || c == '\\t') else {
+        return false;
+    };
+    let Some((year, rest)) = date.split_once('-') else { return false };
+    let Some((month, day)) = rest.split_once('-') else { return false };
+    if year.len() != 4 || !year.bytes().all(|b| b.is_ascii_digit())
+        || !(1..=2).contains(&month.len()) || !month.bytes().all(|b| b.is_ascii_digit())
+        || !(1..=2).contains(&day.len()) || !day.bytes().all(|b| b.is_ascii_digit()) {
+        return false;
+    }
+    let time = time.trim_start_matches([' ', '\\t']);
+    let time_end = time.find(['.', 'Z', 'z', '+', '-']).unwrap_or(time.len());
+    let clock = &time[..time_end];
+    let mut parts = clock.split(':');
+    let (Some(hour), Some(minute), Some(second)) = (parts.next(), parts.next(), parts.next()) else {
+        return false;
+    };
+    if parts.next().is_some() || !(1..=2).contains(&hour.len())
+        || !hour.bytes().all(|b| b.is_ascii_digit())
+        || minute.len() != 2 || !minute.bytes().all(|b| b.is_ascii_digit())
+        || second.len() != 2 || !second.bytes().all(|b| b.is_ascii_digit()) {
+        return false;
+    }
+    let mut suffix = &time[time_end..];
+    if let Some(fraction) = suffix.strip_prefix('.') {
+        let digits = fraction.bytes().take_while(|b| b.is_ascii_digit()).count();
+        suffix = &fraction[digits..];
+    }
+    suffix = suffix.trim_start_matches([' ', '\\t']);
+    if suffix.is_empty() || suffix == "Z" || suffix == "z" { return true; }
+    let Some(offset) = suffix.strip_prefix('+').or_else(|| suffix.strip_prefix('-')) else {
+        return false;
+    };
+    let (hours, minutes) = offset.split_once(':').unwrap_or((offset, ""));
+    (1..=2).contains(&hours.len()) && hours.bytes().all(|b| b.is_ascii_digit())
+        && (minutes.is_empty() || (minutes.len() == 2 && minutes.bytes().all(|b| b.is_ascii_digit())))
+}
+
 fn yaml_scalar(s: &str) -> String {
     // Match PyYAML's YAML 1.1 implicit scalar types without quoting arbitrary
     // strings that merely begin with a digit (for example, "123abc" or "1e3").
@@ -378,7 +418,7 @@ fn yaml_scalar(s: &str) -> String {
     if exponent_looks_like_string || leading_zero_non_octal {
         return s.to_owned();
     }
-    if yaml11_numeric(s) || yaml11_date(s) || yaml11_boolean_or_null {
+    if yaml11_numeric(s) || yaml11_timestamp(s) || yaml11_boolean_or_null {
         return format!("'{}'", s.replace('\'', "''"));
     }
     serde_yaml::to_string(s)
@@ -871,6 +911,15 @@ mod tests {
         }
         assert_eq!(yaml_scalar("2026-05-01abc"), "2026-05-01abc");
         assert_eq!(yaml_scalar("2026-5-1"), "2026-5-1");
+        for value in [
+            "2026-05-01T17:15:52",
+            "2026-05-01t17:15:52",
+            "2026-05-01 1:02:03Z",
+            "2026-05-01 01:02:03+03:00",
+        ] {
+            assert!(yaml_scalar(value).starts_with('\''), "{value:?} was not quoted");
+        }
+        assert_eq!(yaml_scalar("2026-05-01 01:02:03+0300"), "2026-05-01 01:02:03+0300");
         for value in ["y", "Y", "n", "N"] {
             assert_eq!(yaml_scalar(value), value);
         }
