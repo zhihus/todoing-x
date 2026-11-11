@@ -1,6 +1,7 @@
 use chrono::{Local, NaiveDateTime};
 use serde::{Deserialize, Serialize};
-use std::{collections::HashSet, fs, path::{Path, PathBuf}};
+use std::{collections::HashSet, fs, io::Write, path::{Path, PathBuf}};
+use tempfile::NamedTempFile;
 
 pub const TODOING_DIR: &str = ".todoing";
 pub const TASKS_DIR: &str = "tasks";
@@ -48,10 +49,12 @@ impl Task {
     }
     pub fn format_see(&self) -> String {
         // Match PyYAML's sorted frontmatter key order and block-list representation.
-        let dt = self.added_at.format("%Y-%m-%dT%H:%M:%S").to_string();
+        let base = self.added_at.format("%Y-%m-%dT%H:%M:%S").to_string();
+        let micros = self.added_at.and_utc().timestamp_subsec_micros();
+        let dt = if micros == 0 { base } else { format!("{}.{:06}", base, micros) };
         let labels = self.labels.iter().map(|s| yaml_scalar(s)).collect::<Vec<_>>().join(", ");
-        let mut out = format!("---\\nadded_at: '{}'\\nid: {}\\nlabels: [{}]\\n", dt, self.id, labels);
-        out.push_str(&format!("status: {}\\ntitle: {}\\n---\\n", self.status.as_str(), yaml_scalar(&self.title)));
+        let mut out = format!("---\nadded_at: '{}'\nid: {}\nlabels: [{}]\n", dt, self.id, labels);
+        out.push_str(&format!("status: {}\ntitle: {}\n---\n", self.status.as_str(), yaml_scalar(&self.title)));
         let body = self.body.trim();
         if !body.is_empty() { out.push_str("\n"); out.push_str(body); out.push('\n'); }
         out
@@ -60,11 +63,21 @@ impl Task {
 
 fn yaml_scalar(s: &str) -> String {
     if s.is_empty() { return "''".into(); }
-    if s.chars().any(|c| matches!(c, '\\n' | '\\r' | ':' | '#' | '[' | ']' | '{' | '}' | ',' | '&' | '*' | '!' | '|' | '>' | '\\'' | '"' | '%' | '@' | '`'))
+    if s.chars().any(|c| matches!(c, '\n' | '\\r' | ':' | '#' | '[' | ']' | '{' | '}' | ',' | '&' | '*' | '!' | '|' | '>' | '\\'' | '"' | '%' | '@' | '`'))
         || s.trim() != s || matches!(s.to_lowercase().as_str(), "null" | "true" | "false" | "yes" | "no" | "on" | "off")
     {
         format!("'{}'", s.replace('\'', "''"))
     } else { s.to_string() }
+}
+
+fn atomic_write(path: &Path, content: &[u8]) -> Result<(), String> {
+    let parent = path.parent().ok_or_else(|| format!("Invalid file path: {}", path.display()))?;
+    fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    let mut temp = NamedTempFile::new_in(parent).map_err(|e| e.to_string())?;
+    temp.write_all(content).map_err(|e| e.to_string())?;
+    temp.as_file().sync_all().map_err(|e| e.to_string())?;
+    temp.persist(path).map_err(|e| e.error.to_string())?;
+    Ok(())
 }
 
 pub struct Store {
@@ -112,7 +125,7 @@ impl Store {
     }
     pub fn write_task(&self, task: &Task) -> Result<(), String> {
         self.ensure()?;
-        fs::write(self.task_path(task.id), task.format_see()).map_err(|e| e.to_string())
+        atomic_write(&self.task_path(task.id), task.format_see().as_bytes())
     }
     pub fn delete_task_file(&self, id: i64) -> Result<bool, String> {
         let p = self.task_path(id);
@@ -127,7 +140,7 @@ impl Store {
     pub fn write_index(&self, tasks: &[Task]) -> Result<(), String> {
         self.ensure()?;
         let raw = serde_json::to_string_pretty(tasks).map_err(|e| e.to_string())?;
-        fs::write(&self.index, format!("{}\n", raw)).map_err(|e| e.to_string())
+        atomic_write(&self.index, format!("{}\n", raw).as_bytes())
     }
     pub fn rebuild_index(&self) -> Result<Vec<Task>, String> {
         self.ensure()?;
