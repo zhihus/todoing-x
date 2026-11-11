@@ -434,7 +434,7 @@ impl Store {
                     let mut parsed = Vec::new();
                     for item in items {
                         if let Some(sha) = item.as_str() { parsed.push(sha.to_owned()); }
-                        else { return Ok(None); }
+                        else { return Err(format!("Invalid task commit reference in {}", path.display())); }
                     }
                     parsed
                 }
@@ -521,6 +521,19 @@ mod tests {
             let task = store.read_task(id).unwrap().unwrap();
             assert!(task.labels.is_empty(), "labels value {labels} should become []");
         }
+    }
+
+    #[test]
+    fn invalid_commit_metadata_is_not_silently_skipped() {
+        let dir = tempdir().unwrap();
+        let store = Store::new(dir.path());
+        store.ensure().unwrap();
+        fs::write(
+            store.task_path(1),
+            "---\\nid: 1\\ntitle: task\\nstatus: todo\\nlabels: []\\ncommits: [123]\\n---\\n",
+        ).unwrap();
+
+        assert!(store.read_task(1).unwrap_err().contains("Invalid task commit reference"));
     }
 
     #[test]
