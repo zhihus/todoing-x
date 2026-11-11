@@ -9,7 +9,7 @@ use std::{
 use todoing::{Store, Task, TaskStatus, VERSION};
 
 #[derive(Parser)]
-#[command(name="todoing", version=VERSION, about="Local, git-friendly task manager for AI agents and humans", disable_help_subcommand=true, no_args_is_help=true)]
+#[command(name="todoing", version=VERSION, about="Local, git-friendly task manager for AI agents and humans", disable_help_subcommand=true, arg_required_else_help=true)]
 struct Cli {
     #[arg(long, global=true, help="Emit machine-readable JSON")]
     json: bool,
@@ -179,6 +179,7 @@ fn run() {
         Some(Commands::Add(a)) => {
             let status = TaskStatus::parse(&a.status).unwrap_or_else(|e| fail(e));
             let task = Task::new(store.next_id(), a.title, status, a.labels, a.body);
+            task.validate_for_creation().unwrap_or_else(|e| fail(e));
             run_hook("on-create", &task).unwrap_or_else(|e| fail(e));
             store.write_task(&task).unwrap_or_else(|e| fail(e));
             store.sync_mutation(&task).unwrap_or_else(|e| fail(e));
