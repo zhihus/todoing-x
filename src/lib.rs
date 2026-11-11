@@ -809,6 +809,61 @@ mod tests {
     }
 
     #[test]
+    fn reads_and_rewrites_real_python_task_with_body() {
+        let dir = tempdir().unwrap();
+        let store = Store::new(dir.path());
+        store.ensure().unwrap();
+        let fixture = "---\\nadded_at: '2026-05-01T17:15:52.337350'\\nid: 2\\nlabels: [enhancement]\\nstatus: done\\ntitle: 'skill: package for distribution'\\n---\\n\\nCreate a proper packaging story — pypi, uv tool install, or similar.\\n";
+        fs::write(store.task_path(2), fixture).unwrap();
+
+        let original = store.read_task(2).unwrap().unwrap();
+        assert_eq!(original.title, "skill: package for distribution");
+        assert_eq!(original.body, "Create a proper packaging story — pypi, uv tool install, or similar.");
+        assert_eq!(original.labels, vec!["enhancement"]);
+
+        store.write_task(&original).unwrap();
+        let rewritten = store.read_task(2).unwrap().unwrap();
+        assert_eq!(rewritten, original);
+
+        let mut changed = rewritten;
+        changed.status = TaskStatus::InProgress;
+        changed.body.push_str("\\n\\nImplementation verified.");
+        store.write_task(&changed).unwrap();
+        assert_eq!(store.read_task(2).unwrap().unwrap(), changed);
+    }
+
+    #[test]
+    fn reads_and_rewrites_real_python_task_with_empty_body_and_labels() {
+        let dir = tempdir().unwrap();
+        let store = Store::new(dir.path());
+        store.ensure().unwrap();
+        let fixture = "---\\nadded_at: '2026-05-01T17:15:52.478460'\\nid: 3\\nlabels: [enhancement]\\nstatus: todo\\ntitle: 'skill: shell completion'\\n---\\n";
+        fs::write(store.task_path(3), fixture).unwrap();
+
+        let original = store.read_task(3).unwrap().unwrap();
+        assert_eq!(original.body, "");
+        assert_eq!(original.status, TaskStatus::Todo);
+        store.write_task(&original).unwrap();
+        assert_eq!(store.read_task(3).unwrap().unwrap(), original);
+    }
+
+    #[test]
+    fn reads_real_python_task_with_plain_yaml_title_and_multiline_body() {
+        let dir = tempdir().unwrap();
+        let store = Store::new(dir.path());
+        store.ensure().unwrap();
+        let fixture = "---\\nadded_at: '2026-05-01T17:59:21.359817'\\nid: 5\\nlabels: []\\nstatus: done\\ntitle: implement version subcommand\\n---\\n\\nAdd a version subcommand that prints the current package version from pyproject.toml.\\n";
+        fs::write(store.task_path(5), fixture).unwrap();
+
+        let original = store.read_task(5).unwrap().unwrap();
+        assert_eq!(original.title, "implement version subcommand");
+        assert_eq!(original.labels, Vec::<String>::new());
+        assert!(original.body.starts_with("Add a version subcommand"));
+        store.write_task(&original).unwrap();
+        assert_eq!(store.read_task(5).unwrap().unwrap(), original);
+    }
+
+    #[test]
     fn filter_matches_status_value_case_insensitively() {
         let dir = tempdir().unwrap();
         let store = Store::new(dir.path());
