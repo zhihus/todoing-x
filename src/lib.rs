@@ -413,7 +413,7 @@ impl Store {
                 || value.as_str() == Some("")
                 || value.as_f64() == Some(0.0)
                 || value.as_sequence().is_some_and(Vec::is_empty)
-                || value.as_mapping().is_some_and(std::collections::BTreeMap::is_empty) => Vec::new(),
+                || value.as_mapping().is_some_and(|mapping| mapping.is_empty()) => Vec::new(),
             Some(value) => match value.as_sequence() {
                 Some(items) => {
                     let mut parsed = Vec::new();
