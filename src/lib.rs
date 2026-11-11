@@ -145,8 +145,59 @@ impl From<NaiveDateTime> for TaskDateTime {
     fn from(value: NaiveDateTime) -> Self { Self::Naive(value) }
 }
 
+fn parse_python_json_integer(value: &str) -> Option<i64> {
+    let value = value.trim();
+    let digits = value.strip_prefix(['+', '-']).unwrap_or(value);
+    let chars: Vec<char> = digits.chars().collect();
+    if chars.is_empty() { return None; }
+    for (index, ch) in chars.iter().enumerate() {
+        if *ch == '_' {
+            if index == 0 || index + 1 == chars.len()
+                || !chars[index - 1].is_ascii_digit()
+                || !chars[index + 1].is_ascii_digit()
+            { return None; }
+        } else if !ch.is_ascii_digit() {
+            return None;
+        }
+    }
+    value.replace('_', "").parse::<i64>().ok()
+}
+
+fn deserialize_python_int<'de, D>(deserializer: D) -> Result<i64, D::Error>
+where D: Deserializer<'de> {
+    struct PythonIntVisitor;
+    impl<'de> de::Visitor<'de> for PythonIntVisitor {
+        type Value = i64;
+        fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+            formatter.write_str("an integer compatible with Python/Pydantic int coercion")
+        }
+        fn visit_i64<E>(self, value: i64) -> Result<i64, E> where E: de::Error { Ok(value) }
+        fn visit_u64<E>(self, value: u64) -> Result<i64, E> where E: de::Error {
+            i64::try_from(value).map_err(E::custom)
+        }
+        fn visit_f64<E>(self, value: f64) -> Result<i64, E> where E: de::Error {
+            if value.is_finite() && value.fract() == 0.0 && value >= i64::MIN as f64 && value < -(i64::MIN as f64) {
+                Ok(value as i64)
+            } else {
+                Err(E::custom("float must be a finite whole number within the i64 range"))
+            }
+        }
+        fn visit_str<E>(self, value: &str) -> Result<i64, E> where E: de::Error {
+            parse_python_json_integer(value).ok_or_else(|| E::custom("invalid integer string"))
+        }
+        fn visit_string<E>(self, value: String) -> Result<i64, E> where E: de::Error {
+            self.visit_str(&value)
+        }
+        fn visit_bool<E>(self, value: bool) -> Result<i64, E> where E: de::Error {
+            Ok(i64::from(value))
+        }
+    }
+    deserializer.deserialize_any(PythonIntVisitor)
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct Task {
+    #[serde(deserialize_with = "deserialize_python_int")]
     pub id: i64,
     pub title: String,
     #[serde(default = "default_added_at")]
@@ -636,6 +687,31 @@ mod tests {
         store.ensure().unwrap();
         fs::write(store.task_path(1), "---\nid: 1\ntitle: task\nstatus: null\n---\n").unwrap();
         assert!(store.read_task(1).is_err());
+    }
+
+
+    #[test]
+    fn json_index_id_coercion_matches_pydantic_v2() {
+        let dir = tempdir().unwrap();
+        let store = Store::new(dir.path());
+        for (raw, expected) in [
+            (r#"[{"id":"12","title":"task"}]"#, 12),
+            (r#"[{"id":"1_000","title":"task"}]"#, 1000),
+            (r#"[{"id":12.0,"title":"task"}]"#, 12),
+            (r#"[{"id":true,"title":"task"}]"#, 1),
+        ] {
+            fs::write(&store.index, raw).unwrap();
+            let tasks = store.read_index().unwrap();
+            assert_eq!(tasks[0].id, expected, "input: {raw}");
+        }
+        for raw in [
+            r#"[{"id":12.5,"title":"task"}]"#,
+            r#"[{"id":"١٢","title":"task"}]"#,
+            r#"[{"id":null,"title":"task"}]"#,
+        ] {
+            fs::write(&store.index, raw).unwrap();
+            assert!(store.read_index().is_err(), "input should be rejected: {raw}");
+        }
     }
 
     #[test]
