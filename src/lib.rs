@@ -484,6 +484,24 @@ mod tests {
     }
 
     #[test]
+    fn index_wrong_top_level_shape_rebuilds_like_python() {
+        let dir = tempdir().unwrap();
+        let store = Store::new(dir.path());
+        store.write_task(&task(4, "from markdown")).unwrap();
+        fs::write(&store.index, r#"{"not":"an array"}"#).unwrap();
+        assert_eq!(store.read_index().unwrap()[0].title, "from markdown");
+    }
+
+    #[test]
+    fn index_task_validation_errors_are_not_silently_rebuilt() {
+        let dir = tempdir().unwrap();
+        let store = Store::new(dir.path());
+        store.write_task(&task(4, "from markdown")).unwrap();
+        fs::write(&store.index, r#"[{"id":4,"title":"bad","status":"blocked"}]"#).unwrap();
+        assert!(store.read_index().is_err());
+    }
+
+    #[test]
     fn list_format_matches_reference() {
         assert_eq!(task(5, "write docs").format_list(), "(#5) [p1] {⏳} write docs");
     }
