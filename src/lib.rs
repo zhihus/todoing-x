@@ -334,8 +334,8 @@ fn yaml11_date(s: &str) -> bool {
     let Some((year, rest)) = s.split_once('-') else { return false };
     let Some((month, day)) = rest.split_once('-') else { return false };
     year.len() == 4 && year.bytes().all(|b| b.is_ascii_digit())
-        && !month.is_empty() && month.len() <= 2 && month.bytes().all(|b| b.is_ascii_digit())
-        && !day.is_empty() && day.len() <= 2 && day.bytes().all(|b| b.is_ascii_digit())
+        && month.len() == 2 && month.bytes().all(|b| b.is_ascii_digit())
+        && day.len() == 2 && day.bytes().all(|b| b.is_ascii_digit())
 }
 
 fn yaml_scalar(s: &str) -> String {
@@ -853,6 +853,7 @@ mod tests {
             assert_eq!(yaml_scalar(value), value);
         }
         assert_eq!(yaml_scalar("2026-05-01abc"), "2026-05-01abc");
+        assert_eq!(yaml_scalar("2026-5-1"), "2026-5-1");
         for value in ["12:34", "1:20.5", "0x10", "0b10"] {
             assert!(yaml_scalar(value).starts_with('\''), "{value:?} was not quoted");
         }
