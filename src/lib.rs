@@ -300,6 +300,26 @@ mod tests {
     }
 
     #[test]
+    fn reads_task_file_written_by_original_python_version() {
+        let dir = tempdir().unwrap();
+        let store = Store::new(dir.path());
+        store.ensure().unwrap();
+        let fixture = "---\nadded_at: '2026-05-01T17:15:52.337350'\nid: 2\nlabels: [enhancement]\nstatus: done\ntitle: 'skill: package for distribution'\n---\n\nCreate a proper packaging story.\n";
+        fs::write(store.task_path(2), fixture).unwrap();
+
+        let task = store.read_task(2).unwrap().unwrap();
+        assert_eq!(task.id, 2);
+        assert_eq!(task.title, "skill: package for distribution");
+        assert_eq!(task.status, TaskStatus::Done);
+        assert_eq!(task.labels, vec!["enhancement"]);
+        assert_eq!(task.body, "Create a proper packaging story.");
+        assert_eq!(
+            task.added_at,
+            NaiveDateTime::parse_from_str("2026-05-01T17:15:52.337350", "%Y-%m-%dT%H:%M:%S%.f").unwrap()
+        );
+    }
+
+    #[test]
     fn frontmatter_round_trip() {
         let dir = tempdir().unwrap();
         let store = Store::new(dir.path());
