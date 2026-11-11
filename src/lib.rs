@@ -296,9 +296,9 @@ fn yaml11_numeric(s: &str) -> bool {
     let integer = unsigned == "0"
         || (unsigned.starts_with('0') && unsigned.len() > 1
             && unsigned.bytes().all(|b| matches!(b, b'0'..=b'7' | b'_')))
-        || unsigned.strip_prefix("0x").or_else(|| unsigned.strip_prefix("0X"))
+        || unsigned.strip_prefix("0x")
             .is_some_and(|v| !v.is_empty() && v.bytes().all(|b| b.is_ascii_hexdigit() || b == b'_'))
-        || unsigned.strip_prefix("0b").or_else(|| unsigned.strip_prefix("0B"))
+        || unsigned.strip_prefix("0b")
             .is_some_and(|v| !v.is_empty() && v.bytes().all(|b| matches!(b, b'0' | b'1' | b'_')))
         || (unsigned.as_bytes().first().is_some_and(|b| (b'1'..=b'9').contains(b))
             && digits(unsigned));
@@ -856,6 +856,9 @@ mod tests {
         assert_eq!(yaml_scalar("2026-5-1"), "2026-5-1");
         for value in ["12:34", "1:20.5", "0x10", "0b10"] {
             assert!(yaml_scalar(value).starts_with('\''), "{value:?} was not quoted");
+        }
+        for value in ["0X10", "0B10"] {
+            assert_eq!(yaml_scalar(value), value);
         }
 
         let dir = tempdir().unwrap();
