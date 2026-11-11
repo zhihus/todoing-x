@@ -136,6 +136,31 @@ fn legacy_cli_keeps_original_output_order_and_filters() {
     assert!(reversed.lines().next().unwrap().contains("first"));
 }
 
+#[cfg(unix)]
+#[test]
+fn edit_opens_existing_task_file_even_if_frontmatter_is_malformed() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = tempdir().unwrap();
+    let tasks = dir.path().join(".todoing/tasks");
+    fs::create_dir_all(&tasks).unwrap();
+    fs::write(tasks.join("1.md"), "malformed existing task").unwrap();
+
+    let editor = dir.path().join("editor.sh");
+    fs::write(&editor, "#!/bin/sh\\nexit 0\\n").unwrap();
+    let mut permissions = fs::metadata(&editor).unwrap().permissions();
+    permissions.set_mode(0o755);
+    fs::set_permissions(&editor, permissions).unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_todoing"))
+        .current_dir(dir.path())
+        .env("EDITOR", &editor)
+        .args(["edit", "1"])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+}
+
 #[test]
 fn negative_list_limit_is_treated_as_unlimited() {
     let dir = tempdir().unwrap();
