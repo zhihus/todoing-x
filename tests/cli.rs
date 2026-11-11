@@ -1,5 +1,6 @@
 use serde_json::Value;
-use std::{fs, io::Write, path::Path, process::Command};
+use std::{fs, path::Path, process::Command};
+use std::io::Write;
 use tempfile::tempdir;
 
 fn run(root: &Path, args: &[&str]) -> std::process::Output {
@@ -153,7 +154,7 @@ fn body_append_and_label_operations_persist() {
 #[test]
 fn task_creation_rejects_blank_required_title_without_writing_files() {
     let dir = tempdir().unwrap();
-    for title in ["", "   ", "\\t\\n"] {
+    for title in ["", "   ", "\t\n"] {
         let rejected = run(dir.path(), &["add", title]);
         assert!(!rejected.status.success());
         assert!(String::from_utf8_lossy(&rejected.stderr).contains("Task title cannot be empty"));
