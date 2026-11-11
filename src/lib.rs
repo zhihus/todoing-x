@@ -305,7 +305,7 @@ impl Store {
             },
         };
         let added_at = match get("added_at") {
-            None => Local::now().naive_local(),
+            None => TaskDateTime::Naive(Local::now().naive_local()),
             Some(value) => match value.as_str().and_then(|s| TaskDateTime::parse_iso(s).ok()) {
                 Some(value) => value,
                 None => return Ok(None),
