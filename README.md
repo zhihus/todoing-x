@@ -4,12 +4,29 @@ Rust implementation of [the original Python todoing](https://github.com/bllyanos
 
 The Python project is the compatibility baseline: existing commands, task files, index format, status model, and normal output remain supported. Rust adds validation, atomic writes, a JSON interface, Git commit references, and lifecycle gates.
 
+## Install
+
+Requires Rust and Cargo. Install directly from GitHub:
+
+```bash
+cargo install --git https://github.com/zhihus/todoing-x
+```
+
+Verify with `todoing --help` and `todoing version`. Cargo's binary directory (`~/.cargo/bin` or `%USERPROFILE%\\.cargo\\bin`) must be on `PATH`.
+
 ## Build
 
 ```bash
 cargo build --release
 cargo test
 ```
+
+## Agent skills
+
+The repository includes two skills under `.agents/skills/`:
+
+- `todoing` — CLI reference and task-management workflow for AI agents.
+- `todoing-install` — installation and project-onboarding instructions.
 
 ## Compatible CLI
 
