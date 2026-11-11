@@ -928,6 +928,13 @@ mod tests {
     }
 
     #[test]
+    fn format_see_matches_python_sorted_frontmatter_and_body_spacing() {
+        let original = task(1, "sample task");
+        let expected = "---\nadded_at: '2026-05-01T10:00:00'\nid: 1\nlabels: [p1]\nstatus: todo\ntitle: sample task\n---\n\ndetails\n";
+        assert_eq!(original.format_see(), expected);
+    }
+
+    #[test]
     fn frontmatter_round_trip() {
         let dir = tempdir().unwrap();
         let store = Store::new(dir.path());
