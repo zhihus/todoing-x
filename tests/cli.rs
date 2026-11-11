@@ -1,5 +1,5 @@
 use serde_json::Value;
-use std::{fs, path::Path, process::Command};
+use std::{fs, io::Write, path::Path, process::Command};
 use tempfile::tempdir;
 
 fn run(root: &Path, args: &[&str]) -> std::process::Output {
