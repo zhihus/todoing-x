@@ -429,6 +429,20 @@ fn run_with_input(root: &Path, args: &[&str], input: &str) -> std::process::Outp
     child.wait_with_output().unwrap()
 }
 
+
+#[test]
+fn help_preserves_original_command_surface_and_adds_only_commit_extension() {
+    let dir = tempdir().unwrap();
+    let output = run(dir.path(), &["--help"]);
+    assert!(output.status.success());
+    let help = String::from_utf8_lossy(&output.stdout);
+    for command in ["add", "ls", "see", "edit", "body", "append", "status", "label", "delete", "reindex", "version", "commit"] {
+        assert!(help.lines().any(|line| line.trim_start().starts_with(command)), "missing {command} in help: {help}");
+    }
+    assert!(!help.lines().any(|line| line.trim_start().starts_with("search ")));
+    assert!(help.contains("--json"));
+}
+
 #[test]
 fn legacy_cli_keeps_original_output_order_and_filters() {
     let dir = tempdir().unwrap();
