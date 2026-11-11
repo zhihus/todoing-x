@@ -493,6 +493,15 @@ mod tests {
     }
 
     #[test]
+    fn index_missing_required_key_rebuilds_like_python() {
+        let dir = tempdir().unwrap();
+        let store = Store::new(dir.path());
+        store.write_task(&task(4, "from markdown")).unwrap();
+        fs::write(&store.index, r#"[{"id":4}]"#).unwrap();
+        assert_eq!(store.read_index().unwrap()[0].title, "from markdown");
+    }
+
+    #[test]
     fn index_task_validation_errors_are_not_silently_rebuilt() {
         let dir = tempdir().unwrap();
         let store = Store::new(dir.path());
