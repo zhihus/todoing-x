@@ -838,3 +838,40 @@ fn legacy_cli_accepts_every_original_status_value() {
     let task: Value = serde_json::from_slice(&shown.stdout).unwrap();
     assert_eq!(task["status"], "done");
 }
+#[cfg(unix)]
+#[test]
+fn add_done_rejects_before_running_on_create_hook() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = tempdir().unwrap();
+    let hooks = dir.path().join(".todoing/hooks");
+    fs::create_dir_all(&hooks).unwrap();
+    let marker = dir.path().join("hook-ran");
+    let hook = hooks.join("on-create");
+    fs::write(&hook, format!("#!/bin/sh\ntouch '{}'\n", marker.display())).unwrap();
+    let mut permissions = fs::metadata(&hook).unwrap().permissions();
+    permissions.set_mode(0o755);
+    fs::set_permissions(&hook, permissions).unwrap();
+
+    let rejected = run(dir.path(), &["add", "invalid done task", "--status", "done"]);
+    assert!(!rejected.status.success());
+    assert!(!marker.exists(), "on-create must not run for a task rejected by built-in completion validation");
+    assert!(!dir.path().join(".todoing/tasks/1.md").exists());
+}
+
+#[cfg(windows)]
+#[test]
+fn add_done_rejects_before_running_on_create_cmd_hook() {
+    let dir = tempdir().unwrap();
+    let hooks = dir.path().join(".todoing/hooks");
+    fs::create_dir_all(&hooks).unwrap();
+    let marker = dir.path().join("hook-ran");
+    let hook = hooks.join("on-create.cmd");
+    fs::write(&hook, format!("@echo off\necho ran > \"{}\"\r\n", marker.display())).unwrap();
+
+    let rejected = run(dir.path(), &["add", "invalid done task", "--status", "done"]);
+    assert!(!rejected.status.success());
+    assert!(!marker.exists(), "on-create must not run for a task rejected by built-in completion validation");
+    assert!(!dir.path().join(".todoing/tasks/1.md").exists());
+}
+
