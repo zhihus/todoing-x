@@ -48,6 +48,11 @@ impl TaskDateTime {
         if let Ok(value) = NaiveDateTime::parse_from_str(&normalized, "%Y-%m-%dT%H:%M:%S") {
             return Ok(Self::Naive(value));
         }
+        if let Ok(date) = chrono::NaiveDate::parse_from_str(&normalized, "%Y-%m-%d") {
+            if let Some(value) = date.and_hms_opt(0, 0, 0) {
+                return Ok(Self::Naive(value));
+            }
+        }
         DateTime::parse_from_rfc3339(&normalized)
             .map(Self::Offset)
             .map_err(|e| e.to_string())
@@ -611,6 +616,12 @@ mod tests {
 
         let whole = TaskDateTime::parse_iso("2026-05-01T17:15:52+00:00").unwrap();
         assert_eq!(whole.isoformat(), "2026-05-01T17:15:52+00:00");
+    }
+
+    #[test]
+    fn yaml_date_only_added_at_matches_python_midnight_datetime() {
+        let value = TaskDateTime::parse_iso("2026-05-01").unwrap();
+        assert_eq!(value.isoformat(), "2026-05-01T00:00:00");
     }
 
     #[test]
