@@ -52,6 +52,51 @@ fn json_interface_covers_task_reads_and_mutations() {
 }
 
 #[test]
+fn json_interface_covers_remaining_commands() {
+    let dir = tempdir().unwrap();
+    git(dir.path(), &["init", "-q"]);
+    git(dir.path(), &["config", "user.email", "todoing-test@example.invalid"]);
+    git(dir.path(), &["config", "user.name", "Todoing Test"]);
+    fs::write(dir.path().join("tracked.txt"), "initial").unwrap();
+    git(dir.path(), &["add", "tracked.txt"]);
+    git(dir.path(), &["commit", "-m", "initial"]);
+
+    let added = run(dir.path(), &["--json", "add", "json workflow"]);
+    assert!(added.status.success());
+    let _: Value = serde_json::from_slice(&added.stdout).unwrap();
+
+    let body = run(dir.path(), &["body", "1", "first paragraph", "--json"]);
+    assert!(body.status.success());
+    let task: Value = serde_json::from_slice(&body.stdout).unwrap();
+    assert_eq!(task["body"], "first paragraph");
+
+    let appended = run(dir.path(), &["append", "1", "second paragraph", "--json"]);
+    assert!(appended.status.success());
+    let task: Value = serde_json::from_slice(&appended.stdout).unwrap();
+    assert_eq!(task["body"], "first paragraph\\n\\nsecond paragraph");
+
+    let labeled = run(dir.path(), &["label", "1", "+agent", "--json"]);
+    assert!(labeled.status.success());
+    let task: Value = serde_json::from_slice(&labeled.stdout).unwrap();
+    assert_eq!(task["labels"][0], "agent");
+
+    let linked = run(dir.path(), &["commit", "1", "HEAD", "--json"]);
+    assert!(linked.status.success());
+    let task: Value = serde_json::from_slice(&linked.stdout).unwrap();
+    assert_eq!(task["commits"].as_array().unwrap().len(), 1);
+
+    let rebuilt = run(dir.path(), &["reindex", "--json"]);
+    assert!(rebuilt.status.success());
+    let tasks: Value = serde_json::from_slice(&rebuilt.stdout).unwrap();
+    assert_eq!(tasks.as_array().unwrap().len(), 1);
+
+    let version = run(dir.path(), &["version", "--json"]);
+    assert!(version.status.success());
+    let version: Value = serde_json::from_slice(&version.stdout).unwrap();
+    assert!(version["version"].is_string());
+}
+
+#[test]
 fn completion_requires_git_commit_and_all_active_openspec_tasks() {
     let dir = tempdir().unwrap();
     git(dir.path(), &["init", "-q"]);
