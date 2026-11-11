@@ -895,6 +895,35 @@ mod tests {
     }
 
     #[test]
+    fn reads_and_rewrites_remaining_real_python_task_fixture() {
+        let dir = tempdir().unwrap();
+        let store = Store::new(dir.path());
+        store.ensure().unwrap();
+        let fixture = "---\\nadded_at: '2026-05-01T18:02:52.413510'\\nid: 8\\nlabels: []\\nstatus: todo\\ntitle: support table rendering for todoing ls --table\\n---\\n";
+        fs::write(store.task_path(8), fixture).unwrap();
+
+        let original = store.read_task(8).unwrap().unwrap();
+        assert_eq!(original.title, "support table rendering for todoing ls --table");
+        assert_eq!(original.body, "");
+        store.write_task(&original).unwrap();
+        assert_eq!(store.read_task(8).unwrap().unwrap(), original);
+    }
+
+    #[test]
+    fn task_body_can_contain_frontmatter_delimiter() {
+        let dir = tempdir().unwrap();
+        let store = Store::new(dir.path());
+        store.ensure().unwrap();
+        let fixture = "---\\nid: 10\\ntitle: delimiter\\nstatus: todo\\nlabels: []\\n---\\nBefore\\n---\\nAfter\\n";
+        fs::write(store.task_path(10), fixture).unwrap();
+
+        let original = store.read_task(10).unwrap().unwrap();
+        assert_eq!(original.body, "Before\\n---\\nAfter");
+        store.write_task(&original).unwrap();
+        assert_eq!(store.read_task(10).unwrap().unwrap(), original);
+    }
+
+    #[test]
     fn filter_matches_status_value_case_insensitively() {
         let dir = tempdir().unwrap();
         let store = Store::new(dir.path());
