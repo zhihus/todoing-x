@@ -60,7 +60,7 @@ impl Task {
 
 fn yaml_scalar(s: &str) -> String {
     if s.is_empty() { return "''".into(); }
-    if s.contains(['\n', '\r', ':', '#', '[', ']', '{', '}', ',', '&', '*', '!', '|', '>', '\'', '"', '%', '@', '`'])
+    if s.chars().any(|c| matches!(c, '\\n' | '\\r' | ':' | '#' | '[' | ']' | '{' | '}' | ',' | '&' | '*' | '!' | '|' | '>' | '\\'' | '"' | '%' | '@' | '`'))
         || s.trim() != s || matches!(s.to_lowercase().as_str(), "null" | "true" | "false" | "yes" | "no" | "on" | "off")
     {
         format!("'{}'", s.replace('\'', "''"))
