@@ -48,6 +48,13 @@ impl Task {
         let added_at = now.with_nanosecond((now.nanosecond() / 1_000) * 1_000).unwrap_or(now);
         Self { id, title, added_at, status, labels, body, commits: Vec::new() }
     }
+    pub fn validate_for_creation(&self) -> Result<(), String> {
+        if self.title.trim().is_empty() {
+            return Err("Task title cannot be empty".into());
+        }
+        Ok(())
+    }
+
     pub fn validate(&self) -> Result<(), String> {
         if self.id <= 0 { return Err(format!("Invalid task ID: {}", self.id)); }
         if self.commits.iter().any(|sha| sha.trim().is_empty()) {
