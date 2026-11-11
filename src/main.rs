@@ -156,7 +156,7 @@ fn validate_before_done(task: &Task) -> Result<(), String> {
     if changes.is_dir() {
         let entries = fs::read_dir(&changes).map_err(|e| e.to_string())?;
         for entry in entries.flatten().filter(|e| e.path().is_dir()) {
-            if entry.file_name() == "archive" { continue; }
+            if entry.file_name().to_string_lossy() == "archive" { continue; }
             let tasks_file = entry.path().join("tasks.md");
             if !tasks_file.is_file() { continue; }
             let contents = fs::read_to_string(&tasks_file).map_err(|e| e.to_string())?;
@@ -252,7 +252,7 @@ fn run() {
         Some(Commands::Commit(a)) => {
             let (_, mut task) = task_or_fail(&store, &a.id);
             let spec = format!("{}^{{commit}}", a.sha);
-            let output = Command::new("git").args(["rev-parse", "--verify", &spec]).output()
+            let output = Command::new("git").arg("rev-parse").arg("--verify").arg(&spec).output()
                 .unwrap_or_else(|e| fail(format!("Cannot run git: {}", e)));
             if !output.status.success() { fail(format!("'{}' is not a valid Git commit in this repository.", a.sha)); }
             let sha = String::from_utf8_lossy(&output.stdout).trim().to_string();
