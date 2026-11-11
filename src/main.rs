@@ -147,8 +147,8 @@ fn validate_before_done(task: &Task) -> Result<(), String> {
     }
     for sha in &task.commits {
         let spec = format!("{}^{{commit}}", sha);
-        let valid = Command::new("git").arg("cat-file").arg("-e").arg(&spec).status()
-            .map(|s| s.success()).unwrap_or(false);
+        let valid = Command::new("git").arg("cat-file").arg("-e").arg(&spec).output()
+            .map(|output| output.status.success()).unwrap_or(false);
         if !valid {
             return Err(format!("Linked Git commit '{}' is not available in this repository.", sha));
         }
