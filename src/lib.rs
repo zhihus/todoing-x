@@ -156,6 +156,10 @@ fn yaml_scalar(s: &str) -> String {
     let bytes = s.as_bytes();
     let numeric_prefix = bytes.first().is_some_and(u8::is_ascii_digit)
         || (matches!(bytes.first(), Some(b'+') | Some(b'-'))
+            && (bytes.get(1).is_some_and(u8::is_ascii_digit)
+                || (bytes.get(1) == Some(&b'.')
+                    && bytes.get(2).is_some_and(u8::is_ascii_digit))))
+        || (bytes.first() == Some(&b'.')
             && bytes.get(1).is_some_and(u8::is_ascii_digit));
     let yaml11_boolean_or_null = matches!(
         lower.as_str(),
@@ -532,7 +536,7 @@ mod tests {
 
     #[test]
     fn yaml_scalar_preserves_python_yaml_11_string_types() {
-        for value in ["123", "01", "yes", "NO", "on", "off", "null", "~", "2026-05-01", "1e3"] {
+        for value in ["123", "01", "yes", "NO", "on", "off", "null", "~", "2026-05-01", "1e3", ".5", "+.5", "-.5"] {
             let serialized = yaml_scalar(value);
             assert!(serialized.starts_with('\''), "{value:?} was not quoted: {serialized}");
         }
