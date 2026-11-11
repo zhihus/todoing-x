@@ -185,7 +185,6 @@ fn run() {
             run_hook("on-create", &task).unwrap_or_else(|e| fail(e));
             if task.status == TaskStatus::Done {
                 validate_before_done(&task).unwrap_or_else(|e| fail(e));
-                run_hook("before-done", &task).unwrap_or_else(|e| fail(e));
             }
             store.write_task(&task).unwrap_or_else(|e| fail(e));
             store.sync_mutation(&task).unwrap_or_else(|e| fail(e));
