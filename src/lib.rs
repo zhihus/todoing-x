@@ -516,7 +516,7 @@ mod tests {
         store.ensure().unwrap();
 
         for (id, labels) in [(1, "null"), (2, "false"), (3, "0"), (4, "''"), (5, "{}"), (6, "[]")] {
-            let contents = format!("---\\nid: {id}\\ntitle: task\\nstatus: todo\\nlabels: {labels}\\n---\\n");
+            let contents = format!("---\nid: {id}\ntitle: task\nstatus: todo\nlabels: {labels}\n---\n");
             fs::write(store.task_path(id), contents).unwrap();
             let task = store.read_task(id).unwrap().unwrap();
             assert!(task.labels.is_empty(), "labels value {labels} should become []");
