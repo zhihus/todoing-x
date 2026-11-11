@@ -121,7 +121,8 @@ fn completion_checks_every_active_change_and_ignores_archive() {
 
     let rejected = run(dir.path(), &["status", "1", "done"]);
     assert!(!rejected.status.success());
-    assert!(String::from_utf8_lossy(&rejected.stderr).contains("active-two/tasks.md"));
+    let error = String::from_utf8_lossy(&rejected.stderr);
+    assert!(error.contains("active-two") && error.contains("tasks.md"));
 
     fs::write(&active_tasks, "- [X] completed task\n").unwrap();
     let accepted = run(dir.path(), &["status", "1", "done"]);
