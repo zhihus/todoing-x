@@ -95,7 +95,7 @@ The command resolves the supplied revision to a full commit SHA and stores it in
 Optional executable hooks live in `.todoing/hooks/`:
 
 - `on-create` — invoked before a new task is written.
-- `before-done` — invoked before a task transitions to `done`.
+- `before-done` — invoked whenever a task is marked `done`, including creation with an initial `done` status.
 
 The task JSON is sent to the hook's standard input. Exit code 0 allows the operation; any non-zero exit code rejects it. On Windows, use `.cmd` or `.bat` suffixes; on Unix-like systems, use executable files named exactly `on-create` and `before-done`.
 
