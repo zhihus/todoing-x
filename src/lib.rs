@@ -278,6 +278,21 @@ impl Task {
 fn yaml11_numeric(s: &str) -> bool {
     let unsigned = s.strip_prefix('+').or_else(|| s.strip_prefix('-')).unwrap_or(s);
     let digits = |value: &str| !value.is_empty() && value.bytes().all(|b| b.is_ascii_digit() || b == b'_');
+    let sexagesimal = || {
+        let parts: Vec<&str> = unsigned.split(':').collect();
+        if parts.len() < 2 || !parts[0].as_bytes().first().is_some_and(|b| (b'1'..=b'9').contains(b))
+            || !digits(parts[0]) {
+            return false;
+        }
+        parts[1..].iter().enumerate().all(|(index, part)| {
+            let last = index == parts.len() - 2;
+            let (whole, fraction) = if last { part.split_once('.') } else { None }.unwrap_or((part, ""));
+            let valid_whole = whole.len() <= 2 && whole.bytes().all(|b| b.is_ascii_digit())
+                && whole.parse::<u8>().is_ok_and(|n| n <= 59);
+            valid_whole && (fraction.is_empty() || (last && fraction.bytes().all(|b| b.is_ascii_digit() || b == b'_')))
+        })
+    };
+    if sexagesimal() { return true; }
     let integer = unsigned == "0"
         || (unsigned.starts_with('0') && unsigned.len() > 1
             && unsigned.bytes().all(|b| matches!(b, b'0'..=b'7' | b'_')))
