@@ -238,8 +238,8 @@ fn run() {
             let mut adds = Vec::new();
             let mut removes = Vec::new();
             for op in a.ops {
-                if let Some(v) = op.strip_prefix('+') { if v.is_empty() { fail("Label cannot be empty."); } adds.push(v.to_string()); }
-                else if let Some(v) = op.strip_prefix('-') { if v.is_empty() { fail("Label cannot be empty."); } removes.push(v.to_string()); }
+                if let Some(v) = op.strip_prefix('+') { adds.push(v.to_string()); }
+                else if let Some(v) = op.strip_prefix('-') { removes.push(v.to_string()); }
                 else { fail(format!("Invalid label operation '{}'. Use +label to add or -label to remove.", op)); }
             }
             for r in removes { if let Some(pos) = current.iter().position(|x| x == &r) { current.remove(pos); } }
