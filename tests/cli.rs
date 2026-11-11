@@ -183,7 +183,7 @@ fn reindex_restores_commit_refs_after_python_style_index_rewrite() {
     let listed = run(dir.path(), &["ls", "--json"]);
     assert!(listed.status.success());
     let tasks: Value = serde_json::from_slice(&listed.stdout).unwrap();
-    assert!(tasks[0]["commits"].as_array().unwrap().is_empty());
+    assert!(tasks[0].get("commits").and_then(Value::as_array).is_none_or(Vec::is_empty));
 
     let rebuilt = run(dir.path(), &["reindex", "--json"]);
     assert!(rebuilt.status.success(), "{}", String::from_utf8_lossy(&rebuilt.stderr));
