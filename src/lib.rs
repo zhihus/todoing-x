@@ -150,6 +150,21 @@ impl Task {
 }
 
 fn yaml_scalar(s: &str) -> String {
+    // PyYAML uses YAML 1.1 implicit scalar resolution (yes/no/on/off,
+    // dates, numbers, etc.). Quote these strings so Python keeps them as str.
+    let lower = s.to_ascii_lowercase();
+    let bytes = s.as_bytes();
+    let numeric_prefix = bytes.first().is_some_and(u8::is_ascii_digit)
+        || (matches!(bytes.first(), Some(b'+') | Some(b'-'))
+            && bytes.get(1).is_some_and(u8::is_ascii_digit));
+    let yaml11_boolean_or_null = matches!(
+        lower.as_str(),
+        "y" | "yes" | "n" | "no" | "true" | "false" | "on" | "off" | "null" | "~"
+            | ".inf" | "+.inf" | "-.inf" | ".nan"
+    );
+    if numeric_prefix || yaml11_boolean_or_null {
+        return format!("'{}'", s.replace('\'', "''"));
+    }
     serde_yaml::to_string(s)
         .map(|yaml| yaml.trim_end().to_string())
         .unwrap_or_else(|_| format!("{:?}", s))
@@ -516,13 +531,20 @@ mod tests {
     }
 
     #[test]
-    fn yaml_scalar_preserves_numeric_and_special_titles_as_strings() {
+    fn yaml_scalar_preserves_python_yaml_11_string_types() {
+        for value in ["123", "01", "yes", "NO", "on", "off", "null", "~", "2026-05-01", "1e3"] {
+            let serialized = yaml_scalar(value);
+            assert!(serialized.starts_with('\''), "{value:?} was not quoted: {serialized}");
+        }
+
         let dir = tempdir().unwrap();
         let store = Store::new(dir.path());
-        let original = task(12, "123");
-        store.write_task(&original).unwrap();
-        let restored = store.read_task(12).unwrap().unwrap();
-        assert_eq!(restored.title, "123");
+        for (id, value) in ["yes", "on", "2026-05-01"].into_iter().enumerate() {
+            let original = task(id as i64 + 12, value);
+            store.write_task(&original).unwrap();
+            let restored = store.read_task(original.id).unwrap().unwrap();
+            assert_eq!(restored.title, value);
+        }
     }
 
     #[test]
