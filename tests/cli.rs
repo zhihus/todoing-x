@@ -166,6 +166,17 @@ fn task_creation_rejects_blank_required_title_without_writing_files() {
 }
 
 #[test]
+fn label_no_clear_option_preserves_existing_labels() {
+    let dir = tempdir().unwrap();
+    assert!(run(dir.path(), &["add", "labels", "-l", "existing"]).status.success());
+    let changed = run(dir.path(), &["label", "1", "+new", "--no-clear"]);
+    assert!(changed.status.success());
+    let shown = run(dir.path(), &["see", "1"]);
+    let text = String::from_utf8_lossy(&shown.stdout);
+    assert!(text.contains("labels: [existing, new]"));
+}
+
+#[test]
 fn invalid_status_and_identifier_are_rejected() {
     let dir = tempdir().unwrap();
     let bad_status = run(dir.path(), &["add", "invalid", "-s", "blocked"]);
