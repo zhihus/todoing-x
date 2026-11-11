@@ -5,7 +5,7 @@ description: Use the `todoing` CLI for local task management. Track, list, searc
 
 # todoing
 
-`todoing` is a local CLI task manager. Tasks live in `.todoing/tasks/{id}.md`, with a rebuildable JSON index at `.todoing/index.json`. Everything is Git-trackable plain text.
+`todoing` is a local CLI task manager. Tasks live in `.todoing/tasks/{id}.md`, with a rebuildable JSON index at `.todoing/index.json`. Everything is Git-trackable plain text; there are no databases or servers.
 
 Run commands from the repository root so the correct `.todoing/` directory is used. It is created automatically when needed.
 
@@ -67,7 +67,7 @@ todoing reindex
 todoing version
 ```
 
-Use `body` to replace the description and `append` to add a paragraph. `edit` opens the task file in `$EDITOR`; use `body`/`append` in non-interactive agent workflows. Label operations use `+label` to add and `-label` to remove; put `--` before removal operations when required by the CLI parser.
+Use `body` to replace the description and `append` to add a paragraph. `edit` opens the task file in `$EDITOR`; in non-interactive agent workflows, use `body`/`append` instead. Label operations use `+label` to add and `-label` to remove; put `--` before removal operations when required by the CLI parser.
 
 ### Link Git commits
 
@@ -101,18 +101,56 @@ Optional hooks are stored in `.todoing/hooks/`:
 
 Exit code 0 allows the operation; a non-zero exit code rejects it. On Unix, use executable files named exactly `on-create` and `before-done`. On Windows, use `.cmd` or `.bat` files.
 
-## Agent workflow
+## Common workflows for AI agents
+
+### Start working on a task
 
 ```bash
-todoing ls -s todo -n 10
 todoing status 3 in_progress
-todoing append 3 "Investigating the failure."
-# Make changes and run the required checks.
+todoing append 3 "Starting work: investigating the issue."
+```
+
+### Log progress
+
+```bash
+todoing append 3 "Fixed the race condition in the connection pool."
+```
+
+### Complete a task
+
+```bash
+todoing append 3 "Implementation complete; all required checks pass."
 todoing commit 3 HEAD
 todoing status 3 done
 ```
 
+The final status transition is allowed only after built-in completion checks and configured hooks pass.
+
+### Check what needs attention
+
+```bash
+todoing ls -s todo -n 10
+todoing ls -s in_progress
+todoing ls -l p0
+```
+
+### Create and search
+
+```bash
+todoing add "Refactor auth module" -l enhancement -s in_progress -b "Current approach is brittle."
+todoing ls -q "auth"
+```
+
+## AI-agent usage
+
 - Use the CLI rather than reading `.todoing/` files directly. Read files directly only to diagnose a broken store or CLI.
+- Avoid `todoing edit` in non-interactive agent workflows; use `body` and `append`.
 - Use `--force` with `delete` to avoid an interactive prompt.
-- Record useful progress and handoff context in the task body.
+- The task body is full Markdown. Use it for plans, research notes, links, logs, and handoff context.
+- Record progress in the task body so another agent can resume the work.
 - Do not mark a task done until its work is complete and the built-in completion checks and configured hook pass.
+- If the index is missing or inconsistent, use `todoing reindex`.
+
+## Self-dogfooding
+
+Todoing tracks its own development. When working in the todoing repository, run `todoing ls -n 5` to inspect the latest tasks before starting work.
