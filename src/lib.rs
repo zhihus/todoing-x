@@ -42,28 +42,51 @@ pub enum TaskDateTime {
     Offset(DateTime<FixedOffset>),
 }
 
+fn parse_decimal_datetime_timestamp(value: &str) -> Option<f64> {
+    let bytes = value.as_bytes();
+    let mut index = usize::from(matches!(bytes.first(), Some(b'+') | Some(b'-')));
+    let mut digits = 0usize;
+    while bytes.get(index).is_some_and(u8::is_ascii_digit) {
+        digits += 1;
+        index += 1;
+    }
+    if bytes.get(index) == Some(&b'.') {
+        index += 1;
+        while bytes.get(index).is_some_and(u8::is_ascii_digit) {
+            digits += 1;
+            index += 1;
+        }
+    }
+    if digits == 0 || index != bytes.len() { return None; }
+    value.parse::<f64>().ok().filter(|number| number.is_finite())
+}
+
 impl TaskDateTime {
+    fn from_unix_timestamp(timestamp: f64) -> Option<Self> {
+        if !timestamp.is_finite() { return None; }
+        let seconds = if timestamp.abs() <= 20_000_000_000.0 { timestamp } else { timestamp / 1_000.0 };
+        let whole = seconds.floor();
+        let nanos = ((seconds - whole) * 1_000_000_000.0).round() as u32;
+        let (whole, nanos) = if nanos >= 1_000_000_000 {
+            (whole + 1.0, nanos - 1_000_000_000)
+        } else { (whole, nanos) };
+        if whole >= i64::MIN as f64 && whole < -(i64::MIN as f64) {
+            if let Some(value) = DateTime::from_timestamp(whole as i64, nanos) {
+                let utc = FixedOffset::east_opt(0).expect("UTC offset is valid");
+                return Some(Self::Offset(value.with_timezone(&utc)));
+            }
+        }
+        None
+    }
+
     pub fn parse_iso(value: &str) -> Result<Self, String> {
         let normalized = if value.as_bytes().get(10) == Some(&b' ') {
             format!("{}T{}", &value[..10], &value[11..])
         } else {
             value.to_string()
         }.replace(',', ".");
-        if let Ok(timestamp) = normalized.parse::<f64>() {
-            if timestamp.is_finite() {
-                let seconds = if timestamp.abs() <= 20_000_000_000.0 { timestamp } else { timestamp / 1_000.0 };
-                let whole = seconds.floor();
-                let nanos = ((seconds - whole) * 1_000_000_000.0).round() as u32;
-                let (whole, nanos) = if nanos >= 1_000_000_000 {
-                    (whole + 1.0, nanos - 1_000_000_000)
-                } else { (whole, nanos) };
-                if whole >= i64::MIN as f64 && whole <= i64::MAX as f64 {
-                    if let Some(value) = DateTime::from_timestamp(whole as i64, nanos) {
-                        let utc = FixedOffset::east_opt(0).expect("UTC offset is valid");
-                        return Ok(Self::Offset(value.with_timezone(&utc)));
-                    }
-                }
-            }
+        if let Some(timestamp) = parse_decimal_datetime_timestamp(&normalized) {
+            return Self::from_unix_timestamp(timestamp).ok_or_else(|| "timestamp is out of range".to_string());
         }
         if let Ok(value) = NaiveDateTime::parse_from_str(&normalized, "%Y-%m-%dT%H:%M:%S%.f") {
             return Ok(Self::Naive(value));
@@ -132,15 +155,15 @@ impl<'de> Deserialize<'de> for TaskDateTime {
             }
             fn visit_i64<E>(self, value: i64) -> Result<Self::Value, E>
             where E: de::Error {
-                self.visit_str(&value.to_string())
+                TaskDateTime::from_unix_timestamp(value as f64).ok_or_else(|| E::custom("timestamp is out of range"))
             }
             fn visit_u64<E>(self, value: u64) -> Result<Self::Value, E>
             where E: de::Error {
-                self.visit_str(&value.to_string())
+                TaskDateTime::from_unix_timestamp(value as f64).ok_or_else(|| E::custom("timestamp is out of range"))
             }
             fn visit_f64<E>(self, value: f64) -> Result<Self::Value, E>
             where E: de::Error {
-                self.visit_str(&value.to_string())
+                TaskDateTime::from_unix_timestamp(value).ok_or_else(|| E::custom("timestamp is out of range"))
             }
         }
         deserializer.deserialize_any(TaskDateTimeVisitor)
@@ -550,17 +573,16 @@ impl Store {
         };
         let added_at = match get("added_at") {
             None => TaskDateTime::Naive(Local::now().naive_local()),
-            Some(value) => {
-                let raw = value.as_str().map(str::to_owned).or_else(|| {
-                    value.as_i64().map(|n| n.to_string())
-                        .or_else(|| value.as_u64().map(|n| n.to_string()))
-                        .or_else(|| value.as_f64().map(|n| n.to_string()))
-                });
-                match raw.and_then(|raw| TaskDateTime::parse_iso(&raw).ok()) {
-                    Some(value) => value,
-                    None => return Err(format!("Invalid task added_at in {}", path.display())),
-                }
+            Some(serde_yaml::Value::String(raw)) => TaskDateTime::parse_iso(raw)
+                .map_err(|_| format!("Invalid task added_at in {}", path.display()))?,
+            Some(serde_yaml::Value::Number(number)) => {
+                let timestamp = number.as_i64().map(|n| n as f64)
+                    .or_else(|| number.as_u64().map(|n| n as f64))
+                    .or_else(|| number.as_f64());
+                timestamp.and_then(TaskDateTime::from_unix_timestamp)
+                    .ok_or_else(|| format!("Invalid task added_at in {}", path.display()))?
             },
+            Some(_) => return Err(format!("Invalid task added_at in {}", path.display())),
         };
         Ok(Some(Task { id, title, added_at, status, labels, body: parts[2].trim().to_string(), commits }))
     }
@@ -876,6 +898,14 @@ mod tests {
     fn naive_added_at_remains_without_timezone_suffix() {
         let value = TaskDateTime::parse_iso("2026-05-01T17:15:52.337350").unwrap();
         assert_eq!(value.isoformat(), "2026-05-01T17:15:52.337350");
+    }
+
+    #[test]
+    fn numeric_datetime_strings_match_pydantic_timestamp_syntax() {
+        assert_eq!(TaskDateTime::parse_iso(".5").unwrap().isoformat(), "1970-01-01T00:00:00.500000+00:00");
+        assert_eq!(TaskDateTime::parse_iso("+1.5").unwrap().isoformat(), "1970-01-01T00:00:01.500000+00:00");
+        assert!(TaskDateTime::parse_iso("1e3").is_err());
+        assert!(TaskDateTime::parse_iso(" 1 ").is_err());
     }
 
     #[test]
