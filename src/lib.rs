@@ -1,4 +1,4 @@
-use chrono::{DateTime, Local, NaiveDateTime};
+use chrono::{Local, NaiveDateTime};
 use serde::{Deserialize, Serialize};
 use std::{collections::HashSet, fs, path::{Path, PathBuf}};
 
@@ -31,7 +31,7 @@ impl TaskStatus {
 pub struct Task {
     pub id: i64,
     pub title: String,
-    pub added_at: DateTime<Local>,
+    pub added_at: NaiveDateTime,
     pub status: TaskStatus,
     pub labels: Vec<String>,
     pub body: String,
@@ -41,7 +41,7 @@ impl Task {
     pub fn new(id: i64, title: String, status: TaskStatus, labels: Vec<String>, body: String) -> Self {
         let mut seen = HashSet::new();
         let labels = labels.into_iter().filter(|s| seen.insert(s.clone())).collect();
-        Self { id, title, added_at: Local::now(), status, labels, body }
+        Self { id, title, added_at: Local::now().naive_local(), status, labels, body }
     }
     pub fn format_list(&self) -> String {
         format!("(#{}) [{}] {{{}}} {}", self.id, self.labels.join(","), self.status.icon(), self.title)
@@ -185,8 +185,74 @@ impl Store {
         let status = get("status").and_then(|v| v.as_str()).unwrap_or("todo");
         let status = match TaskStatus::parse(status) { Ok(s) => s, Err(_) => return Ok(None) };
         let labels = get("labels").and_then(|v| v.as_sequence()).map(|xs| xs.iter().filter_map(|x| x.as_str().map(str::to_owned)).collect()).unwrap_or_default();
-        let added = get("added_at").and_then(|v| v.as_str()).and_then(|s| NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S").ok());
-        let added_at = added.map(|d| d.and_local_timezone(Local).single()).flatten().unwrap_or_else(Local::now);
+        let added_at = get("added_at").and_then(|v| v.as_str())
+            .and_then(|s| NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S%.f").ok())
+            .unwrap_or_else(|| Local::now().naive_local());
         Ok(Some(Task { id, title, added_at, status, labels, body: parts[2].trim().to_string() }))
+    }
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::tempdir;
+
+    fn task(id: i64, title: &str) -> Task {
+        Task {
+            id, title: title.into(),
+            added_at: NaiveDateTime::parse_from_str("2026-05-01T10:00:00", "%Y-%m-%dT%H:%M:%S").unwrap(),
+            status: TaskStatus::Todo, labels: vec!["p1".into()], body: "details".into(),
+        }
+    }
+
+    #[test]
+    fn list_format_matches_reference() {
+        assert_eq!(task(5, "write docs").format_list(), "(#5) [p1] {⏳} write docs");
+    }
+
+    #[test]
+    fn frontmatter_round_trip() {
+        let dir = tempdir().unwrap();
+        let store = Store::new(dir.path());
+        let original = task(1, "sample task");
+        store.write_task(&original).unwrap();
+        let restored = store.read_task(1).unwrap().unwrap();
+        assert_eq!(restored.id, original.id);
+        assert_eq!(restored.title, original.title);
+        assert_eq!(restored.added_at, original.added_at);
+        assert_eq!(restored.labels, original.labels);
+        assert_eq!(restored.body, original.body);
+    }
+
+    #[test]
+    fn index_round_trip_uses_naive_iso_datetime() {
+        let dir = tempdir().unwrap();
+        let store = Store::new(dir.path());
+        let original = task(1, "sample task");
+        store.write_index(&[original.clone()]).unwrap();
+        let raw = fs::read_to_string(&store.index).unwrap();
+        assert!(raw.contains("2026-05-01T10:00:00"));
+        assert!(!raw.contains("+00:00"));
+        assert_eq!(store.read_index().unwrap()[0], original);
+    }
+
+    #[test]
+    fn filter_combines_status_label_and_query() {
+        let dir = tempdir().unwrap();
+        let store = Store::new(dir.path());
+        let mut a = task(1, "first");
+        a.status = TaskStatus::Done;
+        a.labels = vec!["p1".into(), "bug".into()];
+        let b = task(2, "second");
+        store.write_index(&[a, b]).unwrap();
+        let found = store.filter(Some(TaskStatus::Done), &["BUG".into()], 0, Some("fir"), false).unwrap();
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].id, 1);
+    }
+
+    #[test]
+    fn resolve_hash_prefixed_id() {
+        assert_eq!(Store::resolve_id("  #42 ").unwrap(), 42);
     }
 }
