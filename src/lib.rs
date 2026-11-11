@@ -1,4 +1,4 @@
-use chrono::{Local, NaiveDateTime};
+use chrono::{Local, NaiveDateTime, Timelike};
 use serde::{Deserialize, Serialize};
 use std::{collections::HashSet, fs, io::Write, path::{Path, PathBuf}};
 use tempfile::NamedTempFile;
@@ -44,7 +44,9 @@ impl Task {
     pub fn new(id: i64, title: String, status: TaskStatus, labels: Vec<String>, body: String) -> Self {
         let mut seen = HashSet::new();
         let labels = labels.into_iter().filter(|s| seen.insert(s.clone())).collect();
-        Self { id, title, added_at: Local::now().naive_local(), status, labels, body, commits: Vec::new() }
+        let now = Local::now().naive_local();
+        let added_at = now.with_nanosecond((now.nanosecond() / 1_000) * 1_000).unwrap_or(now);
+        Self { id, title, added_at, status, labels, body, commits: Vec::new() }
     }
     pub fn validate(&self) -> Result<(), String> {
         if self.id <= 0 { return Err(format!("Invalid task ID: {}", self.id)); }
