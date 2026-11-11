@@ -544,6 +544,15 @@ mod tests {
     }
 
     #[test]
+    fn stored_status_is_case_sensitive_like_python_enum() {
+        let dir = tempdir().unwrap();
+        let store = Store::new(dir.path());
+        store.ensure().unwrap();
+        fs::write(store.task_path(1), "---\nid: 1\ntitle: task\nstatus: TODO\n---\n").unwrap();
+        assert!(store.read_task(1).is_err());
+    }
+
+    #[test]
     fn null_status_is_not_treated_as_missing_status() {
         let dir = tempdir().unwrap();
         let store = Store::new(dir.path());
