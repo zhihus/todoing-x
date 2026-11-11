@@ -109,8 +109,35 @@ impl Serialize for TaskDateTime {
 impl<'de> Deserialize<'de> for TaskDateTime {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where D: Deserializer<'de> {
-        let value = String::deserialize(deserializer)?;
-        Self::parse_iso(&value).map_err(de::Error::custom)
+        struct TaskDateTimeVisitor;
+        impl<'de> de::Visitor<'de> for TaskDateTimeVisitor {
+            type Value = TaskDateTime;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                formatter.write_str("an ISO datetime string or Unix timestamp")
+            }
+            fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
+            where E: de::Error {
+                TaskDateTime::parse_iso(value).map_err(E::custom)
+            }
+            fn visit_string<E>(self, value: String) -> Result<Self::Value, E>
+            where E: de::Error {
+                self.visit_str(&value)
+            }
+            fn visit_i64<E>(self, value: i64) -> Result<Self::Value, E>
+            where E: de::Error {
+                self.visit_str(&value.to_string())
+            }
+            fn visit_u64<E>(self, value: u64) -> Result<Self::Value, E>
+            where E: de::Error {
+                self.visit_str(&value.to_string())
+            }
+            fn visit_f64<E>(self, value: f64) -> Result<Self::Value, E>
+            where E: de::Error {
+                self.visit_str(&value.to_string())
+            }
+        }
+        deserializer.deserialize_any(TaskDateTimeVisitor)
     }
 }
 
@@ -814,6 +841,13 @@ mod tests {
 
         store.write_index(&original).unwrap();
         assert_eq!(store.read_index().unwrap(), original);
+    }
+
+    #[test]
+    fn json_index_accepts_pydantic_numeric_datetime_values() {
+        let raw = r#"{"id":1,"title":"numeric timestamp","added_at":1700000000}"#;
+        let task: Task = serde_json::from_str(raw).unwrap();
+        assert_eq!(task.added_at.isoformat(), "2023-11-14T22:13:20+00:00");
     }
 
     #[test]
