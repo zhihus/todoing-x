@@ -73,7 +73,7 @@ fn json_interface_covers_remaining_commands() {
     let appended = run(dir.path(), &["append", "1", "second paragraph", "--json"]);
     assert!(appended.status.success());
     let task: Value = serde_json::from_slice(&appended.stdout).unwrap();
-    assert_eq!(task["body"], "first paragraph\\n\\nsecond paragraph");
+    assert_eq!(task["body"], "first paragraph\n\nsecond paragraph");
 
     let labeled = run(dir.path(), &["label", "1", "+agent", "--json"]);
     assert!(labeled.status.success());
