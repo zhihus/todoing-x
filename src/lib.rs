@@ -864,6 +864,37 @@ mod tests {
     }
 
     #[test]
+    fn reads_and_rewrites_additional_exact_python_task_fixtures() {
+        let dir = tempdir().unwrap();
+        let store = Store::new(dir.path());
+        store.ensure().unwrap();
+
+        let fixtures = [
+            (4, "---\nadded_at: '2026-05-01T17:15:52.618668'\nid: 4\nlabels: [docs]\nstatus: done\ntitle: 'docs: write README with usage examples'\n---\n"),
+            (5, "---\nadded_at: '2026-05-01T17:59:21.359817'\nid: 5\nlabels: []\nstatus: done\ntitle: implement version subcommand\n---\n\nAdd a version subcommand that prints the current package version from pyproject.toml. Read version via importlib.metadata.version(\"todoing\"). Output format: \"todoing v1.0.2\". Handle case where package metadata is unavailable (fallback to \"unknown\").\n\nImplementation notes:\\n- Added __version__ to src/todoing/__init__.py using importlib.metadata.version()\\n- Added version command to CLI in src/todoing/main.py\\n- Added TestVersion test class in tests/test_cli.py\\n- Verified: runs via both 'todoing version' and 'uv run todoing version'\n"),
+            (6, "---\nadded_at: '2026-05-01T18:02:50.275015'\nid: 6\nlabels: []\nstatus: done\ntitle: improve skill and add a new skill called todoing-install (a guide to install\n  todoing)\n---\n"),
+            (7, "---\nadded_at: '2026-05-01T18:02:51.364129'\nid: 7\nlabels: []\nstatus: todo\ntitle: better rendering — maybe drop brackets like {} and [] around status and labels\n---\n"),
+            (9, "---\nadded_at: '2026-05-02T23:22:26.868559'\nid: 9\nlabels: [enhancement]\nstatus: in_progress\ntitle: Improve ls, remove search\n---\n\n## Plan\n\n### 1. `main.py` — add flags to `ls`, drop `search`\n- Add `-q / --query` param to `ls()` — pass it to `store.filter(q=)`\n- Add `-r / --reverse` param — flip sort to `reverse=not reverse`\n- Remove the `search` command entirely (function + decorator)\n- Merge the `--scan` path into the filtered flow so query/reverse apply consistently\n\n### 2. `task.py` — update `Store.filter()`\n- Add `reverse: bool = False` parameter\n- Change `tasks.sort(key=lambda t: t.id, reverse=True)` to `tasks.sort(key=lambda t: t.id, reverse=not reverse)`\n\n### 3. Tests\n- Remove search-specific tests\n- Add tests for:\n  - `ls -q` filtering\n  - `ls -r` sort order\n  - `ls -q` combined with `-s`, `-l`, `-r`\n\n### 4. `SKILL.md`\n- Replace `search` examples with `ls -q` equivalents\n- Remove `search` from command reference table\n")
+        ];
+
+        for ( (id, fixture) in fixtures ) {
+            fs::write(store.task_path(id), fixture).unwrap();
+            let original = store.read_task(id).unwrap().unwrap();
+            store.write_task(&original).unwrap();
+            let reread = store.read_task(id).unwrap().unwrap();
+            assert_eq!(reread, original, "round-trip failed for Python task {id}");
+        }
+
+        let folded = store.read_task(6).unwrap().unwrap();
+        assert_eq!(folded.title, "improve skill and add a new skill called todoing-install (a guide to install todoing)");
+        let literal_newlines = store.read_task(5).unwrap().unwrap();
+        assert!(literal_newlines.body.contains("\\n- Added __version__"));
+        let markdown_body = store.read_task(9).unwrap().unwrap();
+        assert!(markdown_body.body.starts_with("## Plan"));
+        assert!(markdown_body.body.contains("### 4. `SKILL.md`"));
+    }
+
+    #[test]
     fn filter_matches_status_value_case_insensitively() {
         let dir = tempdir().unwrap();
         let store = Store::new(dir.path());
