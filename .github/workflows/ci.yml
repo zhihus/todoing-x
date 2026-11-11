@@ -13,3 +13,10 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: cargo test
+      - run: cargo build --release
+      - name: Install binary into isolated directory
+        run: cargo install --path . --root target/install-check
+      - name: Smoke-test installed binary
+        run: |
+          target/install-check/bin/todoing --help
+          target/install-check/bin/todoing version
