@@ -735,6 +735,23 @@ mod tests {
     }
 
     #[test]
+    fn reads_and_rewrites_exact_original_python_index_fixture() {
+        let dir = tempdir().unwrap();
+        let store = Store::new(dir.path());
+        store.ensure().unwrap();
+        fs::write(&store.index, include_str!("../tests/fixtures/python-index.json")).unwrap();
+
+        let original = store.read_index().unwrap();
+        assert_eq!(original.len(), 8);
+        assert_eq!(original.iter().map(|task| task.id).collect::<Vec<_>>(), (2..=9).collect::<Vec<_>>());
+        assert!(original[3].body.contains("Added __version__"));
+        assert!(original[7].body.contains("SKILL.md"));
+
+        store.write_index(&original).unwrap();
+        assert_eq!(store.read_index().unwrap(), original);
+    }
+
+    #[test]
     fn index_deserialization_uses_original_model_defaults() {
         let raw = r#"{"id": 1, "title": "legacy"}"#;
         let parsed: Task = serde_json::from_str(raw).unwrap();
