@@ -139,7 +139,6 @@ impl Store {
             return Err(format!("Invalid task ID: {}", value));
         }
         let id = value.parse::<i64>().map_err(|_| format!("Invalid task ID: {}", value))?;
-        if id <= 0 { return Err(format!("Invalid task ID: {}", value)); }
         Ok(id)
     }
     fn task_path(&self, id: i64) -> PathBuf { self.tasks.join(format!("{}.md", id)) }
@@ -384,7 +383,7 @@ mod tests {
         let store = Store::new(dir.path());
         assert!(store.write_task(&task(0, "invalid")).is_err());
         assert!(Store::resolve_id("-1").is_err());
-        assert!(Store::resolve_id("0").is_err());
+        assert_eq!(Store::resolve_id("0").unwrap(), 0);
     }
 
     #[test]
