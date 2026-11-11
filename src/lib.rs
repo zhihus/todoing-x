@@ -280,16 +280,26 @@ fn yaml11_numeric(s: &str) -> bool {
     let digits = |value: &str| !value.is_empty() && value.bytes().all(|b| b.is_ascii_digit() || b == b'_');
     let sexagesimal = || {
         let parts: Vec<&str> = unsigned.split(':').collect();
-        if parts.len() < 2 || !parts[0].as_bytes().first().is_some_and(|b| (b'1'..=b'9').contains(b))
-            || !digits(parts[0]) {
+        if parts.len() < 2 || !digits(parts[0]) {
+            return false;
+        }
+        let last_has_fraction = parts.last().is_some_and(|part| part.contains('.'));
+        let first = parts[0].as_bytes().first().copied().unwrap_or_default();
+        if first == b'0' && !last_has_fraction {
+            return false;
+        }
+        if first != b'0' && !(b'1'..=b'9').contains(&first) {
             return false;
         }
         parts[1..].iter().enumerate().all(|(index, part)| {
             let last = index == parts.len() - 2;
             let (whole, fraction) = if last { part.split_once('.') } else { None }.unwrap_or((part, ""));
-            let valid_whole = whole.len() <= 2 && whole.bytes().all(|b| b.is_ascii_digit())
+            let valid_whole = !whole.is_empty() && whole.len() <= 2
+                && whole.bytes().all(|b| b.is_ascii_digit())
                 && whole.parse::<u8>().is_ok_and(|n| n <= 59);
-            valid_whole && (fraction.is_empty() || (last && fraction.bytes().all(|b| b.is_ascii_digit() || b == b'_')))
+            let valid_fraction = fraction.is_empty()
+                || (last && fraction.bytes().all(|b| b.is_ascii_digit() || b == b'_'));
+            valid_whole && valid_fraction
         })
     };
     if sexagesimal() { return true; }
@@ -344,7 +354,7 @@ fn yaml_scalar(s: &str) -> String {
     let lower = s.to_ascii_lowercase();
     let yaml11_boolean_or_null = matches!(
         lower.as_str(),
-        "y" | "yes" | "n" | "no" | "true" | "false" | "on" | "off" | "null" | "~"
+        "yes" | "no" | "true" | "false" | "on" | "off" | "null" | "~"
             | ".inf" | "+.inf" | "-.inf" | ".nan"
     );
     let exponent_looks_like_string = s.find('e').or_else(|| s.find('E')).is_some_and(|i| {
@@ -854,7 +864,10 @@ mod tests {
         }
         assert_eq!(yaml_scalar("2026-05-01abc"), "2026-05-01abc");
         assert_eq!(yaml_scalar("2026-5-1"), "2026-5-1");
-        for value in ["12:34", "1:20.5", "0x10", "0b10"] {
+        for value in ["y", "Y", "n", "N"] {
+            assert_eq!(yaml_scalar(value), value);
+        }
+        for value in ["12:34", "1:20.5", "0:12.5", "0x10", "0b10"] {
             assert!(yaml_scalar(value).starts_with('\''), "{value:?} was not quoted");
         }
         for value in ["0X10", "0B10"] {
