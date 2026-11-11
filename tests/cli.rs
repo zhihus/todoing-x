@@ -400,14 +400,14 @@ fn delete_json_confirmation_keeps_stdout_machine_readable() {
     let dir = tempdir().unwrap();
     assert!(run(dir.path(), &["add", "json delete"]).status.success());
 
-    let refused = run_with_input(dir.path(), &["delete", "1", "--json"], "n\\n");
+    let refused = run_with_input(dir.path(), &["delete", "1", "--json"], "n\n");
     assert!(refused.status.success());
     let result: Value = serde_json::from_slice(&refused.stdout).unwrap();
     assert_eq!(result["id"], 1);
     assert_eq!(result["deleted"], false);
     assert!(String::from_utf8_lossy(&refused.stderr).contains("Delete (#1) json delete?"));
 
-    let accepted = run_with_input(dir.path(), &["delete", "1", "--json"], "yes\\n");
+    let accepted = run_with_input(dir.path(), &["delete", "1", "--json"], "yes\n");
     assert!(accepted.status.success());
     let result: Value = serde_json::from_slice(&accepted.stdout).unwrap();
     assert_eq!(result["deleted"], true);
