@@ -46,6 +46,14 @@ impl Task {
         let labels = labels.into_iter().filter(|s| seen.insert(s.clone())).collect();
         Self { id, title, added_at: Local::now().naive_local(), status, labels, body, commits: Vec::new() }
     }
+    pub fn validate(&self) -> Result<(), String> {
+        if self.id <= 0 { return Err(format!("Invalid task ID: {}", self.id)); }
+        if self.commits.iter().any(|sha| sha.trim().is_empty()) {
+            return Err("Git commit reference cannot be empty".into());
+        }
+        Ok(())
+    }
+
     pub fn format_list(&self) -> String {
         format!("(#{}) [{}] {{{}}} {}", self.id, self.labels.join(","), self.status.icon(), self.title)
     }
@@ -66,7 +74,7 @@ impl Task {
 
 fn yaml_scalar(s: &str) -> String {
     if s.is_empty() { return "''".into(); }
-    if s.chars().any(|c| matches!(c, '\n' | '\\r' | ':' | '#' | '[' | ']' | '{' | '}' | ',' | '&' | '*' | '!' | '|' | '>' | '\\'' | '"' | '%' | '@' | '`'))
+    if s.chars().any(|c| matches!(c, '\n' | '\r' | ':' | '#' | '[' | ']' | '{' | '}' | ',' | '&' | '*' | '!' | '|' | '>' | '\\'' | '"' | '%' | '@' | '`'))
         || s.trim() != s || matches!(s.to_lowercase().as_str(), "null" | "true" | "false" | "yes" | "no" | "on" | "off")
     {
         format!("'{}'", s.replace('\'', "''"))
@@ -190,14 +198,15 @@ impl Store {
         if parts.len() < 3 { return Ok(None); }
         let fm: serde_yaml::Value = match serde_yaml::from_str(parts[1]) { Ok(v) => v, Err(_) => return Ok(None) };
         let get = |key: &str| fm.get(key);
-        let id = match get("id").and_then(|v| v.as_i64()) { Some(v) => v, None => return Ok(None) };
+        let id = match get("id").and_then(|v| v.as_i64()) { Some(v) if v > 0 => v, _ => return Ok(None) };
         let title = match get("title").and_then(|v| v.as_str()) { Some(v) => v.to_string(), None => return Ok(None) };
         let status = get("status").and_then(|v| v.as_str()).unwrap_or("todo");
         let status = match TaskStatus::parse(status) { Ok(s) => s, Err(_) => return Ok(None) };
         let labels = get("labels").and_then(|v| v.as_sequence()).map(|xs| xs.iter().filter_map(|x| x.as_str().map(str::to_owned)).collect()).unwrap_or_default();
         let commits = get("commits").and_then(|v| v.as_sequence()).map(|xs| xs.iter().filter_map(|x| x.as_str().map(str::to_owned)).collect()).unwrap_or_default();
         let added_at = get("added_at").and_then(|v| v.as_str())
-            .and_then(|s| NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S%.f").ok())
+            .and_then(|s| NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S%.f")
+                .or_else(|_| NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S")).ok())
             .unwrap_or_else(|| Local::now().naive_local());
         Ok(Some(Task { id, title, added_at, status, labels, body: parts[2].trim().to_string(), commits }))
     }
