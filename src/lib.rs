@@ -877,7 +877,7 @@ mod tests {
             (9, "---\nadded_at: '2026-05-02T23:22:26.868559'\nid: 9\nlabels: [enhancement]\nstatus: in_progress\ntitle: Improve ls, remove search\n---\n\n## Plan\n\n### 1. `main.py` — add flags to `ls`, drop `search`\n- Add `-q / --query` param to `ls()` — pass it to `store.filter(q=)`\n- Add `-r / --reverse` param — flip sort to `reverse=not reverse`\n- Remove the `search` command entirely (function + decorator)\n- Merge the `--scan` path into the filtered flow so query/reverse apply consistently\n\n### 2. `task.py` — update `Store.filter()`\n- Add `reverse: bool = False` parameter\n- Change `tasks.sort(key=lambda t: t.id, reverse=True)` to `tasks.sort(key=lambda t: t.id, reverse=not reverse)`\n\n### 3. Tests\n- Remove search-specific tests\n- Add tests for:\n  - `ls -q` filtering\n  - `ls -r` sort order\n  - `ls -q` combined with `-s`, `-l`, `-r`\n\n### 4. `SKILL.md`\n- Replace `search` examples with `ls -q` equivalents\n- Remove `search` from command reference table\n")
         ];
 
-        for ( (id, fixture) in fixtures ) {
+        for (id, fixture) in fixtures {
             fs::write(store.task_path(id), fixture).unwrap();
             let original = store.read_task(id).unwrap().unwrap();
             store.write_task(&original).unwrap();
