@@ -147,7 +147,7 @@ fn edit_opens_existing_task_file_even_if_frontmatter_is_malformed() {
     fs::write(tasks.join("1.md"), "malformed existing task").unwrap();
 
     let editor = dir.path().join("editor.sh");
-    fs::write(&editor, "#!/bin/sh\\nexit 0\\n").unwrap();
+    fs::write(&editor, "#!/bin/sh\nexit 0\n").unwrap();
     let mut permissions = fs::metadata(&editor).unwrap().permissions();
     permissions.set_mode(0o755);
     fs::set_permissions(&editor, permissions).unwrap();
