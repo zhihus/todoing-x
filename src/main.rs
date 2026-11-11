@@ -19,66 +19,82 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
+    #[command(about="Create a new task.")]
     Add(AddArgs),
     #[command(name="ls")]
+    #[command(about="List tasks, newest first.")]
     Ls(ListArgs),
+    #[command(about="Show a task as markdown with frontmatter.")]
     See(IdArg),
+    #[command(about="Open the task file in $EDITOR.")]
     Edit(IdArg),
+    #[command(about="Replace the description body of a task.")]
     Body(TextArgs),
+    #[command(about="Append text to the description body of a task.")]
     Append(TextArgs),
+    #[command(about="Change a task's status.")]
     Status(StatusArgs),
+    #[command(about="Modify task labels with add/remove operations.")]
     Label(LabelArgs),
+    #[command(about="Link a Git commit to a task.")]
     Commit(CommitArgs),
+    #[command(about="Delete a task.")]
     Delete(DeleteArgs),
+    #[command(about="Rebuild index.json from all task .md files.")]
     Reindex,
+    #[command(about="Show the installed todoing version.")]
     Version,
 }
 
 #[derive(Args)]
 struct AddArgs {
+    #[arg(help="Task title")]
     title: String,
-    #[arg(short='l', long="label")]
+    #[arg(short='l', long="label", help="Attach a label (repeatable)")]
     labels: Vec<String>,
-    #[arg(short='s', long="status", default_value="todo")]
+    #[arg(short='s', long="status", default_value="todo", help="Initial status")]
     status: String,
-    #[arg(short='b', long="body", default_value="")]
+    #[arg(short='b', long="body", default_value="", help="Initial description body")]
     body: String,
 }
 #[derive(Args)]
 struct ListArgs {
-    #[arg(short='n', long="limit", default_value_t=0, allow_negative_numbers=true)]
+    #[arg(short='n', long="limit", default_value_t=0, allow_negative_numbers=true, help="Show only N newest tasks (0 = all)")]
     limit: i64,
-    #[arg(short='s', long="status")]
+    #[arg(short='s', long="status", help="Filter by status")]
     status: Option<String>,
-    #[arg(short='l', long="label")]
+    #[arg(short='l', long="label", help="Filter by label (repeatable, AND logic)")]
     labels: Vec<String>,
-    #[arg(short='q', long="query")]
+    #[arg(short='q', long="query", help="Search query (case-insensitive, matches title/body/labels/status)")]
     query: Option<String>,
-    #[arg(short='r', long="reverse")]
+    #[arg(short='r', long="reverse", help="Reverse sort order (oldest first)")]
     reverse: bool,
-    #[arg(long="scan")]
+    #[arg(long="scan", help="Bypass index, scan .md files directly")]
     scan: bool,
 }
 #[derive(Args)]
 struct IdArg {
+    #[arg(help="Task ID")]
     id: String,
 }
 #[derive(Args)]
 struct TextArgs {
     id: String,
+    #[arg(help="Text")]
     text: String,
 }
 #[derive(Args)]
 struct StatusArgs {
     id: String,
+    #[arg(help="New status: todo, in_progress, done, cancelled")]
     new_status: String,
 }
 #[derive(Args)]
 struct LabelArgs {
     id: String,
-    #[arg(required=true, num_args=1..)]
+    #[arg(required=true, num_args=1.., help="Label operations: +label to add, -label to remove")]
     ops: Vec<String>,
-    #[arg(long="clear", action=clap::ArgAction::SetTrue, overrides_with="no_clear")]
+    #[arg(long="clear", action=clap::ArgAction::SetTrue, overrides_with="no_clear", help="Clear all labels before applying operations")]
     clear: bool,
     #[arg(long="no-clear", action=clap::ArgAction::SetTrue, overrides_with="clear")]
     no_clear: bool,
@@ -91,7 +107,7 @@ struct CommitArgs {
 #[derive(Args)]
 struct DeleteArgs {
     id: String,
-    #[arg(short='f', long="force")]
+    #[arg(short='f', long="force", help="Skip confirmation")]
     force: bool,
 }
 
