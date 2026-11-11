@@ -276,7 +276,7 @@ impl Task {
 }
 
 fn yaml11_numeric(s: &str) -> bool {
-    let unsigned = s.strip_prefix(['+', '-']).unwrap_or(s);
+    let unsigned = s.strip_prefix('+').or_else(|| s.strip_prefix('-')).unwrap_or(s);
     let digits = |value: &str| !value.is_empty() && value.bytes().all(|b| b.is_ascii_digit() || b == b'_');
     let integer = unsigned == "0"
         || (unsigned.starts_with('0') && unsigned.len() > 1
@@ -290,7 +290,7 @@ fn yaml11_numeric(s: &str) -> bool {
     if integer { return true; }
 
     let float = |value: &str| {
-        let value = value.strip_prefix(['+', '-']).unwrap_or(value);
+        let value = value.strip_prefix('+').or_else(|| value.strip_prefix('-')).unwrap_or(value);
         let (mantissa, exponent) = match value.find(['e', 'E']) {
             Some(i) => {
                 let exp = &value[i + 1..];
@@ -333,7 +333,7 @@ fn yaml_scalar(s: &str) -> String {
         "y" | "yes" | "n" | "no" | "true" | "false" | "on" | "off" | "null" | "~"
             | ".inf" | "+.inf" | "-.inf" | ".nan"
     );
-    let exponent_looks_like_string = s.find(['e', 'E']).is_some_and(|i| {
+    let exponent_looks_like_string = s.find('e').or_else(|| s.find('E')).is_some_and(|i| {
         let mantissa = &s[..i];
         let exponent = &s[i + 1..];
         let exponent_digits = exponent.strip_prefix('+').or_else(|| exponent.strip_prefix('-')).unwrap_or(exponent);
