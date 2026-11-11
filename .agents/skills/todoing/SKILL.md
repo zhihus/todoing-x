@@ -76,7 +76,7 @@ todoing commit 3 HEAD
 todoing commit 3 a1b2c3d
 ```
 
-The supplied revision is resolved to a full commit SHA and stored with the task.
+The supplied revision is resolved to a full commit SHA and stored with the task. The original Python implementation may discard this added metadata when rewriting the task; use the Rust CLI for tasks with linked commits.
 
 ## AI-agent interface
 
