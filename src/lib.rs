@@ -55,7 +55,13 @@ impl TaskDateTime {
                 let micros = value.and_utc().timestamp_subsec_micros();
                 if micros == 0 { base } else { format!("{}.{:06}", base, micros) }
             }
-            Self::Offset(value) => value.to_rfc3339_opts(SecondsFormat::AutoSi, false),
+            Self::Offset(value) => {
+                let base = value.format("%Y-%m-%dT%H:%M:%S").to_string();
+                let micros = value.timestamp_subsec_micros();
+                let offset = value.format("%:z").to_string();
+                if micros == 0 { format!("{}{}", base, offset) }
+                else { format!("{}.{:06}{}", base, micros, offset) }
+            },
         }
     }
 }
@@ -380,6 +386,18 @@ mod tests {
         store.write_task(&task).unwrap();
         let markdown = fs::read_to_string(store.task_path(7)).unwrap();
         assert!(markdown.contains("2026-05-01T17:15:52.337350+03:00"));
+    }
+
+    #[test]
+    fn timezone_aware_added_at_uses_python_microsecond_precision() {
+        let short = TaskDateTime::parse_iso("2026-05-01T17:15:52.1+03:00").unwrap();
+        assert_eq!(short.isoformat(), "2026-05-01T17:15:52.100000+03:00");
+
+        let precise = TaskDateTime::parse_iso("2026-05-01T17:15:52.123456789+03:00").unwrap();
+        assert_eq!(precise.isoformat(), "2026-05-01T17:15:52.123456+03:00");
+
+        let whole = TaskDateTime::parse_iso("2026-05-01T17:15:52+00:00").unwrap();
+        assert_eq!(whole.isoformat(), "2026-05-01T17:15:52+00:00");
     }
 
     #[test]
