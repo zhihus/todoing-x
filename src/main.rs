@@ -3,7 +3,7 @@ use std::process::Command;
 use todoing::{Store, Task, TaskStatus, VERSION};
 
 #[derive(Parser)]
-#[command(name="todoing", version=VERSION, about="Local, git-friendly task manager for AI agents and humans", disable_help_subcommand=true)]
+#[command(name="todoing", version=VERSION, about="Local, git-friendly task manager for AI agents and humans", disable_help_subcommand=true, no_args_is_help=true)]
 struct Cli { #[command(subcommand)] command: Option<Commands> }
 
 #[derive(Subcommand)]
