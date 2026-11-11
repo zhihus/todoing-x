@@ -174,13 +174,13 @@ fn parse_decimal_digits(value: &str) -> Option<i64> {
         0xA8D0,0xA900,0xA9D0,0xA9F0,0xAA50,0xABF0,0xFF10,0x104A0,0x10D30,0x11066,
         0x110F0,0x11136,0x111D0,0x112F0,0x11450,0x114D0,0x11650,0x116C0,0x11730,
         0x118E0,0x11950,0x11C50,0x11D50,0x11DA0,0x11F50,0x16A60,0x16AC0,0x16B50,
-        0x1D7CE,0x1E140,0x1E2F0,0x1E4F0,0x1E5F1,0x1E950,
+        0x1D7CE,0x1E140,0x1E2F0,0x1E4F0,0x1E950,0x1FBF0,
     ];
     let mut result = 0i64;
     if value.is_empty() { return None; }
     for c in value.chars() {
         let code = c as u32;
-        let digit = ZEROES.iter().find_map(|zero| {
+        let digit = ZEROES.iter().flat_map(|zero| [*zero, *zero + 10, *zero + 20, *zero + 30, *zero + 40].into_iter()).find_map(|zero| {
             let n = code.checked_sub(*zero)?;
             (n < 10).then_some(n as i64)
         })?;
@@ -290,7 +290,7 @@ impl Store {
         let mut paths: Vec<PathBuf> = fs::read_dir(&self.tasks).map_err(|e| e.to_string())?
             .flatten().map(|e| e.path())
             .filter(|p| p.extension().and_then(|x| x.to_str()) == Some("md")).collect();
-        paths.sort_by_key(|p| p.file_stem().and_then(|s| s.to_str()).and_then(|s| s.parse::<i64>().ok()).unwrap_or(0));
+        paths.sort_by_key(|p| p.file_stem().and_then(|s| s.to_str()).and_then(|s| parse_decimal_digits(s)).unwrap_or(0));
         let mut tasks = Vec::new();
         for p in paths { if let Ok(Some(t)) = self.parse_task_file(&p) { tasks.push(t); } }
         self.write_index(&tasks)?; Ok(tasks)
