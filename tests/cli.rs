@@ -75,6 +75,37 @@ fn completion_requires_git_commit_and_all_active_openspec_tasks() {
     assert!(run(dir.path(), &["status", "1", "done"]).status.success());
 }
 
+#[test]
+fn completion_checks_every_active_change_and_ignores_archive() {
+    let dir = tempdir().unwrap();
+    git(dir.path(), &["init", "-q"]);
+    git(dir.path(), &["config", "user.email", "todoing-test@example.invalid"]);
+    git(dir.path(), &["config", "user.name", "Todoing Test"]);
+    fs::write(dir.path().join("tracked.txt"), "initial").unwrap();
+    git(dir.path(), &["add", "tracked.txt"]);
+    git(dir.path(), &["commit", "-m", "initial"]);
+
+    assert!(run(dir.path(), &["add", "finish feature"]).status.success());
+    assert!(run(dir.path(), &["commit", "1", "HEAD"]).status.success());
+
+    let changes = dir.path().join("openspec/changes");
+    fs::create_dir_all(changes.join("archive/old")).unwrap();
+    fs::write(changes.join("archive/old/tasks.md"), "- [ ] archived task\n").unwrap();
+    fs::create_dir_all(changes.join("active-one")).unwrap();
+    fs::write(changes.join("active-one/tasks.md"), "- [x] completed task\n").unwrap();
+    fs::create_dir_all(changes.join("active-two")).unwrap();
+    let active_tasks = changes.join("active-two/tasks.md");
+    fs::write(&active_tasks, "- [ ] unfinished task\n").unwrap();
+
+    let rejected = run(dir.path(), &["status", "1", "done"]);
+    assert!(!rejected.status.success());
+    assert!(String::from_utf8_lossy(&rejected.stderr).contains("active-two/tasks.md"));
+
+    fs::write(&active_tasks, "- [X] completed task\n").unwrap();
+    let accepted = run(dir.path(), &["status", "1", "done"]);
+    assert!(accepted.status.success(), "{}", String::from_utf8_lossy(&accepted.stderr));
+}
+
 #[cfg(unix)]
 #[test]
 fn before_done_hook_can_reject_transition_without_mutating_task() {
