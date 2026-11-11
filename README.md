@@ -36,6 +36,17 @@ todoing version
 
 Statuses are unchanged: `todo`, `in_progress`, `done`, `cancelled`.
 
+## Task creation validation
+
+Validation runs only when creating a task, before the task file or index is written:
+
+- `title` is required and cannot be empty or whitespace-only.
+- `status` must be one of the four supported statuses.
+- Every supplied label must contain a non-whitespace character.
+- The ID and creation timestamp are generated automatically; `body` and labels are optional.
+
+After built-in validation, the optional `on-create` hook can apply project-specific checks to the complete task JSON. A rejected task is not saved.
+
 ## AI-agent interface
 
 Pass `--json` before or after a command to receive machine-readable JSON:
