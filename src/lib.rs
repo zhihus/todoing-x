@@ -705,7 +705,7 @@ impl Store {
             },
             Some(_) => return Err(format!("Invalid task added_at in {}", path.display())),
         };
-        Ok(Some(Task { id, title, added_at, status, labels, body: parts[2].trim().to_string(), commits }))
+        Ok(Some(Task { id, title, added_at, status, labels, body: python_strip(parts[2]).to_string(), commits }))
     }
 }
 
