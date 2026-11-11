@@ -48,7 +48,7 @@ impl TaskDateTime {
             format!("{}T{}", &value[..10], &value[11..])
         } else {
             value.to_string()
-        };
+        }.replace(',', ".");
         if let Ok(timestamp) = normalized.parse::<f64>() {
             if timestamp.is_finite() {
                 let seconds = if timestamp.abs() <= 20_000_000_000.0 { timestamp } else { timestamp / 1_000.0 };
@@ -75,6 +75,12 @@ impl TaskDateTime {
             if let Some(value) = date.and_hms_opt(0, 0, 0) {
                 return Ok(Self::Naive(value));
             }
+        }
+        if let Ok(value) = DateTime::parse_from_str(&normalized, "%Y-%m-%dT%H:%M:%S%.f%z") {
+            return Ok(Self::Offset(value));
+        }
+        if let Ok(value) = DateTime::parse_from_str(&normalized, "%Y-%m-%dT%H:%M:%S%z") {
+            return Ok(Self::Offset(value));
         }
         DateTime::parse_from_rfc3339(&normalized)
             .map(Self::Offset)
@@ -870,6 +876,18 @@ mod tests {
     fn naive_added_at_remains_without_timezone_suffix() {
         let value = TaskDateTime::parse_iso("2026-05-01T17:15:52.337350").unwrap();
         assert_eq!(value.isoformat(), "2026-05-01T17:15:52.337350");
+    }
+
+    #[test]
+    fn python_compact_timezone_offset_is_accepted() {
+        let parsed = TaskDateTime::parse_iso("2026-05-01T17:15:52+0300").unwrap();
+        assert_eq!(parsed.isoformat(), "2026-05-01T17:15:52+03:00");
+    }
+
+    #[test]
+    fn python_comma_fractional_seconds_are_accepted() {
+        let parsed = TaskDateTime::parse_iso("2026-05-01T17:15:52,123456+0300").unwrap();
+        assert_eq!(parsed.isoformat(), "2026-05-01T17:15:52.123456+03:00");
     }
 
     #[test]
