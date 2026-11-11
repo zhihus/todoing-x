@@ -340,6 +340,15 @@ mod tests {
     }
 
     #[test]
+    fn index_deserialization_uses_original_model_defaults() {
+        let raw = r#"{"id": 1, "title": "legacy"}"#;
+        let parsed: Task = serde_json::from_str(raw).unwrap();
+        assert_eq!(parsed.status, TaskStatus::Todo);
+        assert!(parsed.labels.is_empty());
+        assert!(parsed.body.is_empty());
+    }
+
+    #[test]
     fn corrupted_index_is_rebuilt_from_task_files() {
         let dir = tempdir().unwrap();
         let store = Store::new(dir.path());
