@@ -383,7 +383,7 @@ fn yaml11_timestamp(s: &str) -> bool {
         suffix = &fraction[digits..];
     }
     suffix = suffix.trim_start_matches([' ', '\\t']);
-    if suffix.is_empty() || suffix == "Z" || suffix == "z" { return true; }
+    if suffix.is_empty() || suffix == "Z" { return true; }
     let Some(offset) = suffix.strip_prefix('+').or_else(|| suffix.strip_prefix('-')) else {
         return false;
     };
@@ -920,6 +920,7 @@ mod tests {
             assert!(yaml_scalar(value).starts_with('\''), "{value:?} was not quoted");
         }
         assert_eq!(yaml_scalar("2026-05-01 01:02:03+0300"), "2026-05-01 01:02:03+0300");
+        assert_eq!(yaml_scalar("2026-05-01 01:02:03z"), "2026-05-01 01:02:03z");
         for value in ["y", "Y", "n", "N"] {
             assert_eq!(yaml_scalar(value), value);
         }
