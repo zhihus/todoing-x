@@ -271,7 +271,14 @@ fn run() {
                 print!("Delete (#{}) {}? [y/N] ", id, task.title);
                 let _ = std::io::stdout().flush();
                 let mut answer = String::new();
-                let _ = std::io::stdin().read_line(&mut answer);
+                let bytes_read = std::io::stdin().read_line(&mut answer).unwrap_or_else(|_| {
+                    eprintln!("Aborted!");
+                    std::process::exit(1);
+                });
+                if bytes_read == 0 {
+                    eprintln!("Aborted!");
+                    std::process::exit(1);
+                }
                 if !matches!(answer.trim().to_lowercase().as_str(), "y" | "yes") { println!("Aborted."); return; }
             }
             store.delete_task_file(id).unwrap_or_else(|e| fail(e));
