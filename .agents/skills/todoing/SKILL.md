@@ -76,7 +76,7 @@ todoing commit 3 HEAD
 todoing commit 3 a1b2c3d
 ```
 
-The supplied revision is resolved to a full commit SHA and stored with the task. The original Python implementation may discard this added metadata when rewriting the task; use the Rust CLI for tasks with linked commits.
+The supplied revision is resolved to a full commit SHA and stored with the task. The original Python implementation does not preserve this added metadata. Any Python command that writes `index.json` drops commit references from the index for all tasks; run `todoing reindex` with Rust to restore references from Markdown. If Python rewrites a task with linked commits, it also removes those references from that task file permanently. Use the Rust CLI whenever commit links are in use.
 
 ## AI-agent interface
 
