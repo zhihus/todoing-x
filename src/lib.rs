@@ -354,7 +354,7 @@ fn yaml11_date(s: &str) -> bool {
 
 fn yaml11_timestamp(s: &str) -> bool {
     if yaml11_date(s) { return true; }
-    let Some((date, time)) = s.split_once(|c| c == 'T' || c == 't' || c == ' ' || c == '\\t') else {
+    let Some((date, time)) = s.split_once(|c| c == 'T' || c == 't' || c == ' ' || c == '\t') else {
         return false;
     };
     let Some((year, rest)) = date.split_once('-') else { return false };
@@ -364,7 +364,7 @@ fn yaml11_timestamp(s: &str) -> bool {
         || !(1..=2).contains(&day.len()) || !day.bytes().all(|b| b.is_ascii_digit()) {
         return false;
     }
-    let time = time.trim_start_matches([' ', '\\t']);
+    let time = time.trim_start_matches([' ', '\t']);
     let time_end = time.find(['.', 'Z', 'z', '+', '-']).unwrap_or(time.len());
     let clock = &time[..time_end];
     let mut parts = clock.split(':');
@@ -382,7 +382,7 @@ fn yaml11_timestamp(s: &str) -> bool {
         let digits = fraction.bytes().take_while(|b| b.is_ascii_digit()).count();
         suffix = &fraction[digits..];
     }
-    suffix = suffix.trim_start_matches([' ', '\\t']);
+    suffix = suffix.trim_start_matches([' ', '\t']);
     if suffix.is_empty() || suffix == "Z" { return true; }
     let Some(offset) = suffix.strip_prefix('+').or_else(|| suffix.strip_prefix('-')) else {
         return false;
