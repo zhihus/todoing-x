@@ -48,11 +48,20 @@ Cargo normally places installed binaries in `~/.cargo/bin` (Unix-like systems) o
 
 The repository contains the skill at `.agents/skills/todoing/`. If the repository is already available locally, the skill is ready to use.
 
-For another repository, copy the skill directory:
+For another repository, copy the skill directory.
+
+On Unix-like systems:
 
 ```bash
 mkdir -p /path/to/your/repo/.agents/skills
 cp -r /path/to/todoing-x/.agents/skills/todoing /path/to/your/repo/.agents/skills/
+```
+
+On Windows PowerShell:
+
+```powershell
+New-Item -ItemType Directory -Force -Path "C:\path\to\your\repo\.agents\skills" | Out-Null
+Copy-Item -Recurse -Force "C:\path\to\todoing-x\.agents\skills\todoing" "C:\path\to\your\repo\.agents\skills\"
 ```
 
 The skill can then be loaded by agents that support the `.agents/skills/` convention.
