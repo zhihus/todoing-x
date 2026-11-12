@@ -95,19 +95,13 @@ The command resolves the supplied revision to a full commit SHA and stores it in
 Optional executable hooks live in `.todoing/hooks/`:
 
 - `on-create` — invoked before a new task is written.
-- `before-done` — invoked before a task transitions to `done` through the `status` command.
+- `before-done-git` — optional Git completion checks: requires at least one linked commit and verifies that every linked SHA exists in the current repository.
+- `before-done-openspec` — optional OpenSpec completion check: if `openspec/changes/` exists, all checklist items in active changes' `tasks.md` files must be checked; `archive/` is ignored.
+- `before-done` — additional project-specific check before a task transitions to `done`.
 
-A task cannot be created directly with `--status done`: creation cannot include a Git commit reference. Create it first, link a commit, then mark it done.
+The two standard completion checks are now ordinary optional hooks. To enable either check, provide its hook file; to disable it, omit or remove that file. Missing hooks are no-ops. A task can therefore be marked `done` without linked commits or completed OpenSpec checklists when the corresponding hooks are absent.
 
-The task JSON is sent to the hook's standard input. Exit code 0 allows the operation; any non-zero exit code rejects it. On Windows, use `.cmd` or `.bat` suffixes; on Unix-like systems, use executable files named exactly `on-create` and `before-done`.
-
-Before `done`, todoing also enforces these built-in checks:
-
-1. At least one Git commit must be linked to the task.
-2. Every commit reference must resolve to a commit in the current repository.
-3. If `openspec/changes/` exists, every checklist item in each active change's `tasks.md` must be checked. The `archive/` directory is ignored.
-
-A missing custom hook is a no-op; the built-in completion checks still run.
+The task JSON is sent to each hook's standard input. Hooks run in this order: `before-done-git`, `before-done-openspec`, then `before-done`. Exit code 0 allows the operation; any non-zero exit code rejects it. On Windows, use `.cmd` or `.bat` suffixes; on Unix-like systems, use executable files named exactly as the hook names. The same completion hooks run when creating a task directly with `--status done`.
 
 ## Storage and safety
 
