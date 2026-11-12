@@ -243,15 +243,22 @@ fn install_hook(name: &str) -> Result<bool, String> {
 
 fn show_hook_status(json: bool) {
     let hooks = ["before-done-git", "before-done-openspec"];
+    let missing = hooks.iter().any(|name| !hook_installed(name));
     if json {
         let rows: Vec<_> = hooks.iter().map(|name| serde_json::json!({
             "name": name,
             "installed": hook_installed(name)
         })).collect();
-        emit_json(&serde_json::json!({"hooks": rows}));
+        emit_json(&serde_json::json!({
+            "hooks": rows,
+            "agent_action": if missing { "ask_user_before_install" } else { "none" }
+        }));
     } else {
         for name in hooks {
             println!("{}: {}", name, if hook_installed(name) { "installed" } else { "not installed" });
+        }
+        if missing {
+            println!("Some standard hooks are missing. Ask the user before installing them.");
         }
     }
 }
@@ -303,7 +310,7 @@ fn run_internal_hook(name: &str) -> Result<(), String> {
             for entry in entries {
                 let entry = entry.map_err(|e| e.to_string())?;
                 let path = entry.path();
-                if !path.is_dir() || entry.file_name() == "archive" { continue; }
+                if !path.is_dir() || entry.file_name().to_string_lossy() == "archive" { continue; }
                 let tasks_file = path.join("tasks.md");
                 if !tasks_file.is_file() { continue; }
                 let content = fs::read_to_string(&tasks_file)
