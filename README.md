@@ -92,16 +92,25 @@ The command resolves the supplied revision to a full commit SHA and stores it in
 
 ## Lifecycle hooks
 
-Optional executable hooks live in `.todoing/hooks/`:
+Todoing bundles two standard completion hooks, but does not install them automatically. The user chooses which checks to enable in each project:
 
-- `on-create` — invoked before a new task is written.
-- `before-done-git` — optional Git completion checks: requires at least one linked commit and verifies that every linked SHA exists in the current repository.
-- `before-done-openspec` — optional OpenSpec completion check: if `openspec/changes/` exists, all checklist items in active changes' `tasks.md` files must be checked; `archive/` is ignored.
-- `before-done` — additional project-specific check before a task transitions to `done`.
+```bash
+todoing hooks status --json
+todoing hooks install git
+todoing hooks install openspec
+todoing hooks install all
+```
 
-The two standard completion checks are now ordinary optional hooks. To enable either check, provide its hook file; to disable it, omit or remove that file. Missing hooks are no-ops. A task can therefore be marked `done` without linked commits or completed OpenSpec checklists when the corresponding hooks are absent.
+- `before-done-git` — requires at least one linked Git commit and verifies that every linked SHA exists in the current repository.
+- `before-done-openspec` — checks that all checklist items in active `openspec/changes/*/tasks.md` files are complete; `archive/` is ignored.
+- `before-done` — additional project-specific check, supplied by the project.
+- `on-create` — optional project-specific check before a new task is written.
 
-The task JSON is sent to each hook's standard input. Hooks run in this order: `before-done-git`, `before-done-openspec`, then `before-done`. Exit code 0 allows the operation; any non-zero exit code rejects it. On Windows, use `.cmd` or `.bat` suffixes; on Unix-like systems, use executable files named exactly as the hook names. The same completion hooks run when creating a task directly with `--status done`.
+`hooks install` installs only the selected standard hook files and never overwrites an existing file. On Windows it creates `.cmd` files; on Unix-like systems it creates executable files. To disable a standard hook, remove its file from `.todoing/hooks/`. Missing hooks are no-ops. The bundled files are small launchers for checks implemented by the Todoing binary.
+
+The task JSON is sent to each hook's standard input. Completion hooks run in this order: `before-done-git`, `before-done-openspec`, then `before-done`. Exit code 0 allows the operation; any non-zero exit code rejects it. The same completion hooks run when creating a task directly with `--status done`.
+
+AI agents must run `todoing hooks status --json` before managing tasks in a project. If standard hooks are missing, explain each check and ask the user which, if any, to install. Never install hooks without explicit approval.
 
 ## Storage and safety
 
@@ -113,9 +122,9 @@ The task JSON is sent to each hook's standard input. Hooks run in this order: `b
   index.json
   hooks/
     on-create
-    before-done-git
-    before-done-openspec
-    before-done
+    before-done-git       # installed optionally
+    before-done-openspec  # installed optionally
+    before-done           # project-specific
 ```
 
 Task files remain Markdown with YAML frontmatter. `index.json` remains a rebuildable JSON array. Commit the entire `.todoing/` directory to Git so task files and their index are versioned with the project. Both task and index writes use a temporary file in the destination directory and atomic replacement to avoid partially written files.
