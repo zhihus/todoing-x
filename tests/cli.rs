@@ -266,59 +266,30 @@ fn commit_rejects_tree_object_without_mutating_task() {
 }
 
 #[test]
-fn completion_rejects_unavailable_linked_commit_without_git_noise() {
+fn missing_completion_hooks_allow_done_without_linked_commits() {
     let dir = tempdir().unwrap();
     git(dir.path(), &["init", "-q"]);
-    assert!(run(dir.path(), &["add", "stale commit"]).status.success());
+    assert!(run(dir.path(), &["add", "task without commit"]).status.success());
 
-    let task_path = dir.path().join(".todoing/tasks/1.md");
-    let contents = fs::read_to_string(&task_path).unwrap();
-    let contents = contents.replacen("id: 1\n", "commits: [0000000000000000000000000000000000000000]\nid: 1\n", 1);
-    fs::write(&task_path, contents).unwrap();
-
-    let rejected = run(dir.path(), &["status", "1", "done"]);
-    let stderr = String::from_utf8_lossy(&rejected.stderr);
-    assert!(!rejected.status.success());
-    assert!(stderr.contains("is not available in this repository"));
-    assert!(!stderr.contains("fatal:"));
+    let completed = run(dir.path(), &["status", "1", "done"]);
+    assert!(completed.status.success(), "{}", String::from_utf8_lossy(&completed.stderr));
 
     let shown = run(dir.path(), &["see", "1", "--json"]);
     let task: Value = serde_json::from_slice(&shown.stdout).unwrap();
-    assert_eq!(task["status"], "todo");
+    assert_eq!(task["status"], "done");
 }
-
 #[test]
-fn completion_checks_every_active_change_and_ignores_archive() {
+fn missing_openspec_hook_does_not_block_done() {
     let dir = tempdir().unwrap();
-    git(dir.path(), &["init", "-q"]);
-    git(dir.path(), &["config", "user.email", "todoing-test@example.invalid"]);
-    git(dir.path(), &["config", "user.name", "Todoing Test"]);
-    fs::write(dir.path().join("tracked.txt"), "initial").unwrap();
-    git(dir.path(), &["add", "tracked.txt"]);
-    git(dir.path(), &["commit", "-m", "initial"]);
-
-    assert!(run(dir.path(), &["add", "finish feature"]).status.success());
-    assert!(run(dir.path(), &["commit", "1", "HEAD"]).status.success());
+    assert!(run(dir.path(), &["add", "task with open checklist"]).status.success());
 
     let changes = dir.path().join("openspec/changes");
-    fs::create_dir_all(changes.join("archive/old")).unwrap();
-    fs::write(changes.join("archive/old/tasks.md"), "- [ ] archived task\n").unwrap();
-    fs::create_dir_all(changes.join("active-one")).unwrap();
-    fs::write(changes.join("active-one/tasks.md"), "- [x] completed task\n").unwrap();
-    fs::create_dir_all(changes.join("active-two")).unwrap();
-    let active_tasks = changes.join("active-two/tasks.md");
-    fs::write(&active_tasks, "- [ ] unfinished task\n").unwrap();
+    fs::create_dir_all(changes.join("active")).unwrap();
+    fs::write(changes.join("active/tasks.md"), "- [ ] unfinished task\n").unwrap();
 
-    let rejected = run(dir.path(), &["status", "1", "done"]);
-    assert!(!rejected.status.success());
-    let error = String::from_utf8_lossy(&rejected.stderr);
-    assert!(error.contains("active-two") && error.contains("tasks.md"));
-
-    fs::write(&active_tasks, "- [X] completed task\n").unwrap();
-    let accepted = run(dir.path(), &["status", "1", "done"]);
-    assert!(accepted.status.success(), "{}", String::from_utf8_lossy(&accepted.stderr));
+    let completed = run(dir.path(), &["status", "1", "done"]);
+    assert!(completed.status.success(), "{}", String::from_utf8_lossy(&completed.stderr));
 }
-
 #[cfg(windows)]
 #[test]
 fn on_create_cmd_hook_can_reject_task_creation() {
@@ -646,14 +617,12 @@ fn commit_metadata_survives_body_label_and_status_mutations() {
 }
 
 #[test]
-fn creating_done_task_cannot_bypass_completion_gates() {
+fn creating_done_task_runs_without_optional_completion_hooks() {
     let dir = tempdir().unwrap();
-    let rejected = run(dir.path(), &["add", "prematurely done", "--status", "done"]);
-    assert!(!rejected.status.success());
-    assert!(String::from_utf8_lossy(&rejected.stderr).contains("link at least one Git commit"));
-    assert!(!dir.path().join(".todoing/tasks/1.md").exists());
+    let created = run(dir.path(), &["add", "directly done", "--status", "done"]);
+    assert!(created.status.success(), "{}", String::from_utf8_lossy(&created.stderr));
+    assert!(dir.path().join(".todoing/tasks/1.md").exists());
 }
-
 #[test]
 fn task_creation_rejects_blank_required_title_without_writing_files() {
     let dir = tempdir().unwrap();
@@ -839,8 +808,9 @@ fn legacy_cli_accepts_every_original_status_value() {
     assert_eq!(task["status"], "done");
 }
 #[cfg(unix)]
+#[cfg(unix)]
 #[test]
-fn add_done_rejects_before_running_on_create_hook() {
+fn add_done_runs_on_create_after_optional_completion_hooks() {
     use std::os::unix::fs::PermissionsExt;
 
     let dir = tempdir().unwrap();
@@ -853,15 +823,14 @@ fn add_done_rejects_before_running_on_create_hook() {
     permissions.set_mode(0o755);
     fs::set_permissions(&hook, permissions).unwrap();
 
-    let rejected = run(dir.path(), &["add", "invalid done task", "--status", "done"]);
-    assert!(!rejected.status.success());
-    assert!(!marker.exists(), "on-create must not run for a task rejected by built-in completion validation");
-    assert!(!dir.path().join(".todoing/tasks/1.md").exists());
+    let created = run(dir.path(), &["add", "directly done", "--status", "done"]);
+    assert!(created.status.success(), "{}", String::from_utf8_lossy(&created.stderr));
+    assert!(marker.exists());
 }
-
+#[cfg(windows)]
 #[cfg(windows)]
 #[test]
-fn add_done_rejects_before_running_on_create_cmd_hook() {
+fn add_done_cmd_runs_on_create_after_optional_completion_hooks() {
     let dir = tempdir().unwrap();
     let hooks = dir.path().join(".todoing/hooks");
     fs::create_dir_all(&hooks).unwrap();
@@ -869,9 +838,7 @@ fn add_done_rejects_before_running_on_create_cmd_hook() {
     let hook = hooks.join("on-create.cmd");
     fs::write(&hook, format!("@echo off\necho ran > \"{}\"\r\n", marker.display())).unwrap();
 
-    let rejected = run(dir.path(), &["add", "invalid done task", "--status", "done"]);
-    assert!(!rejected.status.success());
-    assert!(!marker.exists(), "on-create must not run for a task rejected by built-in completion validation");
-    assert!(!dir.path().join(".todoing/tasks/1.md").exists());
+    let created = run(dir.path(), &["add", "directly done", "--status", "done"]);
+    assert!(created.status.success(), "{}", String::from_utf8_lossy(&created.stderr));
+    assert!(marker.exists());
 }
-
