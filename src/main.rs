@@ -170,37 +170,6 @@ fn run_hook(name: &str, task: &Task) -> Result<(), String> {
     Ok(())
 }
 
-fn validate_before_done(task: &Task) -> Result<(), String> {
-    if task.commits.is_empty() {
-        return Err("Cannot mark task done: link at least one Git commit first.".into());
-    }
-    for sha in &task.commits {
-        let spec = format!("{}^{{commit}}", sha);
-        let valid = Command::new("git").arg("cat-file").arg("-e").arg(&spec).output()
-            .map(|output| output.status.success()).unwrap_or(false);
-        if !valid {
-            return Err(format!("Linked Git commit '{}' is not available in this repository.", sha));
-        }
-    }
-
-    let changes = PathBuf::from("openspec").join("changes");
-    if changes.is_dir() {
-        let entries = fs::read_dir(&changes).map_err(|e| e.to_string())?;
-        for entry in entries.flatten().filter(|e| e.path().is_dir()) {
-            if entry.file_name().to_string_lossy() == "archive" { continue; }
-            let tasks_file = entry.path().join("tasks.md");
-            if !tasks_file.is_file() { continue; }
-            let contents = fs::read_to_string(&tasks_file).map_err(|e| e.to_string())?;
-            if contents.lines().any(|line| {
-                let line = line.trim_start();
-                line.starts_with("- [ ]") || line.starts_with("* [ ]")
-            }) {
-                return Err(format!("Cannot mark task done: OpenSpec tasks remain unchecked in {}.", tasks_file.display()));
-            }
-        }
-    }
-    Ok(())
-}
 
 fn run() {
     let cli = Cli::parse();
@@ -212,7 +181,9 @@ fn run() {
             let task = Task::new(store.next_id(), a.title, status, a.labels, a.body);
             task.validate_for_creation().unwrap_or_else(|e| fail(e));
             if task.status == TaskStatus::Done {
-                validate_before_done(&task).unwrap_or_else(|e| fail(e));
+                run_hook("before-done-git", &task).unwrap_or_else(|e| fail(e));
+                run_hook("before-done-openspec", &task).unwrap_or_else(|e| fail(e));
+                run_hook("before-done", &task).unwrap_or_else(|e| fail(e));
             }
             run_hook("on-create", &task).unwrap_or_else(|e| fail(e));
             store.write_task(&task).unwrap_or_else(|e| fail(e));
@@ -259,7 +230,8 @@ fn run() {
             let (_, mut task) = task_or_fail(&store, &a.id);
             let next = TaskStatus::parse(&a.new_status).unwrap_or_else(|e| fail(e));
             if next == TaskStatus::Done && task.status != TaskStatus::Done {
-                validate_before_done(&task).unwrap_or_else(|e| fail(e));
+                run_hook("before-done-git", &task).unwrap_or_else(|e| fail(e));
+                run_hook("before-done-openspec", &task).unwrap_or_else(|e| fail(e));
                 run_hook("before-done", &task).unwrap_or_else(|e| fail(e));
             }
             task.status = next;
