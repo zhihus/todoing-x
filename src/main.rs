@@ -2,11 +2,17 @@ use clap::{Args, Parser, Subcommand};
 use serde::Serialize;
 use std::{
     fs,
-    io::Write,
+    io::{Read, Write},
     path::PathBuf,
     process::{Command, Stdio},
 };
+use tempfile::NamedTempFile;
 use todoing::{Store, Task, TaskStatus, VERSION};
+
+const GIT_HOOK_UNIX: &str = include_str!("../hooks/before-done-git");
+const OPENSPEC_HOOK_UNIX: &str = include_str!("../hooks/before-done-openspec");
+const GIT_HOOK_WINDOWS: &str = include_str!("../hooks/before-done-git.cmd");
+const OPENSPEC_HOOK_WINDOWS: &str = include_str!("../hooks/before-done-openspec.cmd");
 
 #[derive(Parser)]
 #[command(name="todoing", version=VERSION, about="Local, git-friendly task manager for AI agents and humans", disable_help_subcommand=true, arg_required_else_help=true)]
@@ -44,6 +50,10 @@ enum Commands {
     Reindex,
     #[command(about="Show the installed todoing version.")]
     Version,
+    #[command(about="Manage optional standard hooks.")]
+    Hooks(HooksArgs),
+    #[command(name="__hook", hide=true)]
+    InternalHook(InternalHookArgs),
 }
 
 #[derive(Args)]
@@ -170,6 +180,146 @@ fn run_hook(name: &str, task: &Task) -> Result<(), String> {
     Ok(())
 }
 
+
+fn standard_hook_names(selection: HookSelection) -> Vec<&'static str> {
+    match selection {
+        HookSelection::Git => vec!["before-done-git"],
+        HookSelection::Openspec => vec!["before-done-openspec"],
+        HookSelection::All => vec!["before-done-git", "before-done-openspec"],
+    }
+}
+
+#[cfg(windows)]
+fn hook_candidates(name: &str) -> Vec<PathBuf> {
+    let dir = PathBuf::from(".todoing").join("hooks");
+    vec![dir.join(format!("{}.cmd", name)), dir.join(format!("{}.bat", name))]
+}
+#[cfg(not(windows))]
+fn hook_candidates(name: &str) -> Vec<PathBuf> {
+    vec![PathBuf::from(".todoing").join("hooks").join(name)]
+}
+
+fn hook_installed(name: &str) -> bool {
+    hook_candidates(name).iter().any(|path| path.is_file())
+}
+
+fn bundled_hook(name: &str) -> Result<&'static str, String> {
+    #[cfg(windows)]
+    {
+        match name {
+            "before-done-git" => Ok(GIT_HOOK_WINDOWS),
+            "before-done-openspec" => Ok(OPENSPEC_HOOK_WINDOWS),
+            _ => Err(format!("Unknown standard hook '{}'.", name)),
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        match name {
+            "before-done-git" => Ok(GIT_HOOK_UNIX),
+            "before-done-openspec" => Ok(OPENSPEC_HOOK_UNIX),
+            _ => Err(format!("Unknown standard hook '{}'.", name)),
+        }
+    }
+}
+
+fn install_hook(name: &str) -> Result<bool, String> {
+    if hook_installed(name) { return Ok(false); }
+    let dir = PathBuf::from(".todoing").join("hooks");
+    fs::create_dir_all(&dir).map_err(|e| format!("Cannot create hooks directory: {}", e))?;
+    let target = hook_candidates(name).into_iter().next().ok_or_else(|| "No hook path available".to_string())?;
+    let mut temp = NamedTempFile::new_in(&dir).map_err(|e| format!("Cannot create temporary hook file: {}", e))?;
+    temp.write_all(bundled_hook(name)?.as_bytes()).map_err(|e| format!("Cannot write hook: {}", e))?;
+    temp.as_file().sync_all().map_err(|e| format!("Cannot sync hook: {}", e))?;
+    temp.persist(&target).map_err(|e| format!("Cannot install hook: {}", e.error))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut permissions = fs::metadata(&target).map_err(|e| e.to_string())?.permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(&target, permissions).map_err(|e| format!("Cannot make hook executable: {}", e))?;
+    }
+    Ok(true)
+}
+
+fn show_hook_status(json: bool) {
+    let hooks = ["before-done-git", "before-done-openspec"];
+    if json {
+        let rows: Vec<_> = hooks.iter().map(|name| serde_json::json!({
+            "name": name,
+            "installed": hook_installed(name)
+        })).collect();
+        emit_json(&serde_json::json!({"hooks": rows}));
+    } else {
+        for name in hooks {
+            println!("{}: {}", name, if hook_installed(name) { "installed" } else { "not installed" });
+        }
+    }
+}
+
+fn install_hooks(selection: HookSelection, json: bool) {
+    let mut installed = Vec::new();
+    let mut already_installed = Vec::new();
+    for name in standard_hook_names(selection) {
+        match install_hook(name) {
+            Ok(true) => installed.push(name),
+            Ok(false) => already_installed.push(name),
+            Err(error) => fail(error),
+        }
+    }
+    if json {
+        emit_json(&serde_json::json!({
+            "installed": installed,
+            "already_installed": already_installed
+        }));
+    } else {
+        for name in installed { println!("Installed {}.", name); }
+        for name in already_installed { println!("{} is already present; left unchanged.", name); }
+    }
+}
+
+fn run_internal_hook(name: &str) -> Result<(), String> {
+    let mut payload = Vec::new();
+    std::io::stdin().read_to_end(&mut payload).map_err(|e| format!("Cannot read task data: {}", e))?;
+    let task: Task = serde_json::from_slice(&payload).map_err(|e| format!("Invalid task data: {}", e))?;
+    match name {
+        "before-done-git" => {
+            if task.commits.is_empty() {
+                return Err(format!("Task #{} has no linked Git commits.", task.id));
+            }
+            for sha in &task.commits {
+                let spec = format!("{}^{{commit}}", sha);
+                let output = Command::new("git").arg("cat-file").arg("-e").arg(&spec).output()
+                    .map_err(|e| format!("Cannot run git: {}", e))?;
+                if !output.status.success() {
+                    return Err(format!("Linked Git commit {} for task #{} does not exist in this repository.", sha, task.id));
+                }
+            }
+            Ok(())
+        }
+        "before-done-openspec" => {
+            let changes = PathBuf::from("openspec/changes");
+            if !changes.is_dir() { return Ok(()); }
+            let entries = fs::read_dir(&changes).map_err(|e| format!("Cannot read OpenSpec changes directory: {}", e))?;
+            for entry in entries {
+                let entry = entry.map_err(|e| e.to_string())?;
+                let path = entry.path();
+                if !path.is_dir() || entry.file_name() == "archive" { continue; }
+                let tasks_file = path.join("tasks.md");
+                if !tasks_file.is_file() { continue; }
+                let content = fs::read_to_string(&tasks_file)
+                    .map_err(|e| format!("Cannot read {}: {}", tasks_file.display(), e))?;
+                for (index, line) in content.lines().enumerate() {
+                    let item = line.trim_start();
+                    if item.starts_with("- [ ]") || item.starts_with("* [ ]") || item.starts_with("+ [ ]") {
+                        return Err(format!("OpenSpec checklist is incomplete: {}:{}: {}", tasks_file.display(), index + 1, item));
+                    }
+                }
+            }
+            Ok(())
+        }
+        _ => Err(format!("Unknown internal hook '{}'.", name)),
+    }
+}
 
 fn run() {
     let cli = Cli::parse();
@@ -307,6 +457,11 @@ fn run() {
             if json { emit_json(&serde_json::json!({"version": VERSION})); }
             else { println!("{}", VERSION); }
         }
+        Some(Commands::Hooks(args)) => match args.command {
+            HooksCommands::Status => show_hook_status(json),
+            HooksCommands::Install { hook } => install_hooks(hook, json),
+        },
+        Some(Commands::InternalHook(args)) => run_internal_hook(&args.name).unwrap_or_else(|e| fail(e)),
         None => {}
     }
 }
