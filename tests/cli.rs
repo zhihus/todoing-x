@@ -808,7 +808,6 @@ fn legacy_cli_accepts_every_original_status_value() {
     assert_eq!(task["status"], "done");
 }
 #[cfg(unix)]
-#[cfg(unix)]
 #[test]
 fn add_done_runs_on_create_after_optional_completion_hooks() {
     use std::os::unix::fs::PermissionsExt;
@@ -827,7 +826,6 @@ fn add_done_runs_on_create_after_optional_completion_hooks() {
     assert!(created.status.success(), "{}", String::from_utf8_lossy(&created.stderr));
     assert!(marker.exists());
 }
-#[cfg(windows)]
 #[cfg(windows)]
 #[test]
 fn add_done_cmd_runs_on_create_after_optional_completion_hooks() {
