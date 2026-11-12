@@ -1,0 +1,2 @@
+#!/bin/sh
+exec todoing __hook before-done-openspec
