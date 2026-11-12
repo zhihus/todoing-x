@@ -20,6 +20,28 @@ Run commands from the repository root so the correct `.todoing/` directory is us
 
 IDs are sequential integers. `#1` and `1` are equivalent.
 
+## Standard hook setup
+
+Before the first task-management operation in each project, run:
+
+```bash
+todoing hooks status --json
+```
+
+If one or both standard hooks are missing, explain the checks and ask the user whether to install Git, OpenSpec, both, or neither:
+- Git checks that the task has linked commits and that every linked commit exists in the current repository.
+- OpenSpec checks that all checklist items in active changes are complete.
+
+Do not install anything until the user explicitly approves. Install only the selected checks:
+
+```bash
+todoing hooks install git
+todoing hooks install openspec
+todoing hooks install all
+```
+
+If the user declines, continue without those checks and do not ask again during the same conversation unless the user reopens the decision. Existing hook files are never overwritten by installation. A missing hook is intentionally disabled. Do not recreate a removed hook unless the user asks to enable it.
+
 ## Commands
 
 ### Create a task
@@ -93,7 +115,7 @@ JSON is written to stdout; errors are written to stderr.
 
 ## Completion checks and hooks
 
-Completion checks are optional hooks stored in `.todoing/hooks/`:
+Completion checks are optional hooks stored in `.todoing/hooks/`. Standard Git and OpenSpec hooks are bundled with Todoing but must be installed with the user's approval:
 - `before-done-git`: requires at least one linked Git commit and verifies that every linked SHA exists in the current repository.
 - `before-done-openspec`: checks that all checklist items in active `openspec/changes/*/tasks.md` files are complete; `openspec/changes/archive/` is ignored.
 - `before-done`: additional project-specific completion check.
