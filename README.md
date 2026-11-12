@@ -113,6 +113,8 @@ The task JSON is sent to each hook's standard input. Hooks run in this order: `b
   index.json
   hooks/
     on-create
+    before-done-git
+    before-done-openspec
     before-done
 ```
 
