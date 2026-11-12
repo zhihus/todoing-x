@@ -93,15 +93,15 @@ JSON is written to stdout; errors are written to stderr.
 
 ## Completion checks and hooks
 
-Before a task transitions to `done`, todoing requires at least one linked Git commit, verifies that every linked commit exists in the current repository, and checks that all checklist items in active `openspec/changes/*/tasks.md` files are complete. The `openspec/changes/archive/` directory is ignored.
+Completion checks are optional hooks stored in `.todoing/hooks/`:
+- `before-done-git`: requires at least one linked Git commit and verifies that every linked SHA exists in the current repository.
+- `before-done-openspec`: checks that all checklist items in active `openspec/changes/*/tasks.md` files are complete; `openspec/changes/archive/` is ignored.
+- `before-done`: additional project-specific completion check.
+- `on-create`: receives a new task as JSON on stdin before it is saved.
 
-Optional hooks are stored in `.todoing/hooks/`:
-- `on-create`: receives the new task as JSON on stdin before it is saved.
-- `before-done`: receives the task as JSON on stdin before a transition to `done` through the `status` command.
+Each completion hook runs only if its file exists. Omit or remove a hook to disable that check. Hooks run in this order: `before-done-git`, `before-done-openspec`, `before-done`. They run both for `status <id> done` and for task creation with `--status done`.
 
-Do not create tasks with `--status done`: a new task cannot yet have a linked Git commit. Create it, link a commit, then mark it done.
-
-Exit code 0 allows the operation; a non-zero exit code rejects it. On Unix, use executable files named exactly `on-create` and `before-done`. On Windows, use `.cmd` or `.bat` files.
+Exit code 0 allows the operation; a non-zero exit code rejects it. On Unix, use executable files named exactly as the hook names. On Windows, use `.cmd` or `.bat` files.
 
 ## Common workflows for AI agents
 
@@ -126,7 +126,7 @@ todoing commit 3 HEAD
 todoing status 3 done
 ```
 
-The final status transition is allowed only after built-in completion checks and configured hooks pass.
+The final status transition is allowed only after configured completion hooks pass.
 
 ### Check what needs attention
 
@@ -150,7 +150,7 @@ todoing ls -q "auth"
 - Use `--force` with `delete` to avoid an interactive prompt.
 - The task body is full Markdown. Use it for plans, research notes, links, logs, and handoff context.
 - Record progress in the task body so another agent can resume the work.
-- Do not mark a task done until its work is complete and the built-in completion checks and configured hook pass.
+- Do not mark a task done until its work is complete and all configured completion hooks pass.
 - If the index is missing or inconsistent, use `todoing reindex`.
 
 ## Self-dogfooding
