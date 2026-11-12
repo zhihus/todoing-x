@@ -28,7 +28,7 @@ Before the first task-management operation in each project, run:
 todoing hooks status --json
 ```
 
-If one or both standard hooks are missing, explain the checks and ask the user whether to install Git, OpenSpec, both, or neither:
+If the JSON field `agent_action` is `ask_user_before_install`, explain only the missing checks and ask the user whether to install Git, OpenSpec, both, or neither:
 - Git checks that the task has linked commits and that every linked commit exists in the current repository.
 - OpenSpec checks that all checklist items in active changes are complete.
 
