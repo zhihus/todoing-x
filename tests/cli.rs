@@ -62,8 +62,6 @@ fn json_interface_covers_remaining_commands() {
     git(dir.path(), &["init", "-q"]);
     git(dir.path(), &["config", "user.email", "todoing-test@example.invalid"]);
     git(dir.path(), &["config", "user.name", "Todoing Test"]);
-    let direct_done = run(dir.path(), &["add", "direct done", "--status", "done"]);
-    assert!(!direct_done.status.success());
     fs::write(dir.path().join("tracked.txt"), "initial").unwrap();
     git(dir.path(), &["add", "tracked.txt"]);
     git(dir.path(), &["commit", "-m", "initial"]);
@@ -231,6 +229,8 @@ fn completion_requires_git_commit_and_all_active_openspec_tasks() {
     git(dir.path(), &["init", "-q"]);
     git(dir.path(), &["config", "user.email", "todoing-test@example.invalid"]);
     git(dir.path(), &["config", "user.name", "Todoing Test"]);
+    let direct_done = run(dir.path(), &["add", "direct done", "--status", "done"]);
+    assert!(!direct_done.status.success());
     fs::write(dir.path().join("tracked.txt"), "initial").unwrap();
     git(dir.path(), &["add", "tracked.txt"]);
     git(dir.path(), &["commit", "-m", "initial"]);
