@@ -307,6 +307,7 @@ fn standard_hooks_can_be_installed_selectively_and_status_is_machine_readable() 
     assert_eq!(value["hooks"][0]["name"], "before-done-git");
     assert_eq!(value["hooks"][0]["installed"], false);
     assert_eq!(value["hooks"][1]["installed"], false);
+    assert_eq!(value["agent_action"], "ask_user_before_install");
 
     let installed = run(dir.path(), &["hooks", "install", "git", "--json"]);
     assert!(installed.status.success(), "{}", String::from_utf8_lossy(&installed.stderr));
@@ -333,6 +334,7 @@ fn standard_hooks_can_be_installed_selectively_and_status_is_machine_readable() 
     let value: Value = serde_json::from_slice(&status.stdout).unwrap();
     assert_eq!(value["hooks"][0]["installed"], true);
     assert_eq!(value["hooks"][1]["installed"], true);
+    assert_eq!(value["agent_action"], "none");
 }
 
 #[cfg(unix)]
