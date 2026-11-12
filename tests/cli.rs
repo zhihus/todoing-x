@@ -4,8 +4,13 @@ use std::io::Write;
 use tempfile::tempdir;
 
 fn run(root: &Path, args: &[&str]) -> std::process::Output {
-    Command::new(env!("CARGO_BIN_EXE_todoing"))
+    let binary = Path::new(env!("CARGO_BIN_EXE_todoing"));
+    let mut paths = vec![binary.parent().unwrap().to_path_buf()];
+    paths.extend(std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default()));
+    let path = std::env::join_paths(paths).unwrap();
+    Command::new(binary)
         .current_dir(root)
+        .env("PATH", path)
         .args(args)
         .output()
         .expect("todoing binary should run")
@@ -219,6 +224,8 @@ fn edit_json_returns_updated_task_after_editor_and_reindex() {
 #[test]
 fn completion_requires_git_commit_and_all_active_openspec_tasks() {
     let dir = tempdir().unwrap();
+    let installed = run(dir.path(), &["hooks", "install", "all"]);
+    assert!(installed.status.success(), "{}", String::from_utf8_lossy(&installed.stderr));
     git(dir.path(), &["init", "-q"]);
     git(dir.path(), &["config", "user.email", "todoing-test@example.invalid"]);
     git(dir.path(), &["config", "user.name", "Todoing Test"]);
@@ -290,6 +297,39 @@ fn missing_openspec_hook_does_not_block_done() {
     let completed = run(dir.path(), &["status", "1", "done"]);
     assert!(completed.status.success(), "{}", String::from_utf8_lossy(&completed.stderr));
 }
+#[test]
+fn standard_hooks_can_be_installed_selectively_and_status_is_machine_readable() {
+    let dir = tempdir().unwrap();
+
+    let status = run(dir.path(), &["hooks", "status", "--json"]);
+    assert!(status.status.success());
+    let value: Value = serde_json::from_slice(&status.stdout).unwrap();
+    assert_eq!(value["hooks"][0]["name"], "before-done-git");
+    assert_eq!(value["hooks"][0]["installed"], false);
+    assert_eq!(value["hooks"][1]["installed"], false);
+
+    let installed = run(dir.path(), &["hooks", "install", "git", "--json"]);
+    assert!(installed.status.success(), "{}", String::from_utf8_lossy(&installed.stderr));
+    let value: Value = serde_json::from_slice(&installed.stdout).unwrap();
+    assert_eq!(value["installed"][0], "before-done-git");
+
+    #[cfg(windows)]
+    let git_hook = dir.path().join(".todoing/hooks/before-done-git.cmd");
+    #[cfg(not(windows))]
+    let git_hook = dir.path().join(".todoing/hooks/before-done-git");
+    assert!(git_hook.is_file());
+    assert!(!dir.path().join(".todoing/hooks/before-done-openspec").is_file());
+
+    fs::write(&git_hook, "user-customized hook").unwrap();
+    let all = run(dir.path(), &["hooks", "install", "all"]);
+    assert!(all.status.success(), "{}", String::from_utf8_lossy(&all.stderr));
+    assert_eq!(fs::read_to_string(&git_hook).unwrap(), "user-customized hook");
+    let status = run(dir.path(), &["hooks", "status", "--json"]);
+    let value: Value = serde_json::from_slice(&status.stdout).unwrap();
+    assert_eq!(value["hooks"][0]["installed"], true);
+    assert_eq!(value["hooks"][1]["installed"], true);
+}
+
 #[cfg(unix)]
 #[test]
 fn before_done_git_hook_can_reject_completion() {
