@@ -290,6 +290,46 @@ fn missing_openspec_hook_does_not_block_done() {
     let completed = run(dir.path(), &["status", "1", "done"]);
     assert!(completed.status.success(), "{}", String::from_utf8_lossy(&completed.stderr));
 }
+#[cfg(unix)]
+#[test]
+fn before_done_git_hook_can_reject_completion() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = tempdir().unwrap();
+    assert!(run(dir.path(), &["add", "git hook task"]).status.success());
+    let hooks = dir.path().join(".todoing/hooks");
+    fs::create_dir_all(&hooks).unwrap();
+    let hook = hooks.join("before-done-git");
+    fs::write(&hook, "#!/bin/sh\nexit 7\n").unwrap();
+    let mut permissions = fs::metadata(&hook).unwrap().permissions();
+    permissions.set_mode(0o755);
+    fs::set_permissions(&hook, permissions).unwrap();
+
+    let rejected = run(dir.path(), &["status", "1", "done"]);
+    assert!(!rejected.status.success());
+    assert!(String::from_utf8_lossy(&rejected.stderr).contains("before-done-git hook rejected"));
+}
+
+#[cfg(unix)]
+#[test]
+fn before_done_openspec_hook_can_reject_completion() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = tempdir().unwrap();
+    assert!(run(dir.path(), &["add", "openspec hook task"]).status.success());
+    let hooks = dir.path().join(".todoing/hooks");
+    fs::create_dir_all(&hooks).unwrap();
+    let hook = hooks.join("before-done-openspec");
+    fs::write(&hook, "#!/bin/sh\nexit 7\n").unwrap();
+    let mut permissions = fs::metadata(&hook).unwrap().permissions();
+    permissions.set_mode(0o755);
+    fs::set_permissions(&hook, permissions).unwrap();
+
+    let rejected = run(dir.path(), &["status", "1", "done"]);
+    assert!(!rejected.status.success());
+    assert!(String::from_utf8_lossy(&rejected.stderr).contains("before-done-openspec hook rejected"));
+}
+
 #[cfg(windows)]
 #[test]
 fn on_create_cmd_hook_can_reject_task_creation() {
