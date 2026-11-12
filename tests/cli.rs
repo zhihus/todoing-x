@@ -317,13 +317,18 @@ fn standard_hooks_can_be_installed_selectively_and_status_is_machine_readable() 
     let git_hook = dir.path().join(".todoing/hooks/before-done-git.cmd");
     #[cfg(not(windows))]
     let git_hook = dir.path().join(".todoing/hooks/before-done-git");
+    #[cfg(windows)]
+    let openspec_hook = dir.path().join(".todoing/hooks/before-done-openspec.cmd");
+    #[cfg(not(windows))]
+    let openspec_hook = dir.path().join(".todoing/hooks/before-done-openspec");
     assert!(git_hook.is_file());
-    assert!(!dir.path().join(".todoing/hooks/before-done-openspec").is_file());
+    assert!(!openspec_hook.exists());
 
     fs::write(&git_hook, "user-customized hook").unwrap();
     let all = run(dir.path(), &["hooks", "install", "all"]);
     assert!(all.status.success(), "{}", String::from_utf8_lossy(&all.stderr));
     assert_eq!(fs::read_to_string(&git_hook).unwrap(), "user-customized hook");
+    assert!(openspec_hook.is_file());
     let status = run(dir.path(), &["hooks", "status", "--json"]);
     let value: Value = serde_json::from_slice(&status.stdout).unwrap();
     assert_eq!(value["hooks"][0]["installed"], true);
