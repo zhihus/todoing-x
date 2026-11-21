@@ -34,7 +34,7 @@
 - [x] 4.3 Implement transactional task repository, stable ID allocation, and no-physical-delete behavior.
 - [x] 4.4 Implement immutable versions, approved baselines, and append-only successful/rejected operation history.
 - [x] 4.5 Implement configurable statuses, completion/cancellation/reopen outcomes, and dependency cycle validation.
-- [ ] 4.6 Implement exclusive task locks, read exclusion, lease heartbeat, recovery grace, fencing, and stale-owner rejection.
+- [x] 4.6 Implement exclusive task locks, read exclusion, lease heartbeat, recovery grace, fencing, and stale-owner rejection.
 - [ ] 4.7 Implement human CLI compatibility and JSON API v1 request/response schemas, errors, and exit codes.
 - [ ] 4.8 Implement non-destructive legacy migration and verified Online Backup API snapshots.
 - [ ] 4.9 Complete cross-platform failure/concurrency/API/migration tests and update current-behavior specs only after verified implementation.
