@@ -226,7 +226,7 @@ The caller supplies actor_id in the envelope. Todoing generates an owner/session
 
 Returns owner_id, lock_token, fencing_generation, acquired_at, heartbeat_at, and expires_at.
 
-Acquisition uses a short SQLite EXCLUSIVE transaction. An active lock or a lease still within its recovery grace causes a conflict.
+Acquisition uses a short SQLite EXCLUSIVE transaction. An active unexpired lock causes task_locked. An expired lock blocks a new acquire as well; before recovery grace elapses it returns lock_expired with the recovery-available time, and after grace elapses the caller must invoke task.lock.recover explicitly. Acquire never performs implicit takeover.
 
 ### task.lock.heartbeat
 
@@ -263,7 +263,7 @@ Returns the new owner_id, lock_token, fencing_generation, and expires_at. There 
 
 ## 8. No-op semantics
 
-A successful request that does not change task state (for example, adding an already-present label or commit reference) returns the current task and a no-op indicator. It does not create a new task version. Whether no-op attempts are separately recorded in operation history is implementation-defined but must not be reported as a task save.
+A successful request that does not change task state (for example, adding an already-present label or commit reference) returns the current task and no_op=true. The accepted operation is recorded in operation history, but no task version is created because no task state was saved.
 
 Lock heartbeat is not a task save. Lock events are recorded in operation history but do not create task versions.
 
