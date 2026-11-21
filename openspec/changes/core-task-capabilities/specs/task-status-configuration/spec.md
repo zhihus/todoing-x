@@ -52,3 +52,9 @@ The task model MUST represent completion and cancellation as distinct outcomes. 
 - **WHEN** a client explicitly reopens a completed or cancelled task
 - **THEN** the task outcome is cleared
 - **AND** any subsequent status change is validated against the configured transition rules
+
+#### Scenario: Reject a status change on a terminal task
+
+- **WHEN** a client attempts to change the workflow status of a task with a completed or cancelled outcome without reopening it
+- **THEN** the operation is rejected
+- **AND** the task state and version history remain unchanged
