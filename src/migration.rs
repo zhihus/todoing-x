@@ -288,3 +288,161 @@ fn write_report(directory: &Path, report: &MigrationReport) -> Result<PathBuf, S
     temporary.persist_noclobber(&path).map_err(|error| StoreError::Io(error.error))?;
     Ok(path)
 }
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::Task;
+    use chrono::NaiveDateTime;
+    use std::fs;
+    use tempfile::tempdir;
+
+    fn legacy_task(id: i64, status: LegacyStatus) -> Task {
+        Task {
+            id,
+            title: format!("legacy task {id}"),
+            added_at: TaskDateTime::Naive(
+                NaiveDateTime::parse_from_str("2026-10-31T12:30:00", "%Y-%m-%dT%H:%M:%S").unwrap()
+            ),
+            status,
+            labels: vec!["migration".into()],
+            body: "original body".into(),
+            commits: vec![],
+        }
+    }
+
+    fn actor_id() -> ActorId {
+        ActorId::new("migration-test-agent").unwrap()
+    }
+
+    #[test]
+    fn dry_run_validates_and_hashes_sources_without_mutating_them() {
+        let root = tempdir().unwrap();
+        let legacy = LegacyStore::new(root.path());
+        legacy.write_task(&legacy_task(7, LegacyStatus::InProgress)).unwrap();
+        let index_path = root.path().join(TODOING_DIR).join("index.json");
+        fs::write(&index_path, "broken index").unwrap();
+        let original_task = fs::read(legacy.tasks.join("7.md")).unwrap();
+        let original_index = fs::read(&index_path).unwrap();
+
+        let report = migrate(
+            root.path(),
+            &ProjectId::new("migration-project").unwrap(),
+            &actor_id(),
+            true,
+        ).unwrap();
+
+        assert!(report.dry_run);
+        assert!(!report.activated);
+        assert_eq!(report.task_count, 1);
+        assert!(!root.path().join(TODOING_DIR).join("todoing.db").exists());
+        assert!(!root.path().join(TODOING_DIR).join("config.toml").exists());
+        assert_eq!(fs::read(legacy.tasks.join("7.md")).unwrap(), original_task);
+        assert_eq!(fs::read(index_path).unwrap(), original_index);
+        assert!(report.warnings.iter().any(|warning| warning.contains("index.json")));
+        assert_eq!(report.source_hashes.len(), 2);
+    }
+
+    #[test]
+    fn migration_preserves_ids_fields_outcomes_and_writes_version_history() {
+        let root = tempdir().unwrap();
+        let legacy = LegacyStore::new(root.path());
+        let mut active = legacy_task(3, LegacyStatus::Todo);
+        active.labels = vec!["Alpha".into(), "beta".into()];
+        active.commits = vec!["0123456789abcdef0123456789abcdef01234567".into()];
+        legacy.write_task(&active).unwrap();
+        legacy.write_task(&legacy_task(9, LegacyStatus::Done)).unwrap();
+        legacy.write_task(&legacy_task(12, LegacyStatus::Cancelled)).unwrap();
+
+        let report = migrate(
+            root.path(),
+            &ProjectId::new("migration-project").unwrap(),
+            &actor_id(),
+            false,
+        ).unwrap();
+
+        assert!(report.activated);
+        assert_eq!(report.task_count, 3);
+        assert!(report.report_path.as_ref().is_some_and(|path| path.is_file()));
+        let config = ProjectConfig::from_toml(
+            &fs::read_to_string(root.path().join(TODOING_DIR).join("config.toml")).unwrap()
+        ).unwrap();
+        let store = SqliteStore::open(root.path(), Some(&ProjectId::new("migration-project").unwrap())).unwrap();
+        let repository = TaskRepository::new(store, config).unwrap();
+        let tasks = repository.list().unwrap();
+        assert_eq!(tasks.iter().map(|task| task.id.get()).collect::<Vec<_>>(), vec![3, 9, 12]);
+
+        let imported = repository.get(crate::domain::TaskId::new(3).unwrap()).unwrap();
+        assert_eq!(imported.title, active.title);
+        assert_eq!(imported.body, active.body);
+        assert_eq!(imported.labels, active.labels);
+        assert_eq!(imported.commit_refs, active.commits);
+        assert_eq!(imported.created_at, active.added_at.isoformat());
+
+        let completed = repository.get(crate::domain::TaskId::new(9).unwrap()).unwrap();
+        assert_eq!(completed.status_id.as_str(), "done");
+        assert_eq!(completed.outcome, Some(TaskOutcome::Completed));
+        let cancelled = repository.get(crate::domain::TaskId::new(12).unwrap()).unwrap();
+        assert_eq!(cancelled.status_id.as_str(), "cancelled");
+        assert_eq!(cancelled.outcome, Some(TaskOutcome::Cancelled));
+
+        let versions = repository.list_versions(crate::domain::TaskId::new(9).unwrap()).unwrap();
+        assert_eq!(versions.len(), 1);
+        let history = repository.get_history(crate::domain::TaskId::new(9).unwrap()).unwrap();
+        assert_eq!(history.len(), 1);
+        assert_eq!(history[0].operation, "migration_import");
+    }
+
+    #[test]
+    fn invalid_legacy_data_aborts_before_database_activation() {
+        let root = tempdir().unwrap();
+        let legacy = LegacyStore::new(root.path());
+        legacy.write_task(&legacy_task(0, LegacyStatus::Todo)).unwrap();
+        let original = fs::read(legacy.tasks.join("0.md")).unwrap();
+
+        let result = migrate(
+            root.path(),
+            &ProjectId::new("migration-project").unwrap(),
+            &actor_id(),
+            false,
+        );
+
+        assert!(matches!(result, Err(StoreError::InvalidTask(_))));
+        assert!(!root.path().join(TODOING_DIR).join("todoing.db").exists());
+        assert!(!root.path().join(TODOING_DIR).join("config.toml").exists());
+        assert_eq!(fs::read(legacy.tasks.join("0.md")).unwrap(), original);
+    }
+
+    #[test]
+    fn migration_refuses_existing_database_without_touching_legacy_sources() {
+        let root = tempdir().unwrap();
+        let legacy = LegacyStore::new(root.path());
+        legacy.write_task(&legacy_task(1, LegacyStatus::Todo)).unwrap();
+        SqliteStore::initialize(root.path(), ProjectId::new("existing-project").unwrap()).unwrap();
+        let original = fs::read(legacy.tasks.join("1.md")).unwrap();
+
+        assert!(matches!(
+            migrate(root.path(), &ProjectId::new("migration-project").unwrap(), &actor_id(), false),
+            Err(StoreError::AlreadyExists(_))
+        ));
+        assert_eq!(fs::read(legacy.tasks.join("1.md")).unwrap(), original);
+    }
+
+    #[test]
+    fn malformed_custom_config_blocks_migration_without_overwriting_it() {
+        let root = tempdir().unwrap();
+        let legacy = LegacyStore::new(root.path());
+        legacy.write_task(&legacy_task(1, LegacyStatus::Todo)).unwrap();
+        let config_path = root.path().join(TODOING_DIR).join("config.toml");
+        fs::write(&config_path, "not = [valid").unwrap();
+        let original_config = fs::read(&config_path).unwrap();
+
+        assert!(matches!(
+            migrate(root.path(), &ProjectId::new("migration-project").unwrap(), &actor_id(), false),
+            Err(StoreError::InvalidConfig(_))
+        ));
+        assert_eq!(fs::read(config_path).unwrap(), original_config);
+        assert!(!root.path().join(TODOING_DIR).join("todoing.db").exists());
+    }
+}
