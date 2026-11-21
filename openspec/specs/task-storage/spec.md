@@ -24,14 +24,15 @@ Each task record MUST represent the task identifier, title, creation timestamp, 
 #### Scenario: Read an existing task
 
 - **WHEN** a task file contains valid YAML frontmatter and supported field values
-- **THEN** the system parses the record into a task
-- **AND** preserves the task content and supported metadata when it is read and rewritten
+- **THEN** the system parses the supported task fields
+- **AND** can rewrite those fields in the Todoing Markdown representation
+
+The current implementation normalizes the description body by trimming its leading and trailing whitespace when reading a task. Frontmatter fields not represented by the current task model are not preserved when the task is rewritten.
 
 #### Scenario: Invalid or unreadable task file
 
 - **WHEN** a task file cannot be parsed as a valid task
-- **THEN** the system does not treat it as a valid task
-- **AND** reports an error or warning according to the failure condition
+- **THEN** the system skips some malformed or incomplete files during index rebuild, or returns an error for invalid required fields and unreadable content, according to the failure condition
 
 ### Requirement: Rebuildable JSON index
 
@@ -44,11 +45,13 @@ The index MUST be rebuildable from valid Markdown task files.
 - **WHEN** the user runs `todoing reindex`
 - **THEN** the system scans task Markdown files
 - **AND** rewrites the JSON index from the tasks it can parse
+- **AND** fails if a scanned file has invalid required task fields
 
-#### Scenario: Scan without relying on the index
+#### Scenario: Scan before listing
 
 - **WHEN** the user runs `todoing ls --scan`
-- **THEN** the system lists tasks by scanning Markdown files directly
+- **THEN** the system scans task Markdown files and rebuilds the JSON index
+- **AND** produces the listing from the rebuilt index
 
 ### Requirement: Atomic replacement of individual files
 
@@ -61,6 +64,12 @@ This requirement describes individual file replacement only. It does not establi
 - **WHEN** the system successfully writes a task or index file
 - **THEN** the destination contains the complete new file content
 - **AND** no partially written destination content is exposed by the replacement operation
+
+#### Scenario: Failure between task and index writes
+
+- **WHEN** a task file is successfully written but the subsequent index update fails
+- **THEN** the task file may contain the new task state while the index remains stale
+- **AND** the index can be rebuilt from task Markdown files
 
 ### Requirement: Existing storage compatibility
 
