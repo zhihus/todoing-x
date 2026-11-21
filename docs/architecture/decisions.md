@@ -69,23 +69,6 @@
 
 The selected technical baseline is not to be changed silently. Any deviation requires a new decision record and corresponding tests.
 
-## 4. Open architecture questions
-
-1. Final storage engine and schema.
-2. Status configuration file format, schema, validation, ordering, disabled statuses, and transition rules.
-3. Exact task schema and representation of structured attachments/application-specific payloads.
-4. Stable CLI command set and compatibility policy for existing commands.
-5. JSON API versioning, envelopes, error schema, and exit-code mapping.
-6. Event names, payload schema, ordering, delivery guarantees, retries, and handler failure semantics.
-7. Lock owner identity, lease/heartbeat timing, clock-change policy, crash recovery, and production filesystem/database behavior. The rollback-journal EXCLUSIVE acquisition barrier passed the current cross-platform prototype.
-8. Version snapshot format, diff semantics, approval marker, and actor identity.
-9. Archive/restore data model and optional retention/limit policies.
-10. Migration from Markdown/YAML plus JSON index, including preservation of IDs and Git references.
-11. Manifest project identity binding and enforcement at the integration boundary.
-12. Exact mapping of workflow statuses to completion/cancellation outcomes.
-
-These questions must be resolved through technical design and OpenSpec changes. They must not be silently decided during implementation.
-
 ## 5. Delivery boundaries
 
 ### MVP
