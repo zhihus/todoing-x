@@ -1,3 +1,4 @@
+use super::{AppError, ErrorCode};
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de};
 use std::fmt;
 
@@ -7,14 +8,17 @@ const MAX_PROJECT_ID_CHARS: usize = 128;
 pub struct ProjectId(String);
 
 impl ProjectId {
-    pub fn new(value: impl Into<String>) -> Result<Self, String> {
+    pub fn new(value: impl Into<String>) -> Result<Self, AppError> {
         let value = value.into();
         if value.trim().is_empty()
             || value.trim() != value.as_str()
             || value.chars().any(char::is_control)
             || value.chars().count() > MAX_PROJECT_ID_CHARS
         {
-            return Err("Project ID must contain 1 to 128 non-whitespace characters".into());
+            return Err(AppError::new(
+                ErrorCode::InvalidRequest,
+                "Project ID must contain 1 to 128 non-whitespace characters",
+            ));
         }
         Ok(Self(value))
     }
