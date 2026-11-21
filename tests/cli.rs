@@ -318,7 +318,7 @@ fn standard_hooks_can_be_installed_selectively_and_status_is_machine_readable() 
     let installed = run(dir.path(), &["hooks", "install", "git", "--json"]);
     assert!(installed.status.success(), "{}", String::from_utf8_lossy(&installed.stderr));
     let value: Value = serde_json::from_slice(&installed.stdout).unwrap();
-    assert_eq!(value["installed"][0], "before-done-git");
+    assert_eq!(value["data"]["installed"][0], "before-done-git");
 
     #[cfg(windows)]
     let git_hook = dir.path().join(".todoing/hooks/before-done-git.cmd");
