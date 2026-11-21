@@ -40,3 +40,13 @@ The system MUST allow clients to inspect a task's versions and compare two versi
 - **WHEN** a client requests a comparison between two versions of one task
 - **THEN** the system returns the differences between those versions
 - **AND** leaves both versions unchanged
+
+### Requirement: Record rejected task operations
+
+The operation history MUST record rejected task-operation attempts that reach the task operation layer, including the actor, timestamp, attempted operation, relevant previous and requested values, and rejection outcome. A rejected operation MUST NOT create a successful task version or change committed task state.
+
+#### Scenario: Record a rejected operation
+
+- **WHEN** a task operation is rejected by a business rule or concurrency rule
+- **THEN** the operation history records the rejection outcome
+- **AND** the task's committed state and version history remain unchanged
