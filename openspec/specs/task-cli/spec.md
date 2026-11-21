@@ -28,22 +28,30 @@ A title MUST contain a non-whitespace character. Supplied labels MUST contain a 
 
 The CLI MUST provide an `ls` command that lists tasks newest first by default.
 
-The command MUST support filtering by status, one or more labels, and a case-insensitive query across title, body, labels, and status. Multiple label filters MUST use AND semantics. The command MUST support a result limit, reverse ordering, and direct Markdown scan mode.
+The command MUST support filtering by status, one or more labels, and a case-insensitive query across title, body, labels, and status. Multiple label filters MUST use AND semantics. The command MUST support a result limit and reverse ordering.
+
+The `--scan` option MUST scan task Markdown files and rebuild `.todoing/index.json` before listing. The listing is then produced from the rebuilt index; this option is not a read-only operation.
 
 #### Scenario: Filter by multiple labels
 
 - **WHEN** the user supplies more than one label filter
 - **THEN** only tasks containing every requested label are returned
 
+#### Scenario: List after scan
+
+- **WHEN** the user runs `todoing ls --scan`
+- **THEN** the system rebuilds the JSON index from task Markdown files
+- **AND** lists tasks using the rebuilt index
+
 ### Requirement: Inspect and edit task content
 
-The CLI MUST provide commands to show a task, open its Markdown file in the configured editor, replace its description body, append to its description body, change its status, and add or remove labels.
+The CLI MUST provide a `see` command to show a task, an `edit` command to open its Markdown file in the configured editor, `body` to replace its description, `append` to append to its description, `status` to change its status, and `label` to add or remove labels.
 
-The CLI MUST accept task identifiers in the supported numeric form, including the `#` prefix for task display/lookup where documented.
+Task operations MUST accept a numeric task identifier, optionally prefixed with `#`.
 
 ### Requirement: Link Git commits
 
-The CLI MUST provide a command to link a Git revision to a task.
+The CLI MUST provide a `commit` command to link a Git revision to a task.
 
 #### Scenario: Link a revision
 
@@ -72,5 +80,5 @@ The current JSON interface is not yet a formally versioned API contract.
 
 #### Scenario: Request task data as JSON
 
-- **WHEN** the user invokes a supported command with `--json`
+- **WHEN** the user invokes a command that supports JSON output with `--json`
 - **THEN** the command emits its machine-readable result as JSON on stdout
