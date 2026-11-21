@@ -1033,7 +1033,8 @@ fn json_api_transport_covers_migration_snapshot_response_and_exit_contract() {
         &serde_json::to_string(&dry_run_request).unwrap(),
     );
     assert!(dry_run.status.success(), "{}", String::from_utf8_lossy(&dry_run.stderr));
-    let dry_run_lines: Vec<_> = String::from_utf8_lossy(&dry_run.stdout).lines().collect();
+    let dry_run_output = String::from_utf8_lossy(&dry_run.stdout).into_owned();
+    let dry_run_lines: Vec<_> = dry_run_output.lines().collect();
     assert_eq!(dry_run_lines.len(), 1);
     let dry_run_response: Value = serde_json::from_str(dry_run_lines[0]).unwrap();
     assert_eq!(dry_run_response["request_id"], "migration-dry-run");
@@ -1093,7 +1094,8 @@ fn json_api_transport_covers_migration_snapshot_response_and_exit_contract() {
         &serde_json::to_string(&info_request).unwrap(),
     );
     assert!(info.status.success());
-    let info_lines: Vec<_> = String::from_utf8_lossy(&info.stdout).lines().collect();
+    let info_output = String::from_utf8_lossy(&info.stdout).into_owned();
+    let info_lines: Vec<_> = info_output.lines().collect();
     assert_eq!(info_lines.len(), 1);
     let info_response: Value = serde_json::from_str(info_lines[0]).unwrap();
     assert_eq!(info_response["request_id"], "info");
@@ -1114,7 +1116,8 @@ fn json_api_transport_covers_migration_snapshot_response_and_exit_contract() {
         &serde_json::to_string(&unsupported).unwrap(),
     );
     assert_eq!(rejected.status.code(), Some(2));
-    let rejected_lines: Vec<_> = String::from_utf8_lossy(&rejected.stdout).lines().collect();
+    let rejected_output = String::from_utf8_lossy(&rejected.stdout).into_owned();
+    let rejected_lines: Vec<_> = rejected_output.lines().collect();
     assert_eq!(rejected_lines.len(), 1);
     let rejected_response: Value = serde_json::from_str(rejected_lines[0]).unwrap();
     assert_eq!(rejected_response["request_id"], "unsupported");
