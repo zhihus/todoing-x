@@ -208,7 +208,7 @@ fn migration_error(error: StoreError) -> ApiError {
 }
 
 fn migration_error(error: StoreError) -> ApiError {
-    match error {
+    match &error {
         StoreError::AlreadyExists(_) | StoreError::InvalidTask(_) => ApiError {
             code: "migration_conflict",
             message: error.to_string(),
@@ -227,7 +227,7 @@ fn migration_error(error: StoreError) -> ApiError {
             retryable: false,
             details: json!({}),
         },
-        other => store_error(other),
+        _ => store_error(error),
     }
 }
 
