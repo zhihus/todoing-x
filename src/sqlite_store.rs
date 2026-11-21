@@ -1,3 +1,4 @@
+use crate::config::ProjectConfig;
 use chrono::{SecondsFormat, Utc};
 use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior, params};
 use serde::{Deserialize, Serialize};
@@ -15,7 +16,6 @@ const DATABASE_FILE: &str = "todoing.db";
 pub struct NewTask {
     pub title: String,
     pub status: String,
-    pub outcome: Option<String>,
     pub body: String,
     pub labels: Vec<String>,
     pub commits: Vec<String>,
@@ -67,6 +67,7 @@ pub struct StoreCounts {
 pub struct SqliteStore {
     connection: Connection,
     db_path: PathBuf,
+    config: ProjectConfig,
 }
 
 impl SqliteStore {
@@ -78,11 +79,13 @@ impl SqliteStore {
                 todoing_dir.display()
             )
         })?;
+        let config = ProjectConfig::load_or_create(&todoing_dir)?;
         let db_path = todoing_dir.join(DATABASE_FILE);
-        Self::open_database(db_path)
+        Self::open_database(db_path, config)
     }
 
-    pub fn open_database(path: impl AsRef<Path>) -> Result<Self, String> {
+    fn open_database(path: impl AsRef<Path>, config: ProjectConfig) -> Result<Self, String> {
+        config.validate()?;
         let db_path = path.as_ref().to_path_buf();
         if let Some(parent) = db_path.parent() {
             fs::create_dir_all(parent).map_err(|error| {
@@ -116,11 +119,16 @@ impl SqliteStore {
         Ok(Self {
             connection,
             db_path,
+            config,
         })
     }
 
     pub fn db_path(&self) -> &Path {
         &self.db_path
+    }
+
+    pub fn config(&self) -> &ProjectConfig {
+        &self.config
     }
 
     fn initialize_schema(connection: &mut Connection) -> Result<(), String> {
@@ -275,6 +283,11 @@ impl SqliteStore {
 
     pub fn create_task(&mut self, new_task: NewTask) -> Result<StoredTask, String> {
         validate_new_task(&new_task)?;
+        self.config.validate_new_status(&new_task.status)?;
+        let outcome = self
+            .config
+            .outcome_for(&new_task.status)
+            .map(|outcome| outcome.as_str().to_string());
         let transaction = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)
@@ -290,7 +303,7 @@ impl SqliteStore {
                 params![
                     new_task.title,
                     new_task.status,
-                    new_task.outcome,
+                    outcome,
                     new_task.body,
                     now,
                     metadata
@@ -358,6 +371,16 @@ impl SqliteStore {
         candidate.created_at = before.created_at.clone();
         candidate.updated_at = before.updated_at.clone();
         candidate.dependencies = before.dependencies.clone();
+        if candidate.status != before.status {
+            self.config
+                .validate_transition(&before.status, &candidate.status)?;
+            candidate.outcome = self
+                .config
+                .outcome_for(&candidate.status)
+                .map(|outcome| outcome.as_str().to_string());
+        } else {
+            candidate.outcome = before.outcome.clone();
+        }
 
         if candidate == before {
             return Ok(before);
@@ -703,7 +726,6 @@ fn validate_new_task(task: &NewTask) -> Result<(), String> {
     if task.status.trim().is_empty() {
         return Err("Task status cannot be empty".into());
     }
-    validate_outcome(task.outcome.as_deref())?;
     validate_actor(&task.actor)?;
     validate_labels(&task.labels)?;
     validate_commits(&task.commits)?;

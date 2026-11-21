@@ -7,7 +7,6 @@ fn new_task(title: &str) -> NewTask {
     NewTask {
         title: title.into(),
         status: "todo".into(),
-        outcome: None,
         body: format!("body for {title}"),
         labels: vec!["mvp".into()],
         commits: Vec::new(),
@@ -158,13 +157,13 @@ fn approved_baseline_points_to_a_specific_immutable_version() {
 }
 
 #[test]
-fn rejects_invalid_outcomes_commit_ids_and_empty_actors() {
+fn rejects_unconfigured_statuses_commit_ids_and_empty_actors() {
     let dir = tempdir().unwrap();
     let mut store = SqliteStore::new(dir.path()).unwrap();
 
-    let mut invalid_outcome = new_task("invalid outcome");
-    invalid_outcome.outcome = Some("finished".into());
-    assert!(store.create_task(invalid_outcome).is_err());
+    let mut invalid_status = new_task("invalid status");
+    invalid_status.status = "finished".into();
+    assert!(store.create_task(invalid_status).is_err());
 
     let mut abbreviated_commit = new_task("abbreviated commit");
     abbreviated_commit.commits = vec!["abc123".into()];
@@ -175,4 +174,57 @@ fn rejects_invalid_outcomes_commit_ids_and_empty_actors() {
     assert!(store.create_task(empty_actor).is_err());
 
     assert_eq!(store.counts().unwrap(), StoreCounts::default());
+}
+
+#[test]
+fn configured_status_transitions_set_and_clear_outcomes() {
+    let dir = tempdir().unwrap();
+    let mut store = SqliteStore::new(dir.path()).unwrap();
+    let mut task = store.create_task(new_task("workflow")).unwrap();
+
+    task.status = "done".into();
+    assert!(store.update_task(&task, "test").is_err());
+
+    task.status = "in_progress".into();
+    task = store.update_task(&task, "test").unwrap();
+    assert_eq!(task.outcome, None);
+
+    task.status = "done".into();
+    task = store.update_task(&task, "test").unwrap();
+    assert_eq!(task.outcome.as_deref(), Some("completed"));
+
+    task.status = "in_progress".into();
+    task = store.update_task(&task, "test").unwrap();
+    assert_eq!(task.outcome, None);
+    assert_eq!(store.get_versions(task.id).unwrap().len(), 4);
+}
+
+#[test]
+fn configuration_changes_do_not_rewrite_existing_task_outcomes() {
+    let dir = tempdir().unwrap();
+    let mut store = SqliteStore::new(dir.path()).unwrap();
+    let mut task = store.create_task(new_task("stable outcome")).unwrap();
+    task.status = "in_progress".into();
+    task = store.update_task(&task, "test").unwrap();
+    task.status = "done".into();
+    task = store.update_task(&task, "test").unwrap();
+    assert_eq!(task.outcome.as_deref(), Some("completed"));
+    drop(store);
+
+    let config_path = dir.path().join(".todoing").join("config.toml");
+    let config = std::fs::read_to_string(&config_path).unwrap();
+    std::fs::write(
+        &config_path,
+        config.replace("outcome = \"completed\"", "outcome = \"cancelled\""),
+    )
+    .unwrap();
+
+    let mut store = SqliteStore::new(dir.path()).unwrap();
+    let existing = store.get_task(task.id).unwrap().unwrap();
+    assert_eq!(existing.outcome.as_deref(), Some("completed"));
+
+    let mut new_task = new_task("new outcome");
+    new_task.status = "done".into();
+    let created = store.create_task(new_task).unwrap();
+    assert_eq!(created.outcome.as_deref(), Some("cancelled"));
 }
