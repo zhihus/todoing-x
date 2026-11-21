@@ -1,0 +1,44 @@
+schema: spec-driven
+
+context: |
+  Todoing is an independent, local-first Rust CLI task manager. It must remain
+  usable without Manifest or any agent harness.
+  OpenSpec main specs describe behavior that exists in the current repository.
+  Desired future behavior belongs in change proposals and delta specs until
+  implemented and verified. Never describe an accepted product decision as an
+  implemented capability.
+  The project supports Windows and Unix-like systems. Preserve the existing
+  Python-compatible CLI and Markdown/YAML data format unless a change explicitly
+  approves a migration or compatibility break.
+  Use English for repository documentation. Keep requirements observable,
+  testable, and implementation-neutral.
+
+rules:
+  proposal:
+    - State current behavior, intended change, and explicit out-of-scope items.
+    - Separate accepted product decisions from preliminary choices and open questions.
+    - Do not include implementation claims unsupported by repository code and tests.
+  specs:
+    - Main specs describe verified current behavior only.
+    - Use normative MUST language for observable requirements and explicit scenarios.
+    - Record known limitations where they affect behavior or data integrity.
+  design:
+    - Evaluate Windows and Unix-like behavior.
+    - Identify data migration, backward compatibility, and failure-recovery implications.
+    - Do not select SQLite or another storage engine without the required technical evaluation and an explicit decision.
+  tasks:
+    - Apply TEST FIRST: define or update automated tests before implementation tasks.
+    - Keep tasks independently verifiable and mark them complete only after execution evidence.
+    - Include cargo test and relevant cross-platform CI verification for code changes.
+
+operations:
+  apply:
+    guidance:
+      - Implement only approved change scope.
+      - Run the relevant tests; never report tests as passed unless they were executed.
+      - Preserve user data and avoid destructive migrations.
+  archive:
+    guidance:
+      - Verify implementation and tests before archiving.
+      - Sync completed delta requirements into main specs.
+      - Keep decision status separate from implementation status.
