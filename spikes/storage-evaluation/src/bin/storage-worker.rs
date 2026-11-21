@@ -68,6 +68,7 @@ fn main() {
             println!("ready");
             io::stdout().flush().unwrap_or_else(|e| fail(e.to_string()));
             thread::sleep(Duration::from_millis(milliseconds));
+            file.unlock().unwrap_or_else(|e| fail(e.to_string()));
             drop(file);
         }
         _ => {
