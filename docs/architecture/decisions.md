@@ -46,7 +46,8 @@
 |---|---|---|
 | Primary storage | SQLite via rusqlite is the leading prototype candidate; redb is the comparison candidate. No final selection has been made. | Complete Windows/Linux multi-process, crash-recovery, lock, migration, backup, and workload tests. See [storage engine evaluation](research/storage-engine-evaluation.md). |
 | Task lock coordination | A persisted lease plus short-lived per-task OS file-lock barrier is the leading prototype candidate. It is not an accepted design decision. | Prove strict read exclusion, in-flight operation handling, owner authorization, and crash recovery in separate Windows/Linux processes. See [task lock protocol research](research/task-lock-protocol.md). |
-| Human-readable format | Markdown/YAML may remain an interchange format. | Define import/export and migration requirements after storage design. |
+| Project configuration format | TOML is the leading recommendation for the user-editable status/transition configuration; not yet approved. | Finalize schema, defaults, validation, versioning, and Windows/Linux behavior. See [configuration format evaluation](research/status-config-format.md). |
+| Human-readable format | Markdown/YAML may remain an interchange format. | Define import/export and migration requirements after storage design; replace the unmaintained YAML parser dependency for legacy import. |
 | Implementation sequencing | Core reliability and task model precede integration features. | Refine after architecture and dependency analysis. |
 
 ## 4. Open architecture questions
@@ -57,7 +58,7 @@
 4. Stable CLI command set and compatibility policy for existing commands.
 5. JSON API versioning, envelopes, error schema, and exit-code mapping.
 6. Event names, payload schema, ordering, delivery guarantees, retries, and handler failure semantics.
-7. Final task lock protocol, owner identity/credential, lease/heartbeat policy, timeout, crash recovery, and filesystem/database behavior. The hybrid lease plus OS-lock barrier is only a prototype candidate.
+7. Lock ownership identity, lease/heartbeat protocol, timeout, crash recovery, and filesystem/database behavior.
 8. Version snapshot format, diff semantics, approval marker, and actor identity.
 9. Archive/restore data model and optional retention/limit policies.
 10. Migration from Markdown/YAML plus JSON index, including preservation of IDs and Git references.
