@@ -109,7 +109,6 @@ impl Store {
                 });
             }
         }
-        validate_schema(&connection)?;
         drop(connection);
 
         let store = Self {
