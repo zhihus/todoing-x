@@ -651,19 +651,25 @@ impl SqliteStore {
         .transpose()
     }
 
-    pub fn counts(&self) -> Result<StoreCounts, String> {
+    pub fn counts(&mut self) -> Result<StoreCounts, String> {
+        let transaction = self
+            .connection
+            .transaction()
+            .map_err(|error| error.to_string())?;
         let count = |table: &str| -> Result<u64, String> {
             let sql = format!("SELECT COUNT(*) FROM {table}");
-            self.connection
+            transaction
                 .query_row(&sql, [], |row| row.get::<_, i64>(0))
                 .map(|value| value as u64)
                 .map_err(|error| error.to_string())
         };
-        Ok(StoreCounts {
+        let counts = StoreCounts {
             tasks: count("tasks")?,
             versions: count("task_versions")?,
             history: count("operation_history")?,
-        })
+        };
+        transaction.commit().map_err(|error| error.to_string())?;
+        Ok(counts)
     }
 
     pub fn integrity_check(&self) -> Result<(), String> {
