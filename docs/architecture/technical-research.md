@@ -194,24 +194,24 @@ Backup destination and retention remain the responsibility of Manifest/the consu
 | Decision area | Research position | Status |
 |---|---|---|
 | Primary database | SQLite is the preferred candidate; redb is the runner-up. | Prototype passed on Windows/Linux; final selection remains open pending approval. |
-| Rust binding | rusqlite with bundled. | Preliminary; validate Windows and Unix CI. |
+| Rust binding | rusqlite with bundled. | Cross-platform prototype passed; production integration remains to be validated. |
 | Journal mode | Rollback-journal mode (DELETE) with a short EXCLUSIVE lock-acquisition barrier. | Preferred based on passing Windows/Linux prototype; final selection remains open. |
 | Logical task locks | Durable database-backed lease + owner capability + fencing generation. | Recommended design direction; details open. |
-| Lock barrier | Must serialize acquisition against in-flight reads and reject later non-owner reads. | Open; proof of concept required. |
+| Lock barrier | Rollback-journal EXCLUSIVE transaction serializes acquisition against in-flight reads; later non-owner reads are rejected. | Validated in the Windows/Linux prototype; production integration tests remain. |
 | Status config format | TOML is preferred; JSON is the alternative. | Preliminary. |
 | Schema | Relational entities listed above. | Conceptual only; physical schema open. |
 | Migration | Validated, non-destructive migration with source retained until verification. | Requirement accepted; procedure open. |
 | Backup | Database-aware snapshot; Manifest owns destination/retention. | Requirement accepted; integration contract open. |
 
-### Required architecture spike before implementation
+### Architecture spike status
 
-1. Build a minimal two-process SQLite prototype on Windows and Linux.
-2. Test simultaneous task creation and competing writes.
-3. Test a read racing with lock acquisition and prove the acquisition barrier.
-4. Test task lock heartbeat, expiry, fencing, recovery, and stale-owner rejection.
-5. Test crash/failure injection around transaction commit.
-6. Test backup snapshot while writes continue, then reopen and validate the snapshot.
-7. Compare the same lock and transaction tests against redb 5.x only if SQLite fails a required constraint or has unacceptable operational limitations.
+- [x] Build a minimal multi-process SQLite prototype on Windows and Linux.
+- [x] Test concurrent task creation and unique ID allocation.
+- [x] Test a read racing with lock acquisition and prove the acquisition barrier.
+- [x] Test lease expiry, recovery, fencing, and stale-owner rejection.
+- [x] Test rollback after abrupt process termination with an uncommitted transaction.
+- [ ] Test a database-aware backup snapshot while writes continue, then reopen and validate the snapshot.
+- [ ] Compare the same lock and transaction tests against redb 5.x only if SQLite fails a required constraint or has unacceptable operational limitations.
 
 ## 10. Sources
 
