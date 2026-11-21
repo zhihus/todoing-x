@@ -4,9 +4,9 @@
 
 ### Requirement: Create a version for each successful save
 
-Every successful task save MUST create a new identifiable task version.
+Every successful task save that changes task state MUST create a new identifiable task version containing a complete snapshot of the resulting task state.
 
-A rejected or failed mutation MUST NOT create a successful task version.
+A rejected or failed mutation MUST NOT create a successful task version. A no-op request that does not change task state MUST NOT create a new version.
 
 #### Scenario: Save a task
 
@@ -39,7 +39,7 @@ Each history entry MUST record the actor, timestamp, operation, previous value, 
 
 The system MUST allow a version to be identified as the user-approved baseline for a task.
 
-The approval marker MUST refer to a specific task version and MUST remain distinguishable from ordinary version creation.
+The approval marker MUST refer to a specific task version and MUST remain distinguishable from ordinary version creation. Re-approval MUST update the current baseline reference without modifying prior versions; the approval change MUST be recorded in operation history.
 
 #### Scenario: Approve a task version
 
