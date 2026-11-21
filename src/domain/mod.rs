@@ -8,7 +8,7 @@ mod task_id;
 #[cfg(test)]
 mod tests;
 
-pub use actor::ActorId;
+pub use actor::{ActorContext, ActorId};
 pub use error::{AppError, ErrorCode};
 pub use outcome::TaskOutcome;
 pub use project_id::ProjectId;
