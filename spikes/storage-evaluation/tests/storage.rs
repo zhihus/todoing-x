@@ -34,9 +34,11 @@ fn create_with_failure(backend: &str, path: &Path) {
         }
         "redb" => {
             let store = RedbStore::open(path).unwrap();
-            assert!(store
-                .create_task_with_fault("will-rollback", Fault::ReturnAfterTask)
-                .is_err());
+            assert!(
+                store
+                    .create_task_with_fault("will-rollback", Fault::ReturnAfterTask)
+                    .is_err()
+            );
         }
         _ => panic!("unknown backend"),
     }
@@ -76,7 +78,11 @@ fn redb_transaction_rolls_back_task_version_and_history_together() {
     store.create_task("committed").unwrap();
     assert_eq!(
         store.counts().unwrap(),
-        Counts { tasks: 1, versions: 1, history: 1 }
+        Counts {
+            tasks: 1,
+            versions: 1,
+            history: 1
+        }
     );
 }
 
