@@ -127,15 +127,16 @@ impl ProjectConfig {
             let default_config = Self::default();
             let serialized = toml::to_string_pretty(&default_config)
                 .map_err(|error| format!("Cannot serialize default configuration: {error}"))?;
-            let mut temporary = NamedTempFile::new_in(todoing_dir).map_err(|error| {
-                format!("Cannot create temporary configuration file: {error}")
-            })?;
-            temporary.write_all(serialized.as_bytes()).map_err(|error| {
-                format!(
-                    "Cannot write temporary configuration for {}: {error}",
-                    path.display()
-                )
-            })?;
+            let mut temporary = NamedTempFile::new_in(todoing_dir)
+                .map_err(|error| format!("Cannot create temporary configuration file: {error}"))?;
+            temporary
+                .write_all(serialized.as_bytes())
+                .map_err(|error| {
+                    format!(
+                        "Cannot write temporary configuration for {}: {error}",
+                        path.display()
+                    )
+                })?;
             temporary.as_file().sync_all().map_err(|error| {
                 format!(
                     "Cannot sync temporary configuration for {}: {error}",
