@@ -14,13 +14,15 @@
 ## Acceptance tests — TEST FIRST
 
 - [ ] Add failing tests for stable task IDs, no ID reuse, and prohibited physical deletion.
-- [ ] Add failing tests for configurable statuses, permitted transitions, and retired historical statuses.
+- [ ] Add failing tests for TOML schema v1, default statuses, unique status IDs, transition validation, disabled statuses, and retired historical statuses.
+- [ ] Add failing tests for status-to-outcome mapping, clearing outcome on reopen, and preserving prior outcomes in history.
 - [ ] Add failing tests for dependency validation and direct/indirect cycle rejection.
 - [ ] Add failing tests for atomic task/version/history mutation and immutable history.
 - [ ] Add failing tests for approved baseline selection and version comparison.
-- [ ] Add failing multi-process tests for task locks, strict read exclusion, heartbeat, release, and stale-lock recovery.
-- [ ] Add failing contract tests for JSON versioning, stable error codes, and exit codes.
-- [ ] Add failing migration tests for preservation, malformed source data, and non-destructive behavior.
+- [ ] Add failing multi-process tests for the shared/exclusive file-lock barrier, task lease ownership, strict read exclusion, heartbeat, release, and stale-lock recovery.
+- [ ] Add failing tests proving list/filter omit tasks locked by another owner and dependency inspection reports locked dependencies as unavailable.
+- [ ] Add failing contract tests for the api_version/ok/data-or-error JSON envelope, stable error codes, physical-delete rejection, and exit codes.
+- [ ] Add failing migration tests for task IDs/content/Git refs/unknown frontmatter preservation, initial versions/history, malformed source data, target conflicts, and non-destructive behavior.
 - [ ] Verify acceptance tests fail for the expected missing behavior before implementing the corresponding capability.
 
 ## Implementation
