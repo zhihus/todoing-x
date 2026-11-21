@@ -1,4 +1,4 @@
-use crate::config::{ProjectConfig, StatusOutcome};
+use crate::config::ProjectConfig;
 use chrono::{SecondsFormat, Utc};
 use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior, params};
 use serde::{Deserialize, Serialize};
