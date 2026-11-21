@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use std::{collections::HashSet, fs, io::Write, path::{Path, PathBuf}};
 use tempfile::NamedTempFile;
 
+pub mod config;
 pub mod sqlite_store;
 
 pub const TODOING_DIR: &str = ".todoing";
