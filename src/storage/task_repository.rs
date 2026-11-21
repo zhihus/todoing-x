@@ -18,6 +18,8 @@ pub struct Task {
     pub body: String,
     pub created_at: String,
     pub updated_at: String,
+    pub archived_at: Option<String>,
+    pub archived_by: Option<ActorId>,
     pub labels: Vec<String>,
     pub commit_refs: Vec<String>,
     pub dependencies: Vec<TaskId>,
@@ -86,6 +88,12 @@ pub struct HistoryEntry {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TaskArchiveResult {
+    pub task: Task,
+    pub no_op: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TaskBaseline {
     pub task_id: TaskId,
     pub version_id: i64,
@@ -125,6 +133,10 @@ struct TaskSnapshot {
     body: String,
     created_at: String,
     updated_at: String,
+    #[serde(default)]
+    archived_at: Option<String>,
+    #[serde(default)]
+    archived_by: Option<ActorId>,
     labels: Vec<String>,
     commit_refs: Vec<String>,
     dependencies: Vec<TaskId>,
@@ -1127,14 +1139,17 @@ fn persist_task_change(
     updated.updated_at = now.clone();
     transaction.execute(
         "UPDATE tasks
-         SET title = ?1, status_id = ?2, outcome = ?3, body = ?4, updated_at = ?5
-         WHERE task_id = ?6",
+         SET title = ?1, status_id = ?2, outcome = ?3, body = ?4, updated_at = ?5,
+             archived_at = ?6, archived_by = ?7
+         WHERE task_id = ?8",
         params![
             updated.title.trim(),
             updated.status_id.as_str(),
             outcome_as_str(updated.outcome),
             updated.body,
             now,
+            updated.archived_at,
+            updated.archived_by.as_ref().map(ActorId::as_str),
             updated.id.get()
         ],
     )?;
@@ -1185,12 +1200,15 @@ fn same_task_state(current: &Task, requested: &Task) -> bool {
         && current.labels == requested.labels.iter().map(|label| label.trim().to_owned()).collect::<Vec<_>>()
         && current.commit_refs == requested.commit_refs
         && current.dependencies == requested.dependencies
+        && current.archived_at == requested.archived_at
+        && current.archived_by == requested.archived_by
 }
 
 fn load_task(connection: &Connection, id: TaskId) -> Result<Task, StoreError> {
     let row = connection
         .query_row(
-            "SELECT title, status_id, outcome, body, created_at, updated_at
+            "SELECT title, status_id, outcome, body, created_at, updated_at,
+                     archived_at, archived_by
              FROM tasks WHERE task_id = ?1",
             params![id.get()],
             |row| {
@@ -1201,6 +1219,8 @@ fn load_task(connection: &Connection, id: TaskId) -> Result<Task, StoreError> {
                     row.get::<_, String>(3)?,
                     row.get::<_, String>(4)?,
                     row.get::<_, String>(5)?,
+                    row.get::<_, Option<String>>(6)?,
+                    row.get::<_, Option<String>>(7)?,
                 ))
             },
         )
@@ -1263,6 +1283,9 @@ fn load_task(connection: &Connection, id: TaskId) -> Result<Task, StoreError> {
         body: row.3,
         created_at: row.4,
         updated_at: row.5,
+        archived_at: row.6,
+        archived_by: row.7.map(ActorId::new).transpose()
+            .map_err(|error| StoreError::InvalidTask(error.to_string()))?,
         labels,
         commit_refs,
         dependencies,
@@ -1278,6 +1301,8 @@ fn snapshot_json(_connection: &Connection, task: &Task) -> Result<String, StoreE
         body: task.body.clone(),
         created_at: task.created_at.clone(),
         updated_at: task.updated_at.clone(),
+        archived_at: task.archived_at.clone(),
+        archived_by: task.archived_by.clone(),
         labels: task.labels.clone(),
         commit_refs: task.commit_refs.clone(),
         dependencies: task.dependencies.clone(),
