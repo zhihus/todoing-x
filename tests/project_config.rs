@@ -10,7 +10,10 @@ fn creates_default_toml_config_without_overwriting_existing_config() {
     assert_eq!(config.default_status, "todo");
     assert_eq!(config.statuses.len(), 4);
     assert_eq!(config.outcome_for("done"), Some(StatusOutcome::Completed));
-    assert_eq!(config.outcome_for("cancelled"), Some(StatusOutcome::Cancelled));
+    assert_eq!(
+        config.outcome_for("cancelled"),
+        Some(StatusOutcome::Cancelled)
+    );
 
     let path = ProjectConfig::config_path(dir.path());
     let original = std::fs::read_to_string(&path).unwrap();
@@ -27,7 +30,11 @@ fn default_workflow_allows_only_explicit_transitions() {
     assert!(config.validate_transition("in_progress", "done").is_ok());
     assert!(config.validate_transition("done", "in_progress").is_ok());
     assert!(config.validate_transition("todo", "done").is_err());
-    assert!(config.validate_transition("in_progress", "in_progress").is_err());
+    assert!(
+        config
+            .validate_transition("in_progress", "in_progress")
+            .is_err()
+    );
 }
 
 #[test]
@@ -52,7 +59,9 @@ fn disabled_status_cannot_be_a_target_but_can_be_a_source() {
         .enabled = false;
 
     assert!(config.validate().is_err());
-    config.transitions.retain(|transition| transition.to != "in_progress");
+    config
+        .transitions
+        .retain(|transition| transition.to != "in_progress");
     config.validate().unwrap();
     assert!(config.validate_new_status("in_progress").is_err());
     assert!(config.validate_transition("in_progress", "todo").is_ok());
