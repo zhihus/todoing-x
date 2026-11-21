@@ -213,7 +213,7 @@ Required:
 - task_id.
 - version_no.
 
-Sets the user-approved baseline to an existing version belonging to that task. Appends an operation-history event. Does not create a task version.
+Sets the user-approved baseline to an existing version belonging to that task. Appends an operation-history event. Does not create a task version. The human CLI command requires interactive confirmation. Todoing does not authenticate a human actor; Manifest MUST call this JSON operation only after explicit user approval.
 
 ## 7. Task locks
 
