@@ -149,7 +149,7 @@ enum HooksCommands {
     },
 }
 
-#[derive(Clone, Copy, Debug, ValueEnum)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
 enum HookSelection {
     Git,
     Openspec,
@@ -528,7 +528,7 @@ mod cli_tests {
                 cli.command,
                 Some(Commands::Hooks(HooksArgs {
                     command: HooksCommands::Install { hook }
-                })) if hook as u8 == expected as u8
+                })) if hook == expected
             ));
         }
     }
