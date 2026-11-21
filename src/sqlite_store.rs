@@ -81,12 +81,11 @@ impl SqliteStore {
         })?;
         let config = ProjectConfig::load_or_create(&todoing_dir)?;
         let db_path = todoing_dir.join(DATABASE_FILE);
-        let mut store = Self::open_database(db_path)?;
-        store.config = Some(config);
-        Ok(store)
+        Self::open_database(db_path, config)
     }
 
-    pub fn open_database(path: impl AsRef<Path>) -> Result<Self, String> {
+    fn open_database(path: impl AsRef<Path>, config: ProjectConfig) -> Result<Self, String> {
+        config.validate()?;
         let db_path = path.as_ref().to_path_buf();
         if let Some(parent) = db_path.parent() {
             fs::create_dir_all(parent).map_err(|error| {
