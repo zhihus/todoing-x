@@ -1,4 +1,5 @@
 use super::{AppError, ErrorCode};
+use serde::{Deserialize, Deserializer, Serialize, Serializer, de};
 use std::{fmt, str::FromStr};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -36,5 +37,24 @@ impl FromStr for TaskId {
             .parse::<i64>()
             .map_err(|_| AppError::new(ErrorCode::InvalidRequest, "Task ID must be a positive integer"))?;
         Self::new(parsed)
+    }
+}
+
+impl Serialize for TaskId {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_i64(self.0)
+    }
+}
+
+impl<'de> Deserialize<'de> for TaskId {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let value = i64::deserialize(deserializer)?;
+        Self::new(value).map_err(de::Error::custom)
     }
 }
