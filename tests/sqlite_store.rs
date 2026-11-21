@@ -19,7 +19,7 @@ fn new_task(title: &str) -> NewTask {
 #[test]
 fn create_task_commits_task_version_and_history_together() {
     let dir = tempdir().unwrap();
-    let store = SqliteStore::new(dir.path()).unwrap();
+    let mut store = SqliteStore::new(dir.path()).unwrap();
 
     let task = store.create_task(new_task("first task")).unwrap();
 
