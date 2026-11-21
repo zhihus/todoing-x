@@ -1,10 +1,11 @@
 use super::StoreError;
 use crate::domain::ProjectId;
 use chrono::{SecondsFormat, Utc};
-use rusqlite::{Connection, OptionalExtension, params};
+use rusqlite::{Connection, OptionalExtension, TransactionBehavior, backup::Backup, params};
 use sha2::{Digest, Sha256};
 use std::{
-    fs,
+    fs::{self, File},
+    io::Read,
     path::{Path, PathBuf},
     time::Duration,
 };
@@ -46,6 +47,13 @@ pub struct IntegrityReport {
     pub integrity_check: String,
     pub foreign_key_violations: usize,
     pub schema_version: u32,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SnapshotReport {
+    pub path: PathBuf,
+    pub size_bytes: u64,
+    pub sha256: String,
 }
 
 #[derive(Clone, Debug)]
@@ -169,6 +177,100 @@ impl Store {
         connect(&self.database_path)
     }
 
+    pub fn snapshot(
+        &self,
+        output_path: impl AsRef<Path>,
+        overwrite: bool,
+    ) -> Result<SnapshotReport, StoreError> {
+        let requested = output_path.as_ref();
+        let requested = if requested.is_absolute() {
+            requested.to_path_buf()
+        } else {
+            self.root.join(requested)
+        };
+        let parent = requested.parent().ok_or_else(|| {
+            StoreError::Io(std::io::Error::new(std::io::ErrorKind::InvalidInput, "Snapshot path has no parent directory"))
+        })?;
+        let file_name = requested.file_name().ok_or_else(|| {
+            StoreError::Io(std::io::Error::new(std::io::ErrorKind::InvalidInput, "Snapshot path has no file name"))
+        })?;
+        let canonical_parent = parent.canonicalize()?;
+        let destination = canonical_parent.join(file_name);
+        let destination = if destination.exists() {
+            destination.canonicalize()?
+        } else {
+            destination
+        };
+        let active_database = self.database_path.canonicalize()?;
+        if destination == active_database {
+            return Err(StoreError::InvalidTask("Snapshot destination must differ from the active database".into()));
+        }
+        if destination.exists() && !overwrite {
+            return Err(StoreError::AlreadyExists(destination));
+        }
+        if destination.is_dir() {
+            return Err(StoreError::Io(std::io::Error::new(std::io::ErrorKind::InvalidInput, "Snapshot destination is a directory")));
+        }
+
+        let temporary = NamedTempFile::new_in(&canonical_parent)?;
+        let temporary_path = temporary.into_temp_path();
+        // Hold SQLite's RESERVED write lock during the backup. Repository writes and
+        // EXCLUSIVE lock acquisition are blocked, while the separate backup source
+        // connection can still read the consistent database snapshot.
+        let mut guard = self.connection()?;
+        let transaction = guard.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let active_locks: i64 = transaction.query_row(
+            "SELECT COUNT(*) FROM task_locks WHERE state = 'active'",
+            [],
+            |row| row.get(0),
+        )?;
+        if active_locks > 0 {
+            return Err(StoreError::TaskLocked);
+        }
+
+        let backup_source = self.connection()?;
+        let mut target = Connection::open(&temporary_path)?;
+        configure_connection(&target)?;
+        {
+            let backup = Backup::new(&backup_source, &mut target)?;
+            backup.run_to_completion(5, Duration::from_millis(100), None)?;
+        }
+        drop(target);
+        drop(backup_source);
+        transaction.commit()?;
+
+        let snapshot_connection = connect(&temporary_path)?;
+        verify_connection(&snapshot_connection, &self.project_id)?;
+        drop(snapshot_connection);
+
+        if overwrite {
+            temporary_path.persist(&destination).map_err(|error| StoreError::Io(error.error))?;
+        } else {
+            temporary_path.persist_noclobber(&destination).map_err(|error| {
+                if error.error.kind() == std::io::ErrorKind::AlreadyExists {
+                    StoreError::AlreadyExists(destination.clone())
+                } else {
+                    StoreError::Io(error.error)
+                }
+            })?;
+        }
+
+        let metadata = fs::metadata(&destination)?;
+        let mut file = File::open(&destination)?;
+        let mut digest = Sha256::new();
+        let mut buffer = [0u8; 64 * 1024];
+        loop {
+            let read = file.read(&mut buffer)?;
+            if read == 0 { break; }
+            digest.update(&buffer[..read]);
+        }
+        Ok(SnapshotReport {
+            path: destination,
+            size_bytes: metadata.len(),
+            sha256: hex::encode(digest.finalize()),
+        })
+    }
+
     pub fn verify(&self) -> Result<IntegrityReport, StoreError> {
         let connection = self.connection()?;
         let actual_raw = metadata_value(&connection, "project_id")?;
@@ -205,6 +307,42 @@ impl Store {
             schema_version: SCHEMA_VERSION,
         })
     }
+}
+
+fn verify_connection(
+    connection: &Connection,
+    expected_project_id: &ProjectId,
+) -> Result<IntegrityReport, StoreError> {
+    let actual_raw = metadata_value(connection, "project_id")?;
+    let actual = ProjectId::new(actual_raw.clone())
+        .map_err(|_| StoreError::InvalidMetadata("project_id".into()))?;
+    if &actual != expected_project_id {
+        return Err(StoreError::ProjectIdMismatch {
+            expected: expected_project_id.as_str().to_owned(),
+            actual: actual_raw,
+        });
+    }
+    validate_schema(connection)?;
+    let integrity_check: String =
+        connection.query_row("PRAGMA integrity_check", [], |row| row.get(0))?;
+    if integrity_check != "ok" {
+        return Err(StoreError::IntegrityCheckFailed(integrity_check));
+    }
+    let mut statement = connection.prepare("PRAGMA foreign_key_check")?;
+    let rows = statement.query_map([], |_| Ok(()))?;
+    let mut foreign_key_violations = 0;
+    for row in rows {
+        row?;
+        foreign_key_violations += 1;
+    }
+    if foreign_key_violations != 0 {
+        return Err(StoreError::ForeignKeyViolations(foreign_key_violations));
+    }
+    Ok(IntegrityReport {
+        integrity_check,
+        foreign_key_violations,
+        schema_version: SCHEMA_VERSION,
+    })
 }
 
 fn connect(path: &Path) -> Result<Connection, StoreError> {

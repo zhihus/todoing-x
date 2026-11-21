@@ -246,3 +246,63 @@ fn verify_rejects_missing_protection_triggers() {
         Err(StoreError::InvalidMetadata(message)) if message.contains("tasks_no_delete")
     ));
 }
+
+
+#[test]
+fn online_backup_snapshot_is_verified_hashed_and_respects_overwrite_policy() {
+    let root = tempdir().unwrap();
+    let store = Store::initialize(root.path(), project_id()).unwrap();
+    store.connection().unwrap().execute(
+        "INSERT INTO tasks(title, status_id, created_at, updated_at)
+         VALUES ('snapshot task', 'todo', '2026-11-21T00:00:00Z', '2026-11-21T00:00:00Z')",
+        [],
+    ).unwrap();
+
+    let report = store.snapshot("backup.db", false).unwrap();
+    assert!(report.path.is_file());
+    assert!(report.size_bytes > 0);
+    assert_eq!(report.sha256.len(), 64);
+
+    let snapshot = Connection::open(&report.path).unwrap();
+    let title: String = snapshot.query_row("SELECT title FROM tasks WHERE task_id = 1", [], |row| row.get(0)).unwrap();
+    assert_eq!(title, "snapshot task");
+    drop(snapshot);
+
+    assert!(matches!(
+        store.snapshot("backup.db", false),
+        Err(StoreError::AlreadyExists(_))
+    ));
+    assert!(store.snapshot("backup.db", true).is_ok());
+}
+
+#[test]
+fn online_backup_snapshot_refuses_active_task_locks() {
+    let root = tempdir().unwrap();
+    let store = Store::initialize(root.path(), project_id()).unwrap();
+    let connection = store.connection().unwrap();
+    connection.execute(
+        "INSERT INTO tasks(title, status_id, created_at, updated_at)
+         VALUES ('locked task', 'todo', '2026-11-21T00:00:00Z', '2026-11-21T00:00:00Z')",
+        [],
+    ).unwrap();
+    connection.execute(
+        "INSERT INTO task_locks(task_id, state, owner_id, token_hash, acquired_at, heartbeat_at, expires_at, fencing_generation)
+         VALUES (1, 'active', 'session-1', zeroblob(32), 1000, 1000, 2000, 1)",
+        [],
+    ).unwrap();
+    drop(connection);
+
+    assert!(matches!(store.snapshot("blocked.db", false), Err(StoreError::TaskLocked)));
+    assert!(!root.path().join("blocked.db").exists());
+}
+
+#[test]
+fn online_backup_snapshot_refuses_the_active_database_as_destination() {
+    let root = tempdir().unwrap();
+    let store = Store::initialize(root.path(), project_id()).unwrap();
+
+    assert!(matches!(
+        store.snapshot(store.database_path(), true),
+        Err(StoreError::InvalidTask(_))
+    ));
+}
