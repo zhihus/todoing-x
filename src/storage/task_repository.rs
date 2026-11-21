@@ -361,7 +361,7 @@ impl TaskRepository {
                 drop(transaction);
                 return self.reject_operation(
                     Some(task_id), actor, "task.status.set", "task_not_found",
-                    Some(&serde_json::json!({"status_id": target}).to_string()), error,
+                    Some(serde_json::json!({"status_id": target}).to_string()), error,
                 );
             }
             Err(error) => return Err(error),
@@ -371,7 +371,7 @@ impl TaskRepository {
             drop(transaction);
             return self.reject_operation(
                 Some(task_id), actor, "task.status.set", "task_terminal",
-                Some(&serde_json::json!({"status_id": target}).to_string()),
+                Some(serde_json::json!({"status_id": target}).to_string()),
                 StoreError::TaskTerminal,
             );
         }
@@ -379,7 +379,7 @@ impl TaskRepository {
             drop(transaction);
             return self.reject_operation(
                 Some(task_id), actor, "task.status.set", "invalid_status_transition",
-                Some(&serde_json::json!({"status_id": target}).to_string()),
+                Some(serde_json::json!({"status_id": target}).to_string()),
                 StoreError::InvalidStatusTransition(format!(
                     "{} -> {}",
                     previous.status_id, target
@@ -476,7 +476,7 @@ impl TaskRepository {
                 drop(transaction);
                 return self.reject_operation(
                     Some(task_id), actor, "task.reopen", "invalid_status_transition",
-                    Some(&serde_json::json!({"status_id": target}).to_string()),
+                    Some(serde_json::json!({"status_id": target}).to_string()),
                     StoreError::InvalidStatusTransition(format!(
                         "{} -> {}",
                         previous.status_id, target
@@ -488,7 +488,7 @@ impl TaskRepository {
             drop(transaction);
             return self.reject_operation(
                 Some(task_id), actor, "task.reopen", "invalid_status_transition",
-                Some(&serde_json::json!({"status_id": target}).to_string()),
+                Some(serde_json::json!({"status_id": target}).to_string()),
                 StoreError::InvalidStatusTransition(
                     "Reopen target must not have a terminal outcome".into(),
                 ),
@@ -526,7 +526,7 @@ impl TaskRepository {
             Err(error @ StoreError::TaskNotFound(_)) => {
                 drop(transaction);
                 return self.reject_operation(
-                    Some(task_id), actor, operation, "task_not_found", details_json, error,
+                    Some(task_id), actor, operation, "task_not_found", details_json.map(str::to_owned), error,
                 );
             }
             Err(error) => return Err(error),
