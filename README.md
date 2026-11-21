@@ -131,6 +131,15 @@ Task files remain Markdown with YAML frontmatter. `index.json` remains a rebuild
 
 The four original statuses and user-controlled task queue are unchanged. No priorities, dependencies, event history, or automatic archiving are added.
 
+## Product direction
+
+The current CLI and storage behavior describe the existing Rust implementation, not the complete target product. The target requirements, accepted decisions, preliminary choices, and open architecture questions are documented in:
+
+- [Product definition](PRODUCT.md)
+- [Architecture decision register](docs/architecture/decisions.md)
+
+These documents distinguish desired capabilities from implemented functionality. Requirements documented there must not be treated as implemented until their corresponding changes are delivered and verified.
+
 ## Compatibility status
 
 The Rust port is under active development. A passing Rust test suite does not by itself certify complete behavioral equivalence with the Python implementation.
