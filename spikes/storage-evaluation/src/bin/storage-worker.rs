@@ -14,7 +14,10 @@ fn main() {
 
     match (mode, backend) {
         ("write", "sqlite") => {
-            let count = args.get(3).and_then(|v| v.parse::<usize>().ok()).unwrap_or(1);
+            let count = args
+                .get(3)
+                .and_then(|v| v.parse::<usize>().ok())
+                .unwrap_or(1);
             let worker = args.get(4).map(String::as_str).unwrap_or("worker");
             let mut store = SqliteStore::open(path).unwrap_or_else(fail);
             for index in 0..count {
