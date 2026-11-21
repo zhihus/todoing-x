@@ -62,6 +62,8 @@ fn schema_executes_and_enforces_integrity_guards() {
         [],
     );
     assert!(version_update.is_err(), "task versions must be immutable");
+    let version_delete = connection.execute("DELETE FROM task_versions WHERE task_id = 1", []);
+    assert!(version_delete.is_err(), "task versions must not be deleted");
 
     connection.execute(
         "INSERT INTO operation_history(task_id, actor_id, occurred_at, operation, outcome)
@@ -73,6 +75,8 @@ fn schema_executes_and_enforces_integrity_guards() {
         [],
     );
     assert!(history_update.is_err(), "operation history must be append-only");
+    let history_delete = connection.execute("DELETE FROM operation_history WHERE task_id = 1", []);
+    assert!(history_delete.is_err(), "operation history must not be deleted");
 
     let invalid_sha = connection.execute(
         "INSERT INTO task_commit_refs(task_id, position, sha) VALUES (1, 0, 'not-a-sha')",
