@@ -484,7 +484,7 @@ fn run_legacy(cli: Cli) {
     match cli.command {
         Some(Commands::Add(a)) => {
             let status = TaskStatus::parse(&a.status).unwrap_or_else(|e| fail(e));
-            let task = Task::new(store.next_id(), a.title, status, a.labels, a.body);
+            let task = LegacyTask::new(store.next_id(), a.title, status, a.labels, a.body);
             task.validate_for_creation().unwrap_or_else(|e| fail(e));
             if task.status == TaskStatus::Done {
                 run_hook("before-done-git", &task).unwrap_or_else(|e| fail(e));
@@ -752,7 +752,7 @@ fn parse_edited_task(source: &str, original: &SqliteTask, json_output: bool) -> 
     let status_id = StatusId::new(parsed.status)
         .unwrap_or_else(|error| cli_failure(json_output, "invalid_request", 2, error.to_string(), false));
     let body = body.strip_prefix('\n').unwrap_or(body).trim().to_owned();
-    Task {
+    SqliteTask {
         id: original.id,
         title: parsed.title,
         status_id,
