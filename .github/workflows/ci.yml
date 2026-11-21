@@ -16,6 +16,8 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+      - name: Check formatting for SQLite storage additions
+        run: rustfmt --edition 2024 --check src/sqlite_store.rs tests/sqlite_store.rs
       - run: cargo test
       - name: Upload resolved Cargo.lock
         if: matrix.os == 'ubuntu-latest'
