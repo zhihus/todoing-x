@@ -8,6 +8,9 @@ pub enum StoreError {
     VersionNotFound { task_id: i64, version_no: i64 },
     InvalidTask(String),
     HistoryRecordFailed(String),
+    InvalidConfig(String),
+    InvalidStatusTransition(String),
+    TaskTerminal,
     ProjectIdMismatch { expected: String, actual: String },
     UnsupportedSchemaVersion(u32),
     MigrationChecksumMismatch { version: u32 },
@@ -28,6 +31,9 @@ impl fmt::Display for StoreError {
             Self::VersionNotFound { task_id, version_no } => write!(formatter, "Version {version_no} for task #{task_id} was not found"),
             Self::InvalidTask(message) => write!(formatter, "Invalid task: {message}"),
             Self::HistoryRecordFailed(message) => write!(formatter, "Could not record rejected operation: {message}"),
+            Self::InvalidConfig(message) => write!(formatter, "Invalid project configuration: {message}"),
+            Self::InvalidStatusTransition(message) => write!(formatter, "Invalid status transition: {message}"),
+            Self::TaskTerminal => formatter.write_str("Task has a terminal outcome and must be reopened first"),
             Self::ProjectIdMismatch { expected, actual } => {
                 write!(formatter, "Project ID mismatch: expected {expected}, found {actual}")
             }
