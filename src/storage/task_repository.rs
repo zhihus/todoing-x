@@ -254,6 +254,72 @@ impl TaskRepository {
         Ok(task)
     }
 
+    /// Imports one validated legacy task with its original numeric identity and creation time.
+    /// This is only intended for a fresh staging store during explicit migration.
+    pub fn import_legacy_task(
+        &self,
+        raw_id: i64,
+        title: String,
+        status_id: StatusId,
+        outcome: Option<TaskOutcome>,
+        body: String,
+        created_at: String,
+        labels: Vec<String>,
+        commit_refs: Vec<String>,
+        actor: &ActorContext,
+    ) -> Result<Task, StoreError> {
+        validate_task_input(&title, &labels, &commit_refs)?;
+        let id = TaskId::new(raw_id)
+            .map_err(|error| StoreError::InvalidTask(error.to_string()))?;
+        if !self.config.statuses.iter().any(|status| status.id == status_id.as_str()) {
+            return Err(StoreError::InvalidConfig(format!(
+                "Legacy status '{}' is not configured", status_id
+            )));
+        }
+        if self.config.outcome_for_status(status_id.as_str()) != outcome {
+            return Err(StoreError::InvalidConfig(format!(
+                "Legacy outcome for status '{}' does not match project configuration", status_id
+            )));
+        }
+
+        let mut connection = self.store.connection()?;
+        let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        transaction.execute(
+            "INSERT INTO tasks(task_id, title, status_id, outcome, body, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6)",
+            params![
+                id.get(),
+                title.trim(),
+                status_id.as_str(),
+                outcome_as_str(outcome),
+                body,
+                created_at
+            ],
+        )?;
+        insert_labels(&transaction, id, &labels)?;
+        insert_commit_refs(&transaction, id, &commit_refs)?;
+        let task = load_task(&transaction, id)?;
+        let snapshot = snapshot_json(&transaction, &task)?;
+        insert_version(
+            &transaction, id, 1, &snapshot, &created_at, actor.actor_id().as_str()
+        )?;
+        insert_history(
+            &transaction,
+            Some(id),
+            actor.actor_id().as_str(),
+            &created_at,
+            "migration_import",
+            None,
+            Some(&snapshot),
+            HistoryOutcome::Succeeded,
+            None,
+            None,
+            None,
+        )?;
+        transaction.commit()?;
+        Ok(task)
+    }
+
     pub fn get(&self, id: TaskId) -> Result<Task, StoreError> {
         let mut connection = self.store.connection()?;
         let transaction = connection.transaction()?;
