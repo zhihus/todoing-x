@@ -61,6 +61,8 @@ fn exclusive_lock_acquisition_waits_for_existing_reader_and_then_excludes_non_ow
 
     let denied = run(&["read", db.to_str().unwrap(), "agent-b", "secret-b"]);
     assert_eq!(denied.status.code(), Some(20));
+    let wrong_token = run(&["read", db.to_str().unwrap(), "agent-a", "not-the-token"]);
+    assert_eq!(wrong_token.status.code(), Some(20));
     assert_success(run(&["read", db.to_str().unwrap(), "agent-a", "secret-a"]));
 }
 
@@ -122,6 +124,8 @@ fn fencing_generation_rejects_a_former_lock_owner() {
 
     let stale = run(&["mutate", db.to_str().unwrap(), "agent-a", "secret-a", "1"]);
     assert_eq!(stale.status.code(), Some(21));
+    let wrong_token = run(&["mutate", db.to_str().unwrap(), "agent-b", "secret-a", "2"]);
+    assert_eq!(wrong_token.status.code(), Some(21));
     assert_success(run(&["mutate", db.to_str().unwrap(), "agent-b", "secret-b", "2"]));
 }
 
