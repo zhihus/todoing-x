@@ -236,6 +236,17 @@ Validation rules:
 - The task stores its current outcome separately from its workflow status. The outcome is set when entering a status with an outcome mapping and cleared when moving to a status without one. Configuration edits do not retroactively rewrite existing task outcomes.
 - Duplicate transitions and self-transitions are rejected.
 
+The default configuration for a new project preserves the current four-status workflow:
+
+- `todo` — default, no outcome;
+- `in_progress` — no outcome;
+- `done` — outcome `completed`;
+- `cancelled` — outcome `cancelled`.
+
+Default transitions are `todo -> in_progress`, `todo -> cancelled`, `in_progress -> todo`, `in_progress -> done`, `in_progress -> cancelled`, `done -> in_progress`, and `cancelled -> todo`. Reopening a completed or cancelled task clears its current outcome; the prior outcome remains in history.
+
+Project initialization creates this file only when it does not exist. Existing user configuration is never overwritten. Legacy migration creates the default configuration only when no configuration file exists.
+
 This initial schema is a design baseline; acceptance tests must be written before implementation.
 
 ## 14. SQLite persistence model
@@ -247,7 +258,7 @@ The logical schema consists of:
 | Table | Key fields and purpose |
 |---|---|
 | `project_meta` | Schema version and project-scoped metadata. |
-| `tasks` | `id INTEGER PRIMARY KEY AUTOINCREMENT`, title, status key, outcome, body, timestamps, metadata JSON. |
+| `tasks` | `id INTEGER PRIMARY KEY AUTOINCREMENT`, title, status key, outcome, body, timestamps, metadata JSON, and optional raw legacy frontmatter. |
 | `task_labels` | Task ID and normalized label; indexed for label filtering. |
 | `task_git_commits` | Task ID and resolved full Git SHA. |
 | `task_dependencies` | Task ID and dependency task ID; unique directed edge with foreign keys. |
@@ -297,7 +308,7 @@ Ordinary task operations acquire a shared OS lock before checking the database l
 
 Lock acquisition, release, and stale-lease recovery acquire the exclusive OS lock. Exclusive acquisition waits for existing shared operations to finish. Once the lease is committed and the exclusive guard is released, new non-owner operations acquire a shared guard, observe the lease, and are rejected before reading task data.
 
-Owner authorization uses a random opaque token. The database stores only a cryptographic hash of the token. The token is returned once by lock acquisition and supplied to later CLI calls through `TODOING_LOCK_TOKEN`; it is not stored in task content or history. The owner ID is separate from the secret token.
+Owner authorization uses a random opaque token. The database stores only a cryptographic hash of the token. The token is returned once by lock acquisition and supplied to later CLI calls through `TODOING_LOCK_TOKEN`; it is not stored in task content or history. The owner ID is separate from the secret token. The caller supplies it through `--owner` or `TODOING_OWNER`; if omitted, the actor/client identity is recorded as `local-cli`.
 
 Initial lease defaults:
 
@@ -305,7 +316,7 @@ Initial lease defaults:
 - heartbeat interval: 15 seconds;
 - an expired lease may be recovered only while holding the exclusive OS barrier.
 
-The owner may read and mutate the locked task while presenting the valid token. Other clients receive `TASK_LOCKED` for explicit task operations. List/filter operations omit tasks locked by another owner and do not expose their contents. A dependency on a locked task is reported as unavailable without exposing that task's content or state.
+The owner may read and mutate the locked task while presenting the valid token. Other clients receive `TASK_LOCKED` for explicit task operations. List/filter operations omit tasks locked by another owner and do not expose their contents. A dependency on a locked task is reported as unavailable without exposing that task's content or state. For an unlocked dependency, derived state is `open`, `completed`, or `cancelled` based on its current outcome; dependency state is informational and does not automatically block work.
 
 The lock file is a stable coordination object and is never deleted, renamed, or replaced. All Todoing clients must use the same guard protocol. The protocol protects Todoing clients, not arbitrary external programs that read the database directly.
 
@@ -368,7 +379,9 @@ Initial process exit codes:
 | 7 | Storage, integrity, or migration failure |
 | 8 | Unexpected internal failure |
 
-The exact command names and per-command data schemas are specified with the CLI implementation. The JSON envelope and error-code meanings are versioned compatibility contracts.
+Preserve the current command names where practical: `add`, `ls`, `see`, `edit`, `body`, `append`, `status`, `label`, and `commit`. Add `dep`, `history`, `versions`, `version compare`, `approve`, `lock`, and `migrate` command groups. The physical `delete` operation is removed; if retained as a compatibility stub, it returns `PHYSICAL_DELETE_UNSUPPORTED` and never deletes data. Archive commands remain post-MVP.
+
+Actor identity is supplied through `--actor` or `TODOING_ACTOR`; the default is `local-cli`. The exact command arguments and per-command data schemas are specified with the CLI implementation. The JSON envelope and error-code meanings are versioned compatibility contracts.
 
 ## 18. Migration procedure
 
@@ -378,14 +391,15 @@ The importer must:
 
 1. Read and validate all task files before declaring migration ready.
 2. Preserve task IDs, titles, timestamps, status strings, labels, body text, Git commit references, and supported metadata.
-3. Preserve unknown frontmatter fields in a legacy metadata payload or report them explicitly; never silently discard them.
+3. Preserve unknown frontmatter fields as raw legacy frontmatter or report them explicitly; never silently discard them.
 4. Use a maintained YAML parser (`yaml_serde`) for legacy frontmatter.
 5. Create a new temporary SQLite database and import records transactionally.
-6. Restore the ID sequence above the maximum imported task ID.
-7. Run SQLite integrity checks and application-level relationship checks.
-8. Close/checkpoint the database and move it into the final store path only after successful validation.
-9. Leave the original Markdown/YAML files and JSON index unchanged.
-10. Refuse to overwrite an existing target database by default.
+6. Create an initial version and a `migration_import` history entry for each imported task.
+7. Restore the ID sequence above the maximum imported task ID.
+8. Run SQLite integrity checks, foreign-key checks, and application-level relationship checks.
+9. Close/checkpoint the database and move it into the final store path only after successful validation.
+10. Leave the original Markdown/YAML files and JSON index unchanged.
+11. Refuse to overwrite an existing target database by default.
 
 An invalid source record prevents migration from being reported as complete success. The exact report format and explicit recovery/override flags remain to be specified.
 
