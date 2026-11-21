@@ -87,7 +87,7 @@ impl SqliteStore {
             })?;
         }
 
-        let connection = Connection::open(&db_path).map_err(|error| {
+        let mut connection = Connection::open(&db_path).map_err(|error| {
             format!("Cannot open Todoing database {}: {error}", db_path.display())
         })?;
         connection
@@ -103,7 +103,7 @@ impl SqliteStore {
             .pragma_update(None, "synchronous", "FULL")
             .map_err(|error| error.to_string())?;
 
-        Self::initialize_schema(&connection)?;
+        Self::initialize_schema(&mut connection)?;
         Ok(Self {
             connection,
             db_path,
@@ -114,7 +114,7 @@ impl SqliteStore {
         &self.db_path
     }
 
-    fn initialize_schema(connection: &Connection) -> Result<(), String> {
+    fn initialize_schema(connection: &mut Connection) -> Result<(), String> {
         let version: i64 = connection
             .pragma_query_value(None, "user_version", |row| row.get(0))
             .map_err(|error| error.to_string())?;
@@ -129,7 +129,10 @@ impl SqliteStore {
             }
         }
 
-        connection
+        let transaction = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|error| error.to_string())?;
+        transaction
             .execute_batch(
                 "
                 CREATE TABLE project_meta (
@@ -254,9 +257,10 @@ impl SqliteStore {
             )
             .map_err(|error| format!("Cannot initialize Todoing database schema: {error}"))?;
 
-        connection
+        transaction
             .pragma_update(None, "user_version", SCHEMA_VERSION)
             .map_err(|error| error.to_string())?;
+        transaction.commit().map_err(|error| error.to_string())?;
         Ok(())
     }
 
