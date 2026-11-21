@@ -209,8 +209,11 @@ impl Store {
 
         let temporary = NamedTempFile::new_in(&canonical_parent)?;
         let temporary_path = temporary.into_temp_path();
-        let mut source = self.connection()?;
-        let transaction = source.transaction_with_behavior(TransactionBehavior::Exclusive)?;
+        // Hold SQLite's RESERVED write lock during the backup. Repository writes and
+        // EXCLUSIVE lock acquisition are blocked, while the separate backup source
+        // connection can still read the consistent database snapshot.
+        let mut guard = self.connection()?;
+        let transaction = guard.transaction_with_behavior(TransactionBehavior::Immediate)?;
         let active_locks: i64 = transaction.query_row(
             "SELECT COUNT(*) FROM task_locks WHERE state = 'active'",
             [],
@@ -220,13 +223,15 @@ impl Store {
             return Err(StoreError::TaskLocked);
         }
 
+        let backup_source = self.connection()?;
         let mut target = Connection::open(&temporary_path)?;
         configure_connection(&target)?;
         {
-            let backup = Backup::new(&transaction, &mut target)?;
+            let backup = Backup::new(&backup_source, &mut target)?;
             backup.run_to_completion(5, Duration::from_millis(100), None)?;
         }
         drop(target);
+        drop(backup_source);
         transaction.commit()?;
 
         let snapshot_connection = connect(&temporary_path)?;
