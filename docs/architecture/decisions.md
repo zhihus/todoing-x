@@ -105,3 +105,18 @@ This section records static repository inspection. It does not claim that tests 
 - Preliminary decisions require validation before becoming final.
 - Open questions require an explicit decision record.
 - Implementation status must be tracked separately from decision status. A requirement being accepted or documented does not mean it has been implemented.
+
+
+## 8. Research outcome — preliminary recommendations
+
+The current technical findings are recorded in [Technical Research: Storage, Concurrency, and Configuration](technical-research.md).
+
+| Area | Research recommendation | Decision status |
+|---|---|---|
+| Primary storage | SQLite via rusqlite with bundled feature; redb 5.x as the strongest alternative. | Preliminary; prototype and explicit decision required. |
+| SQLite journal mode | Select only after proving task-lock acquisition/read exclusion across processes. | Open. |
+| Task locking | Durable lease state with owner capability, heartbeat, fencing generation, and a tested acquisition barrier. | Design direction; protocol details open. |
+| Status configuration | TOML is preferred for user-edited configuration; JSON for the machine interface. | Preliminary; schema open. |
+| Backup | Database-aware consistent snapshot; destination and retention remain the consuming project's responsibility. | Requirement accepted; mechanism depends on selected engine. |
+
+No final storage engine, journal mode, configuration syntax, or lock algorithm is approved. The OpenSpec design remains the normative source for the core task-capability change.
