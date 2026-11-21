@@ -1,7 +1,7 @@
 use crate::{
     config::ProjectConfig,
     domain::{ActorContext, ActorId, ProjectId, StatusId, TaskId},
-    storage::{NewTask, Store, StoreError, TaskRepository},
+    storage::{LockGrant, NewTask, Store, StoreError, TaskRepository},
 };
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::{Value, json};
@@ -195,7 +195,14 @@ fn execute(request: Request, root: &Path) -> Result<Value, ApiError> {
     let config_text = fs::read_to_string(&config_path).map_err(|error| ApiError { code: "config_invalid", message: format!("Cannot read {}: {error}", config_path.display()), retryable: false, details: json!({}) })?;
     let config = ProjectConfig::from_toml(&config_text).map_err(|error| ApiError { code: "config_invalid", message: error.to_string(), retryable: false, details: json!({}) })?;
     let store = Store::open(root, Some(&project_id)).map_err(store_error)?;
-    let repository = TaskRepository::new(store.clone(), config.clone()).map_err(store_error)?;
+    let mut repository = TaskRepository::new(store.clone(), config.clone()).map_err(store_error)?;
+    let lock_service = repository.lock_service().map_err(store_error)?;
+    if let Some(token) = request.lock_token.as_deref() {
+        let raw_task_id = request.args.get("task_id").and_then(Value::as_i64)
+            .ok_or_else(|| invalid("lock_token requires task_id in args".into()))?;
+        let grant = lock_service.grant_from_token(id(raw_task_id).map_err(invalid)?, token).map_err(store_error)?;
+        repository = repository.with_lock_grant(&grant);
+    }
 
     match request.operation.as_str() {
         "store.info" => {
@@ -322,14 +329,63 @@ fn execute(request: Request, root: &Path) -> Result<Value, ApiError> {
             let args: VersionArgs = parse_args(request.args).map_err(invalid)?;
             Ok(json!({"baseline": repository.approve_baseline(id(args.task_id).map_err(invalid)?, args.version_no, &actor).map_err(store_error)?}))
         }
-        "task.lock.acquire" | "task.lock.recover" | "task.lock.heartbeat" | "task.lock.release" => {
-            Err(invalid("Lock operations are not yet enabled in this API slice".into()))
+        "task.lock.acquire" => {
+            let args: LockArgs = parse_args(request.args).map_err(invalid)?;
+            if request.lock_token.is_some() { return Err(invalid("lock_token is not accepted by task.lock.acquire".into())); }
+            let task_id = id(args.task_id).map_err(invalid)?;
+            let owner_id = new_owner_id()?;
+            let grant = lock_service.acquire(task_id, &owner_id, &actor).map_err(store_error)?;
+            Ok(lock_grant_json(&grant))
+        }
+        "task.lock.recover" => {
+            let args: LockArgs = parse_args(request.args).map_err(invalid)?;
+            if request.lock_token.is_some() { return Err(invalid("lock_token is not accepted by task.lock.recover".into())); }
+            let task_id = id(args.task_id).map_err(invalid)?;
+            let owner_id = new_owner_id()?;
+            let grant = lock_service.recover(task_id, &owner_id, &actor).map_err(store_error)?;
+            Ok(lock_grant_json(&grant))
+        }
+        "task.lock.heartbeat" | "task.lock.release" => {
+            let args: LockOwnerArgs = parse_args(request.args).map_err(invalid)?;
+            let token = request.lock_token.as_deref().ok_or_else(|| invalid("lock_token is required for heartbeat and release".into()))?;
+            let task_id = id(args.task_id).map_err(invalid)?;
+            let grant = lock_service.grant_from_token(task_id, token).map_err(store_error)?;
+            if grant.owner_id != args.owner_id || grant.fencing_generation != args.fencing_generation {
+                return Err(store_error(StoreError::StaleLock));
+            }
+            if request.operation == "task.lock.heartbeat" {
+                let renewed = lock_service.heartbeat(&grant, &actor).map_err(store_error)?;
+                Ok(json!({"heartbeat_at": renewed.heartbeat_at, "expires_at": renewed.expires_at}))
+            } else {
+                lock_service.release(&grant, &actor).map_err(store_error)?;
+                Ok(json!({"released": true, "fencing_generation": grant.fencing_generation}))
+            }
         }
         "store.migrate" | "store.snapshot" | "task.label.add" | "task.label.remove" | "task.commit.add" => {
             Err(invalid("This operation is specified but not implemented yet".into()))
         }
         other => Err(invalid(format!("Unknown operation '{other}'"))),
     }
+}
+
+fn new_owner_id() -> Result<String, ApiError> {
+    let mut bytes = [0u8; 16];
+    getrandom::fill(&mut bytes).map_err(|error| ApiError {
+        code: "internal_error", message: format!("Cannot generate lock owner ID: {error}"),
+        retryable: false, details: json!({}),
+    })?;
+    Ok(format!("session-{}", hex::encode(bytes)))
+}
+
+fn lock_grant_json(grant: &LockGrant) -> Value {
+    json!({
+        "owner_id": grant.owner_id,
+        "lock_token": grant.token,
+        "fencing_generation": grant.fencing_generation,
+        "acquired_at": grant.acquired_at,
+        "heartbeat_at": grant.heartbeat_at,
+        "expires_at": grant.expires_at
+    })
 }
 
 fn invalid(message: String) -> ApiError {
