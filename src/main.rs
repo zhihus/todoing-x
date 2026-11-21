@@ -576,7 +576,7 @@ fn run_legacy(cli: Cli) {
             emit_task(&task, json, format!("(#{}) commit linked.", task.id));
         }
         Some(Commands::Delete(_)) => {
-            fail("Physical deletion is disabled. Use 'todoing cancel <id>' to retain the task and record its cancellation.");
+            cli_failure(json, "invalid_request", 2, "Physical deletion is disabled. Use 'todoing cancel <id>' to retain the task and record its cancellation.", false);
         }
         Some(Commands::Reindex) => {
             let tasks = store.rebuild_index().unwrap_or_else(|e| fail(e));
