@@ -39,3 +39,16 @@ The task model MUST represent completion and cancellation as distinct outcomes. 
 - **WHEN** a task reaches a completed outcome or a cancelled outcome
 - **THEN** clients can distinguish which outcome occurred
 - **AND** the system does not infer one outcome solely from an arbitrary project-defined status name
+
+#### Scenario: Cancel without a dedicated workflow status
+
+- **WHEN** a client cancels a task from its current workflow status
+- **THEN** the task outcome becomes cancelled
+- **AND** its workflow status remains unchanged
+- **AND** a cancellation reason may be supplied but is not required
+
+#### Scenario: Reopen a task with a terminal outcome
+
+- **WHEN** a client explicitly reopens a completed or cancelled task
+- **THEN** the task outcome is cleared
+- **AND** any subsequent status change is validated against the configured transition rules
