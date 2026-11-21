@@ -1127,4 +1127,61 @@ fn run() {
     }
 }
 
+
+
+#[cfg(test)]
+mod sqlite_cli_tests {
+    use super::*;
+
+    fn sample_task() -> SqliteTask {
+        SqliteTask {
+            id: TaskId::new(17).unwrap(),
+            title: "CLI task".into(),
+            status_id: StatusId::new("todo").unwrap(),
+            outcome: None,
+            body: "original body".into(),
+            created_at: "2026-11-21T10:00:00Z".into(),
+            updated_at: "2026-11-21T10:00:00Z".into(),
+            labels: vec!["alpha".into(), "beta".into()],
+            commit_refs: vec!["0123456789abcdef0123456789abcdef01234567".into()],
+            dependencies: vec![],
+        }
+    }
+
+    #[test]
+    fn sqlite_edit_markdown_round_trips_supported_fields() {
+        let original = sample_task();
+        let markdown = format_sqlite_see(&original);
+        let edited = parse_edited_task(&markdown, &original, false);
+        assert_eq!(edited.id, original.id);
+        assert_eq!(edited.title, original.title);
+        assert_eq!(edited.status_id, original.status_id);
+        assert_eq!(edited.body, original.body);
+        assert_eq!(edited.labels, original.labels);
+        assert_eq!(edited.commit_refs, original.commit_refs);
+        assert_eq!(edited.created_at, original.created_at);
+    }
+
+    #[test]
+    fn sqlite_markdown_edit_can_change_status_and_body_together() {
+        let original = sample_task();
+        let markdown = format_sqlite_see(&original)
+            .replace("status: todo", "status: in_progress")
+            .replace("original body", "revised body");
+        let edited = parse_edited_task(&markdown, &original, false);
+        assert_eq!(edited.status_id.as_str(), "in_progress");
+        assert_eq!(edited.body, "revised body");
+        assert_eq!(edited.outcome, None);
+    }
+
+    #[test]
+    fn sqlite_list_format_includes_task_identity_and_status() {
+        let task = sample_task();
+        let line = format_sqlite_list(&task);
+        assert!(line.contains("(#17)"));
+        assert!(line.contains("alpha,beta"));
+        assert!(line.contains("CLI task"));
+    }
+}
+
 fn main() { run(); }
