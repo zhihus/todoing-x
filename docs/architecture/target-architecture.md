@@ -1,9 +1,9 @@
 # Target Architecture: Todoing Core
 
-**Status:** Proposed architecture for review through implementation evidence.
+**Status:** Architecture overview. Resolved technical choices are specified in implementation-contract.md.
 **Date:** 2026-11-21
 **Scope:** Core MVP defined by PRODUCT.md and OpenSpec change core-task-capabilities.
-**Important:** SQLite and TOML are the preferred candidates, not final user-approved technology decisions.
+**Normative reference:** implementation-contract.md records the selected storage, configuration, locking, and API baseline.
 
 ## 1. Architectural goals
 
@@ -377,22 +377,20 @@ The existing SQLite spike is a reference test, not a substitute for production r
 - Manifest/OpenSpec/Git orchestration rules inside Todoing.
 - Priority fields or a priority-driven scheduler.
 
-## 13. Open design decisions before implementation
+## 13. Remaining implementation-level questions
 
-1. Final approval of SQLite + rusqlite versus redb.
-2. Final approval of rollback-journal mode and durability settings.
-3. TOML status configuration schema and default workflow.
-4. Completion/cancellation outcome mapping syntax.
-5. Actor identity source and semantics.
-6. Lease duration, heartbeat cadence, and clock-change recovery policy.
-7. JSON envelope, API versioning, error catalogue, and exit codes.
-8. Physical schema, version snapshot format, and baseline history.
-9. Rejected-operation logging behavior when the database itself is unavailable.
-10. Project ID transport at the Manifest integration boundary.
-11. Exact CLI command tree and compatibility/deprecation policy.
-12. Migration activation and rollback procedure on Windows.
+The implementation contract resolves the core technology and behavioral choices. These details must be verified while implementing, without changing the accepted contract silently:
 
-## 14. Implementation sequence after design approval
+1. Final SQL DDL, indexes, triggers, and migration numbering.
+2. Per-operation JSON request/response schemas and generated validation.
+3. Clock-jump and machine sleep/resume handling for leases.
+4. Windows same-volume database activation and recovery behavior.
+5. Online Backup API behavior while writes continue.
+6. Exact CLI aliases and deprecation period for legacy commands.
+7. Rejection-history behavior when the database itself is unavailable.
+8. Failure-injection coverage for disk-full, interrupted commit, and recovery races.
+
+## 14. Implementation sequence
 
 1. Freeze domain types and error taxonomy.
 2. Add configuration parsing and validation with fixture tests.
