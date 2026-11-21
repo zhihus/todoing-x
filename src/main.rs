@@ -1143,6 +1143,8 @@ mod sqlite_cli_tests {
             body: "original body".into(),
             created_at: "2026-11-21T10:00:00Z".into(),
             updated_at: "2026-11-21T10:00:00Z".into(),
+            archived_at: None,
+            archived_by: None,
             labels: vec!["alpha".into(), "beta".into()],
             commit_refs: vec!["0123456789abcdef0123456789abcdef01234567".into()],
             dependencies: vec![],
