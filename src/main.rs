@@ -199,12 +199,15 @@ fn run_hook(name: &str, task: &Task) -> Result<(), String> {
     let mut child = command.stdin(Stdio::piped()).stdout(Stdio::inherit()).stderr(Stdio::inherit())
         .spawn().map_err(|e| format!("Cannot start {} hook: {}", name, e))?;
     let payload = serde_json::to_vec(task).map_err(|e| e.to_string())?;
-    child.stdin.take().ok_or_else(|| "Hook stdin unavailable".to_string())?
-        .write_all(&payload).map_err(|e| e.to_string())?;
+    let write_result = {
+        let mut stdin = child.stdin.take().ok_or_else(|| "Hook stdin unavailable".to_string())?;
+        stdin.write_all(&payload)
+    };
     let status = child.wait().map_err(|e| e.to_string())?;
     if !status.success() {
         return Err(format!("{} hook rejected the operation (exit code {}).", name, status.code().unwrap_or(1)));
     }
+    write_result.map_err(|e| format!("Cannot write task data to {} hook: {}", name, e))?;
     Ok(())
 }
 
