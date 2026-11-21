@@ -10,9 +10,9 @@ use tempfile::NamedTempFile;
 use todoing::{
     config::ProjectConfig,
     domain::{ActorContext, ActorId, ProjectId, StatusId, TaskId, TaskOutcome},
-    storage::{LockGrant, NewTask, Store as SqliteStore, StoreError, Task, TaskRepository},
+    storage::{LockGrant, NewTask, Store as SqliteStore, StoreError, Task as SqliteTask, TaskRepository},
     migration,
-    Store, TaskStatus, VERSION,
+    Store, Task as LegacyTask, TaskStatus, VERSION,
 };
 
 const GIT_HOOK_UNIX: &str = include_str!("../hooks/before-done-git");
@@ -279,7 +279,7 @@ fn fail(message: impl AsRef<str>) -> ! {
     eprintln!("Error: {}", message.as_ref());
     std::process::exit(1)
 }
-fn task_or_fail(store: &Store, raw: &str) -> (i64, Task) {
+fn task_or_fail(store: &Store, raw: &str) -> (i64, LegacyTask) {
     let id = Store::resolve_id(raw).unwrap_or_else(|e| fail(e));
     let task = store
         .read_task(id)
@@ -290,11 +290,11 @@ fn task_or_fail(store: &Store, raw: &str) -> (i64, Task) {
 fn emit_json<T: Serialize>(value: &T) {
     println!("{}", serde_json::to_string(value).unwrap_or_else(|e| fail(e.to_string())));
 }
-fn emit_task(task: &Task, json: bool, human: String) {
+fn emit_task(task: &LegacyTask, json: bool, human: String) {
     if json { emit_json(task); } else { println!("{}", human); }
 }
 
-fn run_hook(name: &str, task: &Task) -> Result<(), String> {
+fn run_hook(name: &str, task: &LegacyTask) -> Result<(), String> {
     let hooks = PathBuf::from(".todoing").join("hooks");
     #[cfg(windows)]
     let candidates = [hooks.join(format!("{}.cmd", name)), hooks.join(format!("{}.bat", name))];
@@ -436,7 +436,7 @@ fn install_hooks(selection: HookSelection, json: bool) {
 fn run_internal_hook(name: &str) -> Result<(), String> {
     let mut payload = Vec::new();
     std::io::stdin().read_to_end(&mut payload).map_err(|e| format!("Cannot read task data: {}", e))?;
-    let task: Task = serde_json::from_slice(&payload).map_err(|e| format!("Invalid task data: {}", e))?;
+    let task: LegacyTask = serde_json::from_slice(&payload).map_err(|e| format!("Invalid task data: {}", e))?;
     match name {
         "before-done-git" => {
             if task.commits.is_empty() {
@@ -706,7 +706,7 @@ fn repository_for_task(context: &SqliteContext, task_id: TaskId, json_output: bo
     }
 }
 
-fn status_icon(task: &Task) -> &'static str {
+fn status_icon(task: &SqliteTask) -> &'static str {
     match task.outcome {
         Some(TaskOutcome::Completed) => "✓",
         Some(TaskOutcome::Cancelled) => "×",
@@ -716,11 +716,11 @@ fn status_icon(task: &Task) -> &'static str {
     }
 }
 
-fn format_sqlite_list(task: &Task) -> String {
+fn format_sqlite_list(task: &SqliteTask) -> String {
     format!("(#{}) [{}] {{{}}} {}", task.id, task.labels.join(","), status_icon(task), task.title)
 }
 
-fn format_sqlite_see(task: &Task) -> String {
+fn format_sqlite_see(task: &SqliteTask) -> String {
     let frontmatter = serde_json::json!({
         "added_at": task.created_at,
         "commits": task.commit_refs,
@@ -737,7 +737,7 @@ fn format_sqlite_see(task: &Task) -> String {
     }
 }
 
-fn parse_edited_task(source: &str, original: &Task, json_output: bool) -> Task {
+fn parse_edited_task(source: &str, original: &SqliteTask, json_output: bool) -> SqliteTask {
     let rest = source.strip_prefix("---\n")
         .unwrap_or_else(|| cli_failure(json_output, "invalid_request", 2, "Edited task must retain YAML frontmatter", false));
     let (frontmatter, body) = rest.split_once("\n---")
@@ -807,7 +807,7 @@ fn run_sqlite(cli: Cli) {
         .or_else(|| std::env::var("TODOING_ACTOR_ID").ok())
         .unwrap_or_else(|| "cli-user".into());
 
-    if let Some(Commands::Api) = cli.command {
+    if matches!(&cli.command, Some(Commands::Api)) {
         todoing::api::run();
         return;
     }
@@ -1055,7 +1055,20 @@ fn run_sqlite(cli: Cli) {
                     .unwrap_or_else(|error| fail_store(json_output, error));
                 cli_success(json_output, lock_grant_data(&grant), format!("Lock recovered for task #{}; save the returned lock_token.", task_id));
             }
-            LockCommands::Heartbeat { id, owner_id, fencing_generation } |
+            LockCommands::Heartbeat { id, owner_id, fencing_generation } => {
+                let task_id = parse_cli_task_id(&id, json_output);
+                let token = std::env::var("TODOING_LOCK_TOKEN").unwrap_or_else(|_| {
+                    cli_failure(json_output, "stale_lock", 4, "TODOING_LOCK_TOKEN is required", false)
+                });
+                let grant = context.lock_service.grant_from_token(task_id, &token)
+                    .unwrap_or_else(|error| fail_store(json_output, error));
+                if grant.owner_id != owner_id || grant.fencing_generation != fencing_generation {
+                    cli_failure(json_output, "stale_lock", 4, "Lock owner or fencing generation does not match", false);
+                }
+                let renewed = context.lock_service.heartbeat(&grant, &context.actor)
+                    .unwrap_or_else(|error| fail_store(json_output, error));
+                cli_success(json_output, serde_json::json!({"heartbeat_at": renewed.heartbeat_at, "expires_at": renewed.expires_at}), format!("Lock heartbeat renewed for task #{}.", task_id));
+            }
             LockCommands::Release { id, owner_id, fencing_generation } => {
                 let task_id = parse_cli_task_id(&id, json_output);
                 let token = std::env::var("TODOING_LOCK_TOKEN").unwrap_or_else(|_| {
@@ -1066,15 +1079,9 @@ fn run_sqlite(cli: Cli) {
                 if grant.owner_id != owner_id || grant.fencing_generation != fencing_generation {
                     cli_failure(json_output, "stale_lock", 4, "Lock owner or fencing generation does not match", false);
                 }
-                if matches!(args.command, LockCommands::Heartbeat { .. }) {
-                    let renewed = context.lock_service.heartbeat(&grant, &context.actor)
-                        .unwrap_or_else(|error| fail_store(json_output, error));
-                    cli_success(json_output, serde_json::json!({"heartbeat_at": renewed.heartbeat_at, "expires_at": renewed.expires_at}), format!("Lock heartbeat renewed for task #{}.", task_id));
-                } else {
-                    context.lock_service.release(&grant, &context.actor)
-                        .unwrap_or_else(|error| fail_store(json_output, error));
-                    cli_success(json_output, serde_json::json!({"released": true, "fencing_generation": grant.fencing_generation}), format!("Lock released for task #{}.", task_id));
-                }
+                context.lock_service.release(&grant, &context.actor)
+                    .unwrap_or_else(|error| fail_store(json_output, error));
+                cli_success(json_output, serde_json::json!({"released": true, "fencing_generation": grant.fencing_generation}), format!("Lock released for task #{}.", task_id));
             }
         },
         Some(Commands::Config) => {
