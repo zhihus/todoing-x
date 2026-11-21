@@ -1,5 +1,5 @@
 use super::{Store, StoreError};
-use super::lock::{LockCredential, LockGrant, SystemClock, TaskLockService, check_lock_access};
+use super::lock::{Clock, LockCredential, LockGrant, SystemClock, TaskLockService, check_lock_access};
 use crate::config::ProjectConfig;
 use sha2::{Digest, Sha256};
 use crate::domain::{ActorContext, ActorId, StatusId, TaskId, TaskOutcome};
@@ -955,7 +955,7 @@ impl TaskRepository {
             )
             .optional()?
             .map(|(raw_task_id, version_id, version_no, approved_at, approved_by)| {
-                Ok(TaskBaseline {
+                Ok::<TaskBaseline, StoreError>(TaskBaseline {
                     task_id: TaskId::new(raw_task_id)
                         .map_err(|error| StoreError::InvalidTask(error.to_string()))?,
                     version_id,
