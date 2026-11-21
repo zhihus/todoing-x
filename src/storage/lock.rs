@@ -98,6 +98,8 @@ struct LockRecord {
     state: String,
     owner_id: Option<String>,
     token_hash: Option<Vec<u8>>,
+    acquired_at: Option<i64>,
+    heartbeat_at: Option<i64>,
     expires_at: Option<i64>,
     fencing_generation: i64,
 }
@@ -119,6 +121,36 @@ impl TaskLockService {
             store,
             config,
             clock,
+        })
+    }
+
+    /// Reconstructs a current lock grant from the bearer token supplied by the API client.
+    /// The token is compared against the persisted hash and is never stored in SQLite.
+    pub fn grant_from_token(&self, task_id: TaskId, token: &str) -> Result<LockGrant, StoreError> {
+        let connection = self.store.connection()?;
+        let record = load_lock(&connection, task_id)?.ok_or(StoreError::StaleLock)?;
+        if record.state != "active"
+            || !record.token_hash.as_deref().is_some_and(|stored| {
+                constant_time_equal(stored, &token_hash(token))
+            })
+        {
+            return Err(StoreError::StaleLock);
+        }
+        let expires_at = record.expires_at.ok_or_else(|| {
+            StoreError::InvalidMetadata("active lock has no expiry".into())
+        })?;
+        let now = self.clock.now_millis();
+        if expires_at <= now {
+            return Err(StoreError::LockExpired);
+        }
+        Ok(LockGrant {
+            task_id,
+            owner_id: record.owner_id.ok_or_else(|| StoreError::InvalidMetadata("active lock has no owner".into()))?,
+            token: token.to_owned(),
+            fencing_generation: record.fencing_generation,
+            acquired_at: record.acquired_at.ok_or_else(|| StoreError::InvalidMetadata("active lock has no acquisition time".into()))?,
+            heartbeat_at: record.heartbeat_at.ok_or_else(|| StoreError::InvalidMetadata("active lock has no heartbeat time".into()))?,
+            expires_at,
         })
     }
 
@@ -554,7 +586,7 @@ fn load_lock(
 ) -> Result<Option<LockRecord>, StoreError> {
     connection
         .query_row(
-            "SELECT state, owner_id, token_hash, expires_at, fencing_generation
+            "SELECT state, owner_id, token_hash, acquired_at, heartbeat_at, expires_at, fencing_generation
              FROM task_locks WHERE task_id = ?1",
             params![task_id.get()],
             |row| {
@@ -562,8 +594,10 @@ fn load_lock(
                     state: row.get(0)?,
                     owner_id: row.get(1)?,
                     token_hash: row.get(2)?,
-                    expires_at: row.get(3)?,
-                    fencing_generation: row.get(4)?,
+                    acquired_at: row.get(3)?,
+                    heartbeat_at: row.get(4)?,
+                    expires_at: row.get(5)?,
+                    fencing_generation: row.get(6)?,
                 })
             },
         )
