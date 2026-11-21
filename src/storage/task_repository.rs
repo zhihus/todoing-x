@@ -302,7 +302,8 @@ impl TaskRepository {
         let mut connection = self.store.connection()?;
         let transaction =
             connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let previous = match load_task(&transaction, task.id) {
+        let previous = match load_task(&transaction, task.id) {        self.check_lock(&transaction, task.id)?;
+
             Ok(previous) => previous,
             Err(error @ StoreError::TaskNotFound(_)) => {
                 drop(transaction);
@@ -397,7 +398,12 @@ impl TaskRepository {
         let mut connection = self.store.connection()?;
         let transaction =
             connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let previous = match load_task(&transaction, task_id) {
+        let previous = match load_task(&transaction, task_id) {        self.check_lock(&transaction, task_id)?;
+        self.check_lock(&transaction, task_id)?;
+        self.check_lock(&transaction, task_id)?;
+        self.check_lock(&transaction, task_id)?;
+        self.check_lock(&transaction, task_id)?;
+
             Ok(task) => task,
             Err(error @ StoreError::TaskNotFound(_)) => {
                 drop(transaction);
@@ -866,7 +872,8 @@ impl TaskRepository {
         let mut connection = self.store.connection()?;
         let transaction =
             connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let version_id = transaction
+        let version_id = transaction        self.check_lock(&transaction, task_id)?;
+
             .query_row(
                 "SELECT version_id FROM task_versions WHERE task_id = ?1 AND version_no = ?2",
                 params![task_id.get(), version_no],
