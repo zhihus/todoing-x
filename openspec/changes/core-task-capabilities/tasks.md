@@ -29,7 +29,7 @@
 
 ## 4. Implementation
 
-- [ ] 4.1 Add domain types, actor context, error taxonomy, and TOML configuration parser with tests.
+- [x] 4.1 Add domain types, actor context, error taxonomy, and TOML configuration parser with tests.
 - [ ] 4.2 Add SQLite connection factory, schema migrations, constraints, immutable-table triggers, and integrity checks.
 - [ ] 4.3 Implement transactional task repository, stable ID allocation, and no-physical-delete behavior.
 - [ ] 4.4 Implement immutable versions, approved baselines, and append-only successful/rejected operation history.
