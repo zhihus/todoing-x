@@ -14,6 +14,7 @@ type Result<T> = std::result::Result<T, Box<dyn Error>>;
 fn open(path: &str) -> Result<Connection> {
     let connection = Connection::open(path)?;
     connection.busy_timeout(Duration::from_secs(10))?;
+    connection.execute_batch("PRAGMA foreign_keys=ON;")?;
     Ok(connection)
 }
 
