@@ -115,7 +115,7 @@ fn lock_owner_id_must_be_nonempty_and_bounded() {
 
 #[test]
 fn repository_enforces_lock_for_reads_writes_history_and_version_access() {
-    use crate::storage::{NewTask, TaskRepository};
+    use crate::storage::TaskRepository;
 
     let (_root, store, _service, _clock, task_id) = setup();
     store.connection().unwrap().execute(
@@ -151,12 +151,4 @@ fn repository_enforces_lock_for_reads_writes_history_and_version_access() {
     changed.title = "changed by owner".into();
     assert_eq!(owner_repository.update(&changed, &actor).unwrap().title, "changed by owner");
 
-    let _unused = NewTask {
-        title: "not used".into(),
-        status_id: crate::domain::StatusId::new("todo").unwrap(),
-        outcome: None,
-        body: String::new(),
-        labels: Vec::new(),
-        commit_refs: Vec::new(),
-    };
 }
