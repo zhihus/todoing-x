@@ -54,14 +54,14 @@ fn exclusive_lock_acquisition_waits_for_existing_reader_and_then_excludes_non_ow
     wait_for_file(&ready, &mut reader);
 
     let started = Instant::now();
-    assert_success(run(&["acquire", db.to_str().unwrap(), "agent-a"]));
+    assert_success(run(&["acquire", db.to_str().unwrap(), "agent-a", "secret-a"]));
     let elapsed = started.elapsed();
     assert!(elapsed >= Duration::from_millis(300), "exclusive acquisition did not wait for the active reader: {elapsed:?}");
     assert!(reader.wait().unwrap().success());
 
-    let denied = run(&["read", db.to_str().unwrap(), "agent-b"]);
+    let denied = run(&["read", db.to_str().unwrap(), "agent-b", "secret-b"]);
     assert_eq!(denied.status.code(), Some(20));
-    assert_success(run(&["read", db.to_str().unwrap(), "agent-a"]));
+    assert_success(run(&["read", db.to_str().unwrap(), "agent-a", "secret-a"]));
 }
 
 #[test]
@@ -116,13 +116,13 @@ fn fencing_generation_rejects_a_former_lock_owner() {
     let dir = tempfile::tempdir().unwrap();
     let db = dir.path().join("todoing.db");
     assert_success(run(&["init", db.to_str().unwrap()]));
-    assert_success(run(&["acquire", db.to_str().unwrap(), "agent-a"]));
+    assert_success(run(&["acquire", db.to_str().unwrap(), "agent-a", "secret-a"]));
     assert_success(run(&["expire", db.to_str().unwrap()]));
-    assert_success(run(&["recover", db.to_str().unwrap(), "agent-b"]));
+    assert_success(run(&["recover", db.to_str().unwrap(), "agent-b", "secret-b"]));
 
-    let stale = run(&["mutate", db.to_str().unwrap(), "agent-a", "1"]);
+    let stale = run(&["mutate", db.to_str().unwrap(), "agent-a", "secret-a", "1"]);
     assert_eq!(stale.status.code(), Some(21));
-    assert_success(run(&["mutate", db.to_str().unwrap(), "agent-b", "2"]));
+    assert_success(run(&["mutate", db.to_str().unwrap(), "agent-b", "secret-b", "2"]));
 }
 
 #[test]
