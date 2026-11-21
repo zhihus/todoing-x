@@ -246,12 +246,14 @@ A disabled status remains readable in historical/current records but cannot be s
 
 Workflow status and task outcome are separate concepts.
 
-Proposed model:
+Selected model:
 - Status represents the project's current workflow position.
 - Outcome is absent for active tasks and explicitly set to completed or cancelled for terminal results.
-- Project configuration maps a terminal status/transition to the corresponding outcome.
+- A configured status may map to completed (for example, Done).
+- The explicit cancellation operation sets cancelled without changing workflow status and accepts an optional reason.
+- Reopen clears the outcome; any status change then follows normal configured transition rules.
 
-This preserves the distinction between a configurable status label and the semantic result. The exact configuration syntax and whether outcome is assigned by status definition or transition rule remain open design details.
+This preserves the distinction between a configurable status label and the semantic result.
 
 ## 7. CLI and JSON interface
 
