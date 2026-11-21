@@ -22,7 +22,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Check formatting for SQLite storage additions
-        run: rustfmt --edition 2024 --check src/sqlite_store.rs tests/sqlite_store.rs
+        run: rustfmt --edition 2024 --check src/sqlite_store.rs tests/sqlite_store.rs src/config.rs tests/project_config.rs
       - run: cargo test --locked
       - run: cargo build --release --locked
       - name: Install binary into isolated directory
