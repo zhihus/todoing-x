@@ -1,10 +1,11 @@
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashSet,
-    fs::{self, OpenOptions},
+    fs,
     io::Write,
     path::{Path, PathBuf},
 };
+use tempfile::NamedTempFile;
 
 const CONFIG_FILE: &str = "config.toml";
 const SUPPORTED_SCHEMA_VERSION: u32 = 1;
@@ -26,6 +27,7 @@ impl StatusOutcome {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
 pub struct StatusDefinition {
     pub id: String,
     pub label: String,
@@ -36,12 +38,14 @@ pub struct StatusDefinition {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
 pub struct StatusTransition {
     pub from: String,
     pub to: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
 pub struct ProjectConfig {
     pub schema_version: u32,
     pub default_status: String,
@@ -119,30 +123,36 @@ impl ProjectConfig {
         })?;
         let path = Self::config_path(todoing_dir);
 
-        match OpenOptions::new().write(true).create_new(true).open(&path) {
-            Ok(mut file) => {
-                let default_config = Self::default();
-                let serialized = toml::to_string_pretty(&default_config)
-                    .map_err(|error| format!("Cannot serialize default configuration: {error}"))?;
-                file.write_all(serialized.as_bytes()).map_err(|error| {
-                    format!(
-                        "Cannot write default configuration {}: {error}",
-                        path.display()
-                    )
-                })?;
-                file.sync_all().map_err(|error| {
-                    format!(
-                        "Cannot sync default configuration {}: {error}",
-                        path.display()
-                    )
-                })?;
-            }
-            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
-            Err(error) => {
-                return Err(format!(
-                    "Cannot create configuration file {}: {error}",
+        if !path.exists() {
+            let default_config = Self::default();
+            let serialized = toml::to_string_pretty(&default_config)
+                .map_err(|error| format!("Cannot serialize default configuration: {error}"))?;
+            let mut temporary = NamedTempFile::new_in(todoing_dir).map_err(|error| {
+                format!("Cannot create temporary configuration file: {error}")
+            })?;
+            temporary.write_all(serialized.as_bytes()).map_err(|error| {
+                format!(
+                    "Cannot write temporary configuration for {}: {error}",
                     path.display()
-                ));
+                )
+            })?;
+            temporary.as_file().sync_all().map_err(|error| {
+                format!(
+                    "Cannot sync temporary configuration for {}: {error}",
+                    path.display()
+                )
+            })?;
+
+            match temporary.persist_noclobber(&path) {
+                Ok(_) => {}
+                Err(error) if error.error.kind() == std::io::ErrorKind::AlreadyExists => {}
+                Err(error) => {
+                    return Err(format!(
+                        "Cannot install default configuration {}: {}",
+                        path.display(),
+                        error.error
+                    ));
+                }
             }
         }
 
