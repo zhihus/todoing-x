@@ -364,6 +364,32 @@ fn before_done_git_hook_can_reject_completion() {
 
 #[cfg(unix)]
 #[test]
+fn before_done_hook_early_exit_with_large_payload_is_reported_as_rejection() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = tempdir().unwrap();
+    assert!(run(dir.path(), &["add", "early exit hook task"]).status.success());
+    let task_file = dir.path().join(".todoing/tasks/1.md");
+    let mut content = fs::read_to_string(&task_file).unwrap();
+    content.push_str("\\n");
+    content.push_str(&"x".repeat(1024 * 1024));
+    fs::write(&task_file, content).unwrap();
+
+    let hooks = dir.path().join(".todoing/hooks");
+    fs::create_dir_all(&hooks).unwrap();
+    let hook = hooks.join("before-done-git");
+    fs::write(&hook, "#!/bin/sh\\nexit 7\\n").unwrap();
+    let mut permissions = fs::metadata(&hook).unwrap().permissions();
+    permissions.set_mode(0o755);
+    fs::set_permissions(&hook, permissions).unwrap();
+
+    let rejected = run(dir.path(), &["status", "1", "done"]);
+    assert!(!rejected.status.success());
+    assert!(String::from_utf8_lossy(&rejected.stderr).contains("before-done-git hook rejected"));
+}
+
+#[cfg(unix)]
+#[test]
 fn before_done_openspec_hook_can_reject_completion() {
     use std::os::unix::fs::PermissionsExt;
 
