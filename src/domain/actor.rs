@@ -52,3 +52,18 @@ impl<'de> Deserialize<'de> for ActorId {
         Self::new(value).map_err(de::Error::custom)
     }
 }
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ActorContext {
+    actor_id: ActorId,
+}
+
+impl ActorContext {
+    pub fn new(actor_id: ActorId) -> Self {
+        Self { actor_id }
+    }
+
+    pub fn actor_id(&self) -> &ActorId {
+        &self.actor_id
+    }
+}
