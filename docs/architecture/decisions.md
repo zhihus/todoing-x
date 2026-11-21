@@ -2,7 +2,7 @@
 
 **Status:** Consolidated decision baseline  
 **Purpose:** Distinguish accepted product decisions from preliminary choices and unresolved design work.  
-**Source:** Product and architecture discussions through 21 November 2026, plus the current repository audit.
+**Source:** Product and architecture discussions through 21 November 2026, repository audit, and cross-platform storage/lock prototypes.
 
 ## 1. Accepted decisions
 
@@ -14,12 +14,12 @@
 | Integration | Manifest is an external consumer. It uses Todoing's public CLI/JSON interface and owns integration policy and cross-component checks. |
 | Project scope | Each project has its own task store. No central multi-project task database in the MVP. |
 | Statuses | User-configurable; Manifest may provide a recommended configuration but does not impose or automatically synchronize it. |
-| Configuration | Status definitions are kept in a simple user-editable project configuration file. Exact format/schema is undecided. |
+| Configuration | Status definitions and permitted transitions are stored in TOML at `.todoing/config.toml`. Exact schema/defaults remain architecture details. |
 | Dependencies | Task dependencies are required; cycles must be detected. |
 | History | Full append-only operation history; entries are immutable. |
 | Versions | Every successful save creates a version; an approved baseline version is identifiable; versions can be compared. |
 | Atomicity | Task mutation, history, version, and associated state updates form one atomic logical operation. |
-| Locking | Exclusive task lock for the full agent work session, including exclusion of reads by other clients; heartbeat and abnormal-exit recovery are required. |
+| Locking | Use a persisted task-owner lease in the database plus a short-lived per-task OS file-lock barrier. Ordinary task operations hold a shared barrier; lock acquisition, release, and recovery take an exclusive barrier. Full lease/owner semantics still require implementation tests. |
 | Deletion | Physical task deletion is not supported; IDs are stable and never reused. |
 | Archive | Archiving is separate from status and completion/cancellation; archive retains history and relationships; restoration is required. |
 | Events | Generic optional lifecycle events/hooks may be provided. Todoing must not contain Manifest-specific handlers or policy. |
@@ -29,6 +29,8 @@
 | Portability | Import/export must eventually preserve tasks, versions, history, dependencies, references, and metadata, with integrity validation. |
 | UI | A shared multi-project UI is deferred; if introduced, it is read-only. |
 | Agent concurrency | Manifest currently requires sequential agent execution; Todoing still protects against concurrent clients as an independent tool. |
+| Primary storage | SQLite via rusqlite with the bundled SQLite library is selected. Use WAL mode on a local project filesystem; network filesystems are unsupported. |
+| Rust file-lock API | Use the standard-library shared/exclusive file-lock API (stable since Rust 1.89); declare Rust 1.89 as the minimum supported version. |
 
 ## 2. Manifest integration decisions
 
@@ -44,26 +46,24 @@
 
 | Area | Preliminary position | Required validation |
 |---|---|---|
-| Primary storage | SQLite via rusqlite is the leading prototype candidate; redb is the comparison candidate. No final selection has been made. | Complete Windows/Linux multi-process, crash-recovery, lock, migration, backup, and workload tests. See [storage engine evaluation](research/storage-engine-evaluation.md). |
-| Task lock coordination | A persisted lease plus short-lived per-task OS file-lock barrier is the leading prototype candidate. It is not an accepted design decision. | Prove strict read exclusion, in-flight operation handling, owner authorization, and crash recovery in separate Windows/Linux processes. See [task lock protocol research](research/task-lock-protocol.md). |
-| Project configuration format | TOML is the leading recommendation for the user-editable status/transition configuration; not yet approved. | Finalize schema, defaults, validation, versioning, and Windows/Linux behavior. See [configuration format evaluation](research/status-config-format.md). |
-| Human-readable format | Markdown/YAML may remain an interchange format. | Define import/export and migration requirements after storage design; replace the unmaintained YAML parser dependency for legacy import. |
+| Task lock lease details | The hybrid lease + OS file-lock barrier is selected as the coordination model; lease duration, heartbeat interval, owner credential storage, and stale-lock policy are not finalized. | Implement and test owner authorization, lease expiry, crash recovery, and list/read behavior across separate Windows/Linux processes. See [task lock protocol research](research/task-lock-protocol.md). |
+| Human-readable migration format | Existing Markdown/YAML remains a migration input and may remain an interchange format. | Use a maintained YAML parser for legacy frontmatter; validate unknown-field preservation and migration integrity. |
 | Implementation sequencing | Core reliability and task model precede integration features. | Refine after architecture and dependency analysis. |
 
 ## 4. Open architecture questions
 
-1. Final storage engine and schema.
-2. Status configuration file format, schema, validation, ordering, disabled statuses, and transition rules.
-3. Exact task schema and representation of structured attachments/application-specific payloads.
-4. Stable CLI command set and compatibility policy for existing commands.
-5. JSON API versioning, envelopes, error schema, and exit-code mapping.
-6. Event names, payload schema, ordering, delivery guarantees, retries, and handler failure semantics.
-7. Lock ownership identity, lease/heartbeat protocol, timeout, crash recovery, and filesystem/database behavior.
-8. Version snapshot format, diff semantics, approval marker, and actor identity.
-9. Archive/restore data model and optional retention/limit policies.
-10. Migration from Markdown/YAML plus JSON index, including preservation of IDs and Git references.
-11. Manifest project identity binding and enforcement at the integration boundary.
-12. Exact mapping of workflow statuses to completion/cancellation outcomes.
+1. Exact status configuration schema, defaults, validation, ordering, disabled statuses, and transition rules.
+2. Exact task schema and representation of structured attachments/application-specific payloads.
+3. Stable CLI command set and compatibility policy for existing commands.
+4. JSON API versioning, envelopes, error schema, and exit-code mapping.
+5. Event names, payload schema, ordering, delivery guarantees, retries, and handler failure semantics.
+6. Lock owner identity versus secret credential, credential delivery to later CLI calls, lease duration, heartbeat interval, expiry/recovery behavior, and list/filter behavior for locked tasks.
+7. Version snapshot format, diff semantics, approval marker, and actor identity.
+8. Archive/restore data model and optional retention/limit policies.
+9. Migration from Markdown/YAML plus JSON index, including preservation of IDs, Git references, unknown fields, conflict policy, and rerun behavior.
+10. Manifest project identity binding and enforcement at the integration boundary.
+11. Exact mapping of workflow statuses to completion/cancellation outcomes.
+12. Backup/restore procedure and integrity verification for the SQLite store.
 
 These questions must be resolved through technical design and OpenSpec changes. They must not be silently decided during implementation.
 
@@ -72,7 +72,7 @@ These questions must be resolved through technical design and OpenSpec changes. 
 ### MVP
 
 - Task model and configurable statuses/transitions.
-- Transactional storage and stable identifiers.
+- Transactional SQLite storage and stable identifiers.
 - Dependencies and cycle detection.
 - Immutable operation history and task versions.
 - Exclusive locks with heartbeat and recovery.
