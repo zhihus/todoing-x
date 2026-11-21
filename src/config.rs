@@ -125,10 +125,16 @@ impl ProjectConfig {
                 let serialized = toml::to_string_pretty(&default_config)
                     .map_err(|error| format!("Cannot serialize default configuration: {error}"))?;
                 file.write_all(serialized.as_bytes()).map_err(|error| {
-                    format!("Cannot write default configuration {}: {error}", path.display())
+                    format!(
+                        "Cannot write default configuration {}: {error}",
+                        path.display()
+                    )
                 })?;
                 file.sync_all().map_err(|error| {
-                    format!("Cannot sync default configuration {}: {error}", path.display())
+                    format!(
+                        "Cannot sync default configuration {}: {error}",
+                        path.display()
+                    )
                 })?;
             }
             Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
@@ -143,9 +149,8 @@ impl ProjectConfig {
         let content = fs::read_to_string(&path).map_err(|error| {
             format!("Cannot read configuration file {}: {error}", path.display())
         })?;
-        let config: Self = toml::from_str(&content).map_err(|error| {
-            format!("Invalid TOML configuration {}: {error}", path.display())
-        })?;
+        let config: Self = toml::from_str(&content)
+            .map_err(|error| format!("Invalid TOML configuration {}: {error}", path.display()))?;
         config.validate()?;
         Ok(config)
     }
@@ -196,7 +201,10 @@ impl ProjectConfig {
                 ));
             }
             let target = self.status(&transition.to).ok_or_else(|| {
-                format!("Transition target status '{}' is not defined", transition.to)
+                format!(
+                    "Transition target status '{}' is not defined",
+                    transition.to
+                )
             })?;
             if transition.from == transition.to {
                 return Err(format!(
@@ -266,9 +274,6 @@ impl ProjectConfig {
 fn is_valid_status_id(value: &str) -> bool {
     !value.is_empty()
         && value.bytes().all(|byte| {
-            byte.is_ascii_lowercase()
-                || byte.is_ascii_digit()
-                || byte == b'_'
-                || byte == b'-'
+            byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_' || byte == b'-'
         })
 }
