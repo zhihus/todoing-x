@@ -144,6 +144,15 @@ impl Store {
 
     pub fn verify(&self) -> Result<IntegrityReport, StoreError> {
         let connection = self.connection()?;
+        let actual_raw = metadata_value(&connection, "project_id")?;
+        let actual = ProjectId::new(actual_raw.clone())
+            .map_err(|_| StoreError::InvalidMetadata("project_id".into()))?;
+        if actual != self.project_id {
+            return Err(StoreError::ProjectIdMismatch {
+                expected: self.project_id.as_str().to_owned(),
+                actual: actual_raw,
+            });
+        }
         validate_schema(&connection)?;
 
         let integrity_check: String =
