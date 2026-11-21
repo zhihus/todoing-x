@@ -37,7 +37,7 @@
 - Manifest checks consistency among Todoing tasks, OpenSpec artifacts, Git branches/commits, and their relationships.
 - Project identity is required at the integration boundary. The project ID is stored in database metadata and required in every Manifest-facing JSON API request; mismatches are rejected.
 - Manifest's recommended workflow statuses are Backlog, Ready, In Progress, In Review, Reviewed, and Done. Projects may localize display labels.
-- Completion and cancellation are distinct nullable task outcomes, mapped from configured statuses. Workflow status remains independently configurable.
+- Completion and cancellation are distinct nullable task outcomes. A configured status may map to completed; explicit cancellation sets cancelled without requiring a dedicated status and accepts an optional reason. Workflow status remains independently configurable.
 - Todoing hooks are optional; Manifest may use them but must not depend on their presence for core correctness.
 
 ## 3. Selected technical decisions
@@ -49,7 +49,7 @@
 | Task locking | Durable lease with 300-second lease, 60-second heartbeat, 60-second recovery grace, token hash, fencing generation, and EXCLUSIVE acquisition barrier. | Clock jumps, sleep/resume, concurrent recovery, and production read-path enforcement. |
 | Machine API | JSON API v1, one request per process, stable envelope/error codes/exit codes. | Per-operation schemas and contract tests. |
 | Actor identity | Required actor_id; CLI fallback to OS account for humans; explicit actor for agents. | Platform-specific identity lookup and length/format validation. |
-| Outcome model | Nullable completed/cancelled outcome separate from configurable workflow status. | Transition and reopen behavior tests. |
+| Outcome model | Nullable completed/cancelled outcome separate from workflow status; explicit cancel/reopen operations; optional cancellation reason. | Transition, cancellation, and reopen behavior tests. |
 | Migration | Staged DB import, validate before activation, preserve legacy files unchanged. No dual-write. | Windows activation/recovery tests. |
 | Backup | Todoing creates and verifies a consistent SQLite snapshot; Manifest owns destination and retention. | Concurrent snapshot test. |
 | Human-readable format | Markdown/YAML remains the legacy migration source; not the active storage format. | Optional export format is later work. |
