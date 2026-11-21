@@ -234,3 +234,15 @@ fn verify_detects_foreign_key_violations_created_by_external_writer() {
         Err(StoreError::ForeignKeyViolations(1))
     ));
 }
+
+#[test]
+fn verify_rejects_missing_protection_triggers() {
+    let root = tempdir().unwrap();
+    let store = Store::initialize(root.path(), project_id()).unwrap();
+    store.connection().unwrap().execute_batch("DROP TRIGGER tasks_no_delete;").unwrap();
+
+    assert!(matches!(
+        store.verify(),
+        Err(StoreError::InvalidMetadata(message)) if message.contains("tasks_no_delete")
+    ));
+}
