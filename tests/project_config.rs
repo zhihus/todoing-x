@@ -103,3 +103,46 @@ fn existing_invalid_configuration_is_not_replaced_by_defaults() {
         "schema_version = 999\ndefault_status = \"todo\"\n"
     );
 }
+
+#[test]
+fn rejects_unknown_configuration_fields() {
+    let dir = tempdir().unwrap();
+    let path = ProjectConfig::config_path(dir.path());
+    std::fs::create_dir_all(dir.path()).unwrap();
+
+    let mut content = toml::to_string_pretty(&ProjectConfig::default()).unwrap();
+    content.insert_str(0, "unknown_option = true\n");
+    std::fs::write(&path, &content).unwrap();
+
+    assert!(ProjectConfig::load_or_create(dir.path()).is_err());
+    assert_eq!(std::fs::read_to_string(path).unwrap(), content);
+}
+
+#[test]
+fn concurrent_first_open_creates_one_complete_default_config() {
+    use std::sync::{Arc, Barrier};
+    use std::thread;
+
+    let dir = tempdir().unwrap();
+    let project_dir = dir.path().to_path_buf();
+    let barrier = Arc::new(Barrier::new(8));
+    let workers = (0..8)
+        .map(|_| {
+            let project_dir = project_dir.clone();
+            let barrier = Arc::clone(&barrier);
+            thread::spawn(move || {
+                barrier.wait();
+                ProjectConfig::load_or_create(project_dir).unwrap()
+            })
+        })
+        .collect::<Vec<_>>();
+
+    for worker in workers {
+        assert_eq!(worker.join().unwrap(), ProjectConfig::default());
+    }
+
+    let path = ProjectConfig::config_path(dir.path());
+    let content = std::fs::read_to_string(path).unwrap();
+    let loaded: ProjectConfig = toml::from_str(&content).unwrap();
+    assert_eq!(loaded, ProjectConfig::default());
+}
