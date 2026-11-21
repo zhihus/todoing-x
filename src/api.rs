@@ -535,6 +535,18 @@ fn invalid(message: String) -> ApiError {
     ApiError { code: "invalid_request", message, retryable: false, details: json!({}) }
 }
 
+fn api_exit_code(code: &str) -> i32 {
+    match code {
+        "invalid_request" | "unsupported_api_version" | "project_id_mismatch" | "config_invalid" => 2,
+        "task_not_found" | "version_not_found" | "dependency_not_found" => 3,
+        "task_terminal" | "task_locked" | "lock_expired" | "stale_lock" |
+        "invalid_status_transition" | "dependency_cycle" => 4,
+        "io_error" | "store_corrupt" | "store_busy" | "history_record_failed" => 5,
+        "migration_conflict" => 6,
+        _ => 70,
+    }
+}
+
 pub fn run() {
     let mut input = String::new();
     let result = io::stdin().read_to_string(&mut input)
@@ -553,7 +565,7 @@ pub fn run() {
         Err(error) => {
             eprintln!("todoing api: {}", error.message);
             println!("{}", serde_json::to_string(&Failure { api_version: 1, request_id, ok: false, error }).expect("error serialization"));
-            std::process::exit(2);
+            std::process::exit(api_exit_code(error.code));
         }
     }
 }
