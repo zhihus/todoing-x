@@ -171,6 +171,13 @@ struct SnapshotArgs {
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
+struct MigrateArgs {
+    #[serde(default)]
+    dry_run: bool,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct LockOwnerArgs {
     task_id: i64,
     owner_id: String,
@@ -183,6 +190,21 @@ fn parse_args<T: DeserializeOwned>(value: Value) -> Result<T, String> {
 
 fn id(raw: i64) -> Result<TaskId, String> {
     TaskId::new(raw).map_err(|error| error.to_string())
+}
+
+fn migration_error(error: StoreError) -> ApiError {
+    match error {
+        StoreError::AlreadyExists(_) | StoreError::InvalidTask(_) => ApiError {
+            code: "migration_conflict", message: error.to_string(), retryable: false, details: json!({}),
+        },
+        StoreError::InvalidConfig(_) => ApiError {
+            code: "config_invalid", message: error.to_string(), retryable: false, details: json!({}),
+        },
+        StoreError::Io(_) => ApiError {
+            code: "io_error", message: error.to_string(), retryable: false, details: json!({}),
+        },
+        other => store_error(other),
+    }
 }
 
 fn store_error(error: StoreError) -> ApiError {
@@ -471,13 +493,7 @@ fn execute(request: Request, root: &Path) -> Result<Value, ApiError> {
             let report = store.snapshot(args.output_path, args.overwrite).map_err(store_error)?;
             Ok(json!({"snapshot_path": report.path, "size_bytes": report.size_bytes, "sha256": report.sha256}))
         }
-        "store.migrate" => Err(ApiError {
-            code: "internal_error",
-            message: "Legacy migration is not implemented yet".into(),
-            retryable: false,
-            details: json!({}),
-        }),
-        other => Err(invalid(format!("Operation '{other}' is not implemented yet"))),
+         other => Err(invalid(format!("Operation '{other}' is not implemented yet"))),
     }
 }
 
