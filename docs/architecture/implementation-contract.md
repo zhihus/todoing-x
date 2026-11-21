@@ -220,7 +220,7 @@ No partial task/version/history state may be visible.
 
 Use one read transaction. Check lock ownership and retrieve task data within the same transaction. A non-owner cannot read the task, versions, history, labels, commit references, or task-specific metadata while its lock is active.
 
-List/search operations MUST omit tasks locked by another client; they must not return the locked task's fields. A direct read by ID returns task_locked without task content.
+List/search operations MUST omit all locked tasks; they must not return locked task IDs or fields. The lock owner reads its task through a direct get with a valid token. A non-owner direct read by ID returns task_locked without task content.
 
 ### Lock acquisition
 
@@ -410,7 +410,7 @@ On any failure before activation, the staging database is not made active and th
 
 ## 11. Backup snapshot
 
-Todoing exposes store.snapshot using SQLite's Online Backup API through rusqlite's backup support. It creates a consistent standalone database snapshot. It does not choose destination, retention, or remote replication; those remain Manifest/project responsibilities.
+Todoing exposes store.snapshot using SQLite's Online Backup API through rusqlite's backup support. It creates a consistent standalone database snapshot and is rejected while any task lock is active, preventing backup from bypassing task read exclusion. It does not choose destination, retention, or remote replication; those remain Manifest/project responsibilities.
 
 A snapshot is reported successful only after the destination database is reopened and passes integrity verification. Raw copying of a live database file is prohibited as a supported backup method.
 
