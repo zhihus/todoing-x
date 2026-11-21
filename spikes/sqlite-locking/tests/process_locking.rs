@@ -117,6 +117,7 @@ fn fencing_generation_rejects_a_former_lock_owner() {
     let db = dir.path().join("todoing.db");
     assert_success(run(&["init", db.to_str().unwrap()]));
     assert_success(run(&["acquire", db.to_str().unwrap(), "agent-a"]));
+    assert_success(run(&["expire", db.to_str().unwrap()]));
     assert_success(run(&["recover", db.to_str().unwrap(), "agent-b"]));
 
     let stale = run(&["mutate", db.to_str().unwrap(), "agent-a", "1"]);
