@@ -605,4 +605,518 @@ fn run_legacy(cli: Cli) {
         None => {}
     }
 }
+
+struct SqliteContext {
+    store: SqliteStore,
+    config: ProjectConfig,
+    repository: TaskRepository,
+    lock_service: todoing::storage::TaskLockService,
+    actor: ActorContext,
+}
+
+fn cli_success(json_output: bool, data: serde_json::Value, human: impl AsRef<str>) {
+    if json_output {
+        println!("{}", serde_json::json!({
+            "api_version": 1,
+            "ok": true,
+            "data": data
+        }));
+    } else {
+        println!("{}", human.as_ref());
+    }
+}
+
+fn cli_failure(json_output: bool, code: &str, exit_code: i32, message: impl AsRef<str>, retryable: bool) -> ! {
+    let message = message.as_ref();
+    eprintln!("Error: {message}");
+    if json_output {
+        println!("{}", serde_json::json!({
+            "api_version": 1,
+            "ok": false,
+            "error": {
+                "code": code,
+                "message": message,
+                "retryable": retryable,
+                "details": {}
+            }
+        }));
+    }
+    std::process::exit(exit_code);
+}
+
+fn fail_store(json_output: bool, error: StoreError) -> ! {
+    let (code, exit_code, retryable) = match &error {
+        StoreError::TaskNotFound(_) => ("task_not_found", 3, false),
+        StoreError::VersionNotFound { .. } => ("version_not_found", 3, false),
+        StoreError::DependencyNotFound(_) => ("dependency_not_found", 3, false),
+        StoreError::TaskTerminal => ("task_terminal", 4, false),
+        StoreError::TaskLocked => ("task_locked", 4, true),
+        StoreError::LockExpired => ("lock_expired", 4, false),
+        StoreError::StaleLock => ("stale_lock", 4, false),
+        StoreError::InvalidStatusTransition(_) => ("invalid_status_transition", 4, false),
+        StoreError::DependencyCycle => ("dependency_cycle", 4, false),
+        StoreError::InvalidConfig(_) => ("config_invalid", 2, false),
+        StoreError::ProjectIdMismatch { .. } => ("project_id_mismatch", 2, false),
+        StoreError::AlreadyExists(_) | StoreError::NotInitialized => ("migration_conflict", 6, false),
+        StoreError::InvalidTask(_) => ("invalid_request", 2, false),
+        StoreError::HistoryRecordFailed(_) => ("history_record_failed", 5, false),
+        StoreError::IntegrityCheckFailed(_) | StoreError::ForeignKeyViolations(_) |
+        StoreError::MigrationChecksumMismatch { .. } | StoreError::UnsupportedSchemaVersion(_) |
+        StoreError::MissingMetadata(_) | StoreError::InvalidMetadata(_) => ("store_corrupt", 5, false),
+        StoreError::Sqlite(rusqlite::Error::SqliteFailure(code, _))
+            if code.code == rusqlite::ErrorCode::DatabaseBusy ||
+               code.code == rusqlite::ErrorCode::DatabaseLocked => ("store_busy", 5, true),
+        StoreError::Sqlite(_) | StoreError::Io(_) => ("io_error", 5, false),
+    };
+    cli_failure(json_output, code, exit_code, error.to_string(), retryable)
+}
+
+fn parse_cli_task_id(raw: &str, json_output: bool) -> TaskId {
+    let parsed = raw.strip_prefix('#').unwrap_or(raw).parse::<i64>()
+        .ok().and_then(|value| TaskId::new(value).ok());
+    parsed.unwrap_or_else(|| cli_failure(json_output, "invalid_request", 2, format!("Invalid task ID '{raw}'"), false))
+}
+
+fn open_sqlite_context(root: &std::path::Path, actor_raw: &str, json_output: bool) -> SqliteContext {
+    let config_path = root.join(".todoing").join("config.toml");
+    let config_text = fs::read_to_string(&config_path).unwrap_or_else(|error| {
+        cli_failure(json_output, "config_invalid", 2, format!("Cannot read {}: {error}", config_path.display()), false)
+    });
+    let config = ProjectConfig::from_toml(&config_text).unwrap_or_else(|error| {
+        cli_failure(json_output, "config_invalid", 2, error.to_string(), false)
+    });
+    let actor_id = ActorId::new(actor_raw.to_owned()).unwrap_or_else(|error| {
+        cli_failure(json_output, "invalid_request", 2, error.to_string(), false)
+    });
+    let store = SqliteStore::open(root, None).unwrap_or_else(|error| fail_store(json_output, error));
+    let repository = TaskRepository::new(store.clone(), config.clone())
+        .unwrap_or_else(|error| fail_store(json_output, error));
+    let lock_service = repository.lock_service().unwrap_or_else(|error| fail_store(json_output, error));
+    SqliteContext { store, config, repository, lock_service, actor: ActorContext::new(actor_id) }
+}
+
+fn repository_for_task(context: &SqliteContext, task_id: TaskId, json_output: bool) -> TaskRepository {
+    match std::env::var("TODOING_LOCK_TOKEN") {
+        Ok(token) => {
+            let grant = context.lock_service.grant_from_token(task_id, &token)
+                .unwrap_or_else(|error| fail_store(json_output, error));
+            context.repository.with_lock_grant(&grant)
+        }
+        Err(_) => context.repository.clone(),
+    }
+}
+
+fn status_icon(task: &Task) -> &'static str {
+    match task.outcome {
+        Some(TaskOutcome::Completed) => "✓",
+        Some(TaskOutcome::Cancelled) => "×",
+        None if task.status_id.as_str() == "in_progress" => "▶",
+        None if task.status_id.as_str() == "todo" => "·",
+        None => "•",
+    }
+}
+
+fn format_sqlite_list(task: &Task) -> String {
+    format!("(#{}) [{}] {{{}}} {}", task.id, task.labels.join(","), status_icon(task), task.title)
+}
+
+fn format_sqlite_see(task: &Task) -> String {
+    let frontmatter = serde_json::json!({
+        "added_at": task.created_at,
+        "commits": task.commit_refs,
+        "id": task.id.get(),
+        "labels": task.labels,
+        "status": task.status_id.as_str(),
+        "title": task.title
+    });
+    let yaml = serde_yaml::to_string(&frontmatter).unwrap_or_else(|error| format!("title: {:?}\n", error.to_string()));
+    if task.body.trim().is_empty() {
+        format!("---\n{}---\n", yaml)
+    } else {
+        format!("---\n{}---\n\n{}\n", yaml, task.body.trim())
+    }
+}
+
+fn parse_edited_task(source: &str, original: &Task, json_output: bool) -> Task {
+    let rest = source.strip_prefix("---\n")
+        .unwrap_or_else(|| cli_failure(json_output, "invalid_request", 2, "Edited task must retain YAML frontmatter", false));
+    let (frontmatter, body) = rest.split_once("\n---")
+        .unwrap_or_else(|| cli_failure(json_output, "invalid_request", 2, "Edited task has no closing frontmatter delimiter", false));
+    let parsed: EditableFrontmatter = serde_yaml::from_str(frontmatter)
+        .unwrap_or_else(|error| cli_failure(json_output, "invalid_request", 2, format!("Invalid task frontmatter: {error}"), false));
+    if parsed.id != original.id.get() || parsed.added_at != original.created_at {
+        cli_failure(json_output, "invalid_request", 2, "Task ID and creation timestamp are immutable", false);
+    }
+    let status_id = StatusId::new(parsed.status)
+        .unwrap_or_else(|error| cli_failure(json_output, "invalid_request", 2, error.to_string(), false));
+    let body = body.strip_prefix('\n').unwrap_or(body).trim().to_owned();
+    Task {
+        id: original.id,
+        title: parsed.title,
+        status_id,
+        outcome: original.outcome,
+        body,
+        created_at: original.created_at.clone(),
+        updated_at: original.updated_at.clone(),
+        labels: parsed.labels,
+        commit_refs: parsed.commits,
+        dependencies: original.dependencies.clone(),
+    }
+}
+
+fn new_lock_owner_id(json_output: bool) -> String {
+    let mut bytes = [0u8; 16];
+    getrandom::fill(&mut bytes).unwrap_or_else(|error| {
+        cli_failure(json_output, "internal_error", 70, format!("Cannot generate lock owner ID: {error}"), false)
+    });
+    format!("session-{}", hex::encode(bytes))
+}
+
+fn lock_grant_data(grant: &LockGrant) -> serde_json::Value {
+    serde_json::json!({
+        "owner_id": grant.owner_id,
+        "lock_token": grant.token,
+        "fencing_generation": grant.fencing_generation,
+        "acquired_at": grant.acquired_at,
+        "heartbeat_at": grant.heartbeat_at,
+        "expires_at": grant.expires_at
+    })
+}
+
+fn resolve_git_commit(root: &std::path::Path, revision: &str, json_output: bool) -> String {
+    let output = Command::new("git")
+        .current_dir(root)
+        .args(["rev-parse", "--verify", "--end-of-options"])
+        .arg(format!("{revision}^{{commit}}"))
+        .output()
+        .unwrap_or_else(|error| cli_failure(json_output, "io_error", 5, format!("Cannot run git: {error}"), false));
+    if !output.status.success() {
+        cli_failure(json_output, "invalid_request", 2, format!("'{revision}' is not a valid Git commit in this repository"), false);
+    }
+    let sha = String::from_utf8_lossy(&output.stdout).trim().to_owned();
+    if !((sha.len() == 40 || sha.len() == 64) && sha.bytes().all(|byte| byte.is_ascii_hexdigit())) {
+        cli_failure(json_output, "invalid_request", 2, "Git returned an invalid commit object ID", false);
+    }
+    sha
+}
+
+fn run_sqlite(cli: Cli) {
+    let json_output = cli.json;
+    let root = std::env::current_dir().unwrap_or_else(|error| cli_failure(json_output, "io_error", 5, error.to_string(), false));
+    let actor_raw = cli.actor
+        .or_else(|| std::env::var("TODOING_ACTOR_ID").ok())
+        .unwrap_or_else(|| "cli-user".into());
+
+    if let Some(Commands::Api) = cli.command {
+        todoing::api::run();
+        return;
+    }
+    if let Some(Commands::Version(args)) = &cli.command {
+        if args.id.is_none() {
+            cli_success(json_output, serde_json::json!({"version": VERSION}), VERSION);
+            return;
+        }
+    }
+    if let Some(Commands::Migrate(args)) = &cli.command {
+        let project_id = ProjectId::new(args.project_id.clone()).unwrap_or_else(|error| {
+            cli_failure(json_output, "invalid_request", 2, error.to_string(), false)
+        });
+        let actor_id = ActorId::new(actor_raw).unwrap_or_else(|error| {
+            cli_failure(json_output, "invalid_request", 2, error.to_string(), false)
+        });
+        let report = migration::migrate(&root, &project_id, &actor_id, args.dry_run)
+            .unwrap_or_else(|error| {
+                let (code, exit) = match &error {
+                    StoreError::AlreadyExists(_) | StoreError::InvalidTask(_) => ("migration_conflict", 6),
+                    StoreError::InvalidConfig(_) => ("config_invalid", 2),
+                    StoreError::Io(_) => ("io_error", 5),
+                    _ => ("internal_error", 70),
+                };
+                cli_failure(json_output, code, exit, error.to_string(), false)
+            });
+        let data = serde_json::to_value(&report).unwrap_or_else(|error| {
+            cli_failure(json_output, "internal_error", 70, error.to_string(), false)
+        });
+        cli_success(json_output, data, format!("Migration validated: {} tasks; activated={}", report.task_count, report.activated));
+        return;
+    }
+
+    let context = open_sqlite_context(&root, &actor_raw, json_output);
+    match cli.command {
+        Some(Commands::Add(args)) => {
+            let status_id = StatusId::new(args.status).unwrap_or_else(|error| {
+                cli_failure(json_output, "invalid_request", 2, error.to_string(), false)
+            });
+            let task = context.repository.create(
+                NewTask { title: args.title, status_id, outcome: None, body: args.body, labels: args.labels, commit_refs: vec![] },
+                &context.actor,
+            ).unwrap_or_else(|error| fail_store(json_output, error));
+            let data = serde_json::to_value(&task).unwrap();
+            cli_success(json_output, data, format!("(#{}) {}", task.id, task.title));
+        }
+        Some(Commands::Ls(args)) => {
+            if args.scan {
+                cli_failure(json_output, "invalid_request", 2, "--scan is deprecated for SQLite; use 'todoing verify'", false);
+            }
+            let mut tasks = context.repository.list().unwrap_or_else(|error| fail_store(json_output, error));
+            if let Some(status) = args.status {
+                tasks.retain(|task| task.status_id.as_str().eq_ignore_ascii_case(&status));
+            }
+            for label in args.labels {
+                tasks.retain(|task| task.labels.iter().any(|value| value.eq_ignore_ascii_case(&label)));
+            }
+            if let Some(query) = args.query {
+                let query = query.to_lowercase();
+                tasks.retain(|task| task.title.to_lowercase().contains(&query)
+                    || task.body.to_lowercase().contains(&query)
+                    || task.labels.iter().any(|label| label.to_lowercase().contains(&query))
+                    || task.status_id.as_str().to_lowercase().contains(&query));
+            }
+            tasks.sort_by_key(|task| task.id);
+            if !args.reverse { tasks.reverse(); }
+            if args.limit > 0 { tasks.truncate(args.limit as usize); }
+            let data = serde_json::to_value(&tasks).unwrap();
+            let human = if tasks.is_empty() { "No tasks.".into() }
+                else { tasks.iter().map(format_sqlite_list).collect::<Vec<_>>().join("\n") };
+            cli_success(json_output, data, human);
+        }
+        Some(Commands::See(args)) => {
+            let task_id = parse_cli_task_id(&args.id, json_output);
+            let repository = repository_for_task(&context, task_id, json_output);
+            let task = repository.get(task_id).unwrap_or_else(|error| fail_store(json_output, error));
+            let data = serde_json::to_value(&task).unwrap();
+            cli_success(json_output, data, format_sqlite_see(&task));
+        }
+        Some(Commands::Edit(args)) => {
+            let task_id = parse_cli_task_id(&args.id, json_output);
+            let repository = repository_for_task(&context, task_id, json_output);
+            let original = repository.get(task_id).unwrap_or_else(|error| fail_store(json_output, error));
+            let mut temporary = NamedTempFile::new_in(root.join(".todoing"))
+                .unwrap_or_else(|error| cli_failure(json_output, "io_error", 5, error.to_string(), false));
+            temporary.write_all(format_sqlite_see(&original).as_bytes())
+                .unwrap_or_else(|error| cli_failure(json_output, "io_error", 5, error.to_string(), false));
+            let path = temporary.into_temp_path();
+            let editor = std::env::var("EDITOR").unwrap_or_else(|_| if cfg!(windows) { "notepad".into() } else { "vim".into() });
+            let status = Command::new(editor).arg(&path).status()
+                .unwrap_or_else(|error| cli_failure(json_output, "io_error", 5, error.to_string(), false));
+            if !status.success() {
+                cli_failure(json_output, "io_error", 5, format!("Editor exited with code {}", status.code().unwrap_or(1)), false);
+            }
+            let edited = fs::read_to_string(&path)
+                .unwrap_or_else(|error| cli_failure(json_output, "io_error", 5, error.to_string(), false));
+            let updated = parse_edited_task(&edited, &original, json_output);
+            let task = repository.update(&updated, &context.actor)
+                .unwrap_or_else(|error| fail_store(json_output, error));
+            cli_success(json_output, serde_json::to_value(&task).unwrap(), format!("(#{}) updated.", task.id));
+        }
+        Some(Commands::Body(args)) => {
+            let task_id = parse_cli_task_id(&args.id, json_output);
+            let repository = repository_for_task(&context, task_id, json_output);
+            let mut task = repository.get(task_id).unwrap_or_else(|error| fail_store(json_output, error));
+            task.body = args.text;
+            let updated = repository.update(&task, &context.actor).unwrap_or_else(|error| fail_store(json_output, error));
+            cli_success(json_output, serde_json::to_value(&updated).unwrap(), format!("(#{}) body updated.", updated.id));
+        }
+        Some(Commands::Append(args)) => {
+            let task_id = parse_cli_task_id(&args.id, json_output);
+            let repository = repository_for_task(&context, task_id, json_output);
+            let mut task = repository.get(task_id).unwrap_or_else(|error| fail_store(json_output, error));
+            task.body = if task.body.is_empty() { args.text } else { format!("{}\n\n{}", task.body, args.text) };
+            let updated = repository.update(&task, &context.actor).unwrap_or_else(|error| fail_store(json_output, error));
+            cli_success(json_output, serde_json::to_value(&updated).unwrap(), format!("(#{}) body appended.", updated.id));
+        }
+        Some(Commands::Status(args)) => {
+            let task_id = parse_cli_task_id(&args.id, json_output);
+            let repository = repository_for_task(&context, task_id, json_output);
+            let status_id = StatusId::new(args.new_status).unwrap_or_else(|error| {
+                cli_failure(json_output, "invalid_request", 2, error.to_string(), false)
+            });
+            let updated = repository.set_status(task_id, status_id, &context.actor)
+                .unwrap_or_else(|error| fail_store(json_output, error));
+            cli_success(json_output, serde_json::to_value(&updated).unwrap(), format!("(#{}) status -> {}", updated.id, updated.status_id));
+        }
+        Some(Commands::Label(args)) => {
+            let task_id = parse_cli_task_id(&args.id, json_output);
+            let repository = repository_for_task(&context, task_id, json_output);
+            let mut task = repository.get(task_id).unwrap_or_else(|error| fail_store(json_output, error));
+            if args.clear && !args.no_clear { task.labels.clear(); }
+            for operation in args.ops {
+                if let Some(label) = operation.strip_prefix('+') {
+                    if !task.labels.iter().any(|existing| existing.eq_ignore_ascii_case(label)) {
+                        task.labels.push(label.to_owned());
+                    }
+                } else if let Some(label) = operation.strip_prefix('-') {
+                    task.labels.retain(|existing| !existing.eq_ignore_ascii_case(label));
+                } else {
+                    cli_failure(json_output, "invalid_request", 2, format!("Invalid label operation '{operation}'"), false);
+                }
+            }
+            let updated = repository.update(&task, &context.actor).unwrap_or_else(|error| fail_store(json_output, error));
+            cli_success(json_output, serde_json::to_value(&updated).unwrap(), format!("(#{}) labels -> [{}]", updated.id, updated.labels.join(", ")));
+        }
+        Some(Commands::Commit(args)) => {
+            let task_id = parse_cli_task_id(&args.id, json_output);
+            let repository = repository_for_task(&context, task_id, json_output);
+            let sha = resolve_git_commit(&root, &args.sha, json_output);
+            let mut task = repository.get(task_id).unwrap_or_else(|error| fail_store(json_output, error));
+            if !task.commit_refs.contains(&sha) { task.commit_refs.push(sha.clone()); }
+            let updated = repository.update(&task, &context.actor).unwrap_or_else(|error| fail_store(json_output, error));
+            cli_success(json_output, serde_json::to_value(&updated).unwrap(), format!("(#{}) commit {} linked.", updated.id, sha));
+        }
+        Some(Commands::Delete(_)) => {
+            cli_failure(json_output, "invalid_request", 2, "Physical deletion is disabled. Use 'todoing cancel <id>' instead.", false);
+        }
+        Some(Commands::Reindex) => {
+            let report = context.store.verify().unwrap_or_else(|error| fail_store(json_output, error));
+            let data = serde_json::json!({"reindexed": false, "reason": "SQLite is authoritative", "integrity": report});
+            cli_success(json_output, data, "SQLite store verified; there is no Markdown index to rebuild.");
+        }
+        Some(Commands::Version(args)) => {
+            let Some(raw_id) = args.id else {
+                cli_success(json_output, serde_json::json!({"version": VERSION}), VERSION);
+                return;
+            };
+            let task_id = parse_cli_task_id(&raw_id, json_output);
+            let repository = repository_for_task(&context, task_id, json_output);
+            if let Some(version_no) = args.version_no {
+                let version = repository.get_version(task_id, version_no).unwrap_or_else(|error| fail_store(json_output, error));
+                cli_success(json_output, serde_json::to_value(&version).unwrap(), format!("Task #{} version {}", task_id, version_no));
+            } else {
+                let versions = repository.list_versions(task_id).unwrap_or_else(|error| fail_store(json_output, error));
+                cli_success(json_output, serde_json::to_value(&versions).unwrap(), format!("Task #{}: {} versions", task_id, versions.len()));
+            }
+        }
+        Some(Commands::Complete(args)) => {
+            let task_id = parse_cli_task_id(&args.id, json_output);
+            let repository = repository_for_task(&context, task_id, json_output);
+            let task = repository.complete(task_id, &context.actor).unwrap_or_else(|error| fail_store(json_output, error));
+            cli_success(json_output, serde_json::to_value(&task).unwrap(), format!("(#{}) completed.", task.id));
+        }
+        Some(Commands::Cancel(args)) => {
+            let task_id = parse_cli_task_id(&args.id, json_output);
+            let repository = repository_for_task(&context, task_id, json_output);
+            let reason = args.reason.filter(|value| !value.is_empty());
+            let task = repository.cancel(task_id, reason.as_deref(), &context.actor).unwrap_or_else(|error| fail_store(json_output, error));
+            cli_success(json_output, serde_json::to_value(&task).unwrap(), format!("(#{}) cancelled; task retained.", task.id));
+        }
+        Some(Commands::Reopen(args)) => {
+            let task_id = parse_cli_task_id(&args.id, json_output);
+            let repository = repository_for_task(&context, task_id, json_output);
+            let status = args.status.map(StatusId::new).transpose().unwrap_or_else(|error| {
+                cli_failure(json_output, "invalid_request", 2, error.to_string(), false)
+            });
+            let task = repository.reopen(task_id, status, &context.actor).unwrap_or_else(|error| fail_store(json_output, error));
+            cli_success(json_output, serde_json::to_value(&task).unwrap(), format!("(#{}) reopened.", task.id));
+        }
+        Some(Commands::Depends(args)) => match args.command {
+            DependsCommands::Add { id, depends_on } => {
+                let task_id = parse_cli_task_id(&id, json_output);
+                let dependency_id = parse_cli_task_id(&depends_on, json_output);
+                let repository = repository_for_task(&context, task_id, json_output);
+                repository.add_dependency(task_id, dependency_id, &context.actor).unwrap_or_else(|error| fail_store(json_output, error));
+                let task = repository.get(task_id).unwrap_or_else(|error| fail_store(json_output, error));
+                cli_success(json_output, serde_json::to_value(&task).unwrap(), format!("Task #{} now depends on #{}.", task_id, dependency_id));
+            }
+            DependsCommands::Remove { id, depends_on } => {
+                let task_id = parse_cli_task_id(&id, json_output);
+                let dependency_id = parse_cli_task_id(&depends_on, json_output);
+                let repository = repository_for_task(&context, task_id, json_output);
+                repository.remove_dependency(task_id, dependency_id, &context.actor).unwrap_or_else(|error| fail_store(json_output, error));
+                let task = repository.get(task_id).unwrap_or_else(|error| fail_store(json_output, error));
+                cli_success(json_output, serde_json::to_value(&task).unwrap(), format!("Dependency #{} removed from task #{}.", dependency_id, task_id));
+            }
+            DependsCommands::List { id } => {
+                let task_id = parse_cli_task_id(&id, json_output);
+                let repository = repository_for_task(&context, task_id, json_output);
+                let dependencies = repository.list_dependencies(task_id).unwrap_or_else(|error| fail_store(json_output, error));
+                cli_success(json_output, serde_json::to_value(&dependencies).unwrap(), format!("Task #{} dependencies: {}", task_id, dependencies.iter().map(ToString::to_string).collect::<Vec<_>>().join(", ")));
+            }
+        },
+        Some(Commands::History(args)) => {
+            let task_id = parse_cli_task_id(&args.id, json_output);
+            let repository = repository_for_task(&context, task_id, json_output);
+            let mut events = repository.get_history(task_id).unwrap_or_else(|error| fail_store(json_output, error));
+            events.reverse();
+            events.truncate(args.limit);
+            cli_success(json_output, serde_json::to_value(&events).unwrap(), format!("Task #{}: {} history events", task_id, events.len()));
+        }
+        Some(Commands::Lock(args)) => match args.command {
+            LockCommands::Acquire { id } => {
+                let task_id = parse_cli_task_id(&id, json_output);
+                let owner = new_lock_owner_id(json_output);
+                let grant = context.lock_service.acquire(task_id, &owner, &context.actor)
+                    .unwrap_or_else(|error| fail_store(json_output, error));
+                cli_success(json_output, lock_grant_data(&grant), format!("Lock acquired for task #{}; save the returned lock_token.", task_id));
+            }
+            LockCommands::Recover { id } => {
+                let task_id = parse_cli_task_id(&id, json_output);
+                let owner = new_lock_owner_id(json_output);
+                let grant = context.lock_service.recover(task_id, &owner, &context.actor)
+                    .unwrap_or_else(|error| fail_store(json_output, error));
+                cli_success(json_output, lock_grant_data(&grant), format!("Lock recovered for task #{}; save the returned lock_token.", task_id));
+            }
+            LockCommands::Heartbeat { id, owner_id, fencing_generation } |
+            LockCommands::Release { id, owner_id, fencing_generation } => {
+                let task_id = parse_cli_task_id(&id, json_output);
+                let token = std::env::var("TODOING_LOCK_TOKEN").unwrap_or_else(|_| {
+                    cli_failure(json_output, "stale_lock", 4, "TODOING_LOCK_TOKEN is required", false)
+                });
+                let grant = context.lock_service.grant_from_token(task_id, &token)
+                    .unwrap_or_else(|error| fail_store(json_output, error));
+                if grant.owner_id != owner_id || grant.fencing_generation != fencing_generation {
+                    cli_failure(json_output, "stale_lock", 4, "Lock owner or fencing generation does not match", false);
+                }
+                if matches!(args.command, LockCommands::Heartbeat { .. }) {
+                    let renewed = context.lock_service.heartbeat(&grant, &context.actor)
+                        .unwrap_or_else(|error| fail_store(json_output, error));
+                    cli_success(json_output, serde_json::json!({"heartbeat_at": renewed.heartbeat_at, "expires_at": renewed.expires_at}), format!("Lock heartbeat renewed for task #{}.", task_id));
+                } else {
+                    context.lock_service.release(&grant, &context.actor)
+                        .unwrap_or_else(|error| fail_store(json_output, error));
+                    cli_success(json_output, serde_json::json!({"released": true, "fencing_generation": grant.fencing_generation}), format!("Lock released for task #{}.", task_id));
+                }
+            }
+        },
+        Some(Commands::Config) => {
+            let text = context.config.to_toml().unwrap_or_else(|error| cli_failure(json_output, "config_invalid", 2, error.to_string(), false));
+            cli_success(json_output, serde_json::to_value(&context.config).unwrap(), text);
+        }
+        Some(Commands::Verify) => {
+            let report = context.store.verify().unwrap_or_else(|error| fail_store(json_output, error));
+            cli_success(json_output, serde_json::to_value(&report).unwrap(), "SQLite integrity check passed.");
+        }
+        Some(Commands::Snapshot(args)) => {
+            let report = context.store.snapshot(args.path, args.overwrite)
+                .unwrap_or_else(|error| fail_store(json_output, error));
+            cli_success(json_output, serde_json::to_value(&report).unwrap(), format!("Snapshot written: {} ({} bytes)", report.path.display(), report.size_bytes));
+        }
+        Some(Commands::Hooks(args)) => match args.command {
+            HooksCommands::Status => show_hook_status(json_output),
+            HooksCommands::Install { hook } => install_hooks(hook, json_output),
+        },
+        Some(Commands::InternalHook(args)) => run_internal_hook(&args.name).unwrap_or_else(|error| cli_failure(json_output, "invalid_request", 2, error, false)),
+        Some(Commands::Api) | Some(Commands::Migrate(_)) | None => unreachable!(),
+    }
+}
+
+fn run() {
+    let cli = Cli::parse();
+    let database_exists = std::path::Path::new(".todoing/todoing.db").is_file();
+    let forced_sqlite = matches!(&cli.command,
+        Some(Commands::Api) | Some(Commands::Migrate(_)) |
+        Some(Commands::Complete(_)) | Some(Commands::Cancel(_)) |
+        Some(Commands::Reopen(_)) | Some(Commands::Depends(_)) |
+        Some(Commands::History(_)) | Some(Commands::Lock(_)) |
+        Some(Commands::Config) | Some(Commands::Verify) |
+        Some(Commands::Snapshot(_)) |
+        Some(Commands::Version(VersionArgs { id: Some(_), .. }))
+    );
+    let legacy_only = matches!(&cli.command, Some(Commands::Hooks(_)) | Some(Commands::InternalHook(_)));
+    if database_exists && !legacy_only || forced_sqlite {
+        run_sqlite(cli);
+    } else {
+        run_legacy(cli);
+    }
+}
+
 fn main() { run(); }
