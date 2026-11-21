@@ -149,22 +149,42 @@ impl TaskRepository {
 
     pub fn create(
         &self,
-        new_task: NewTask,
+        mut new_task: NewTask,
         actor: &ActorContext,
     ) -> Result<Task, StoreError> {
         if let Err(error) =
             validate_task_input(&new_task.title, &new_task.labels, &new_task.commit_refs)
         {
-            let requested = serde_json::to_string(&new_task).ok();
-            self.record_rejection(
-                None,
-                actor,
-                "task.create",
-                "invalid_request",
-                requested.as_deref(),
-            )?;
-            return Err(error);
+            return self.reject_operation(
+                None, actor, "task.create", "invalid_request",
+                serde_json::to_string(&new_task).ok(), error,
+            );
         }
+
+        if !self.config.statuses.iter().any(|status| {
+            status.id == new_task.status_id.as_str() && status.enabled
+        }) {
+            return self.reject_operation(
+                None, actor, "task.create", "invalid_status_transition",
+                serde_json::to_string(&new_task).ok(),
+                StoreError::InvalidStatusTransition(format!(
+                    "Status '{}' is missing or disabled",
+                    new_task.status_id
+                )),
+            );
+        }
+
+        let mapped_outcome = self.config.outcome_for_status(new_task.status_id.as_str());
+        if new_task.outcome.is_some() && new_task.outcome != mapped_outcome {
+            return self.reject_operation(
+                None, actor, "task.create", "invalid_request",
+                serde_json::to_string(&new_task).ok(),
+                StoreError::InvalidTask(
+                    "Task outcome is determined by its configured status or explicit completion/cancellation operation".into(),
+                ),
+            );
+        }
+        new_task.outcome = mapped_outcome;
 
         let mut connection = self.store.connection()?;
         let transaction =
