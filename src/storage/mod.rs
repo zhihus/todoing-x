@@ -11,4 +11,7 @@ mod tests;
 
 pub use error::StoreError;
 pub use store::{IntegrityReport, Store};
-pub use task_repository::{NewTask, Task, TaskRepository};
+pub use task_repository::{
+    HistoryEntry, HistoryOutcome, NewTask, Task, TaskBaseline, TaskFieldChange,
+    TaskRepository, TaskVersion, TaskVersionDiff,
+};
