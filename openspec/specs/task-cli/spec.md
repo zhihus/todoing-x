@@ -10,7 +10,7 @@ Describe the user-visible commands and machine-readable output currently provide
 
 The CLI MUST provide an `add` command that creates a task with a title and optional labels, status, and description body.
 
-A title MUST contain a non-whitespace character. Supplied labels MUST contain a non-whitespace character. The accepted status values are `todo`, `in_progress`, `done`, and `cancelled`.
+A title MUST contain a non-whitespace character. Supplied labels MUST contain a non-whitespace character. The accepted status values are `todo`, `in_progress`, `done`, and `cancelled`. Status values supplied to CLI commands are case-insensitive.
 
 #### Scenario: Create a valid task
 
@@ -26,9 +26,11 @@ A title MUST contain a non-whitespace character. Supplied labels MUST contain a 
 
 ### Requirement: List and filter tasks
 
-The CLI MUST provide an `ls` command that lists tasks newest first by default.
+The CLI MUST provide an `ls` command that lists tasks in descending task-ID order by default. The `--reverse` option MUST list tasks in ascending task-ID order.
 
-The command MUST support filtering by status, one or more labels, and a case-insensitive query across title, body, labels, and status. Multiple label filters MUST use AND semantics. The command MUST support a result limit and reverse ordering.
+The command MUST support filtering by status, one or more labels, and a case-insensitive query. Query matching MUST use substring matching for title, body, and labels, and exact matching for the status value. Multiple label filters MUST use AND semantics.
+
+The command MUST support a result limit. A positive limit truncates the result after sorting and filtering; zero or a negative limit means no limit.
 
 The `--scan` option MUST scan task Markdown files and rebuild `.todoing/index.json` before listing. The listing is then produced from the rebuilt index; this option is not a read-only operation.
 
@@ -36,6 +38,13 @@ The `--scan` option MUST scan task Markdown files and rebuild `.todoing/index.js
 
 - **WHEN** the user supplies more than one label filter
 - **THEN** only tasks containing every requested label are returned
+- **AND** label comparison is case-insensitive
+
+#### Scenario: Search task fields
+
+- **WHEN** the user supplies a query
+- **THEN** the CLI performs case-insensitive substring matching against title, body, and labels
+- **AND** matches status only when the query equals the complete status value
 
 #### Scenario: List after scan
 
@@ -55,7 +64,7 @@ The CLI MUST provide a `commit` command to link a Git revision to a task.
 
 #### Scenario: Link a revision
 
-- **WHEN** the user supplies a valid Git revision for an existing task
+- **WHEN** the user supplies a valid Git commit revision for an existing task
 - **THEN** the system resolves the revision to a full commit SHA
 - **AND** stores the reference with the task
 
@@ -72,9 +81,9 @@ This requirement records current behavior. It does not assert that physical dele
 
 ### Requirement: JSON output
 
-The CLI MUST support a global `--json` option for machine-readable command output.
+The CLI MUST support a global `--json` option for machine-readable command output where the command provides a JSON representation.
 
-JSON data MUST be written to stdout. Diagnostics and errors MUST be written to stderr.
+The command's JSON result MUST be written to stdout. Command diagnostics and errors MUST be written to stderr.
 
 The current JSON interface is not yet a formally versioned API contract.
 
