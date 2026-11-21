@@ -11,8 +11,8 @@
 
 ## 2. Technical research and decisions
 
-- [ ] 2.1 Compare candidate storage engines against transaction, concurrency, portability, backup, performance, and maintenance requirements.
-- [ ] 2.2 Evaluate cross-platform lock and lease/recovery mechanisms.
+- [x] 2.1 Compare candidate storage engines against transaction, concurrency, portability, backup, performance, and maintenance requirements.
+- [x] 2.2 Evaluate cross-platform lock and lease/recovery mechanisms.
 - [ ] 2.3 Define status configuration semantics and completion/cancellation representation.
 - [ ] 2.4 Define actor identity, history event semantics, version snapshots, and diff behavior.
 - [ ] 2.5 Define JSON versioning, envelopes, error codes, and exit-code mapping.
