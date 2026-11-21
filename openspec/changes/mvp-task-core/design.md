@@ -69,7 +69,7 @@ Historical task records remain readable when a status is disabled or retired.
 
 Completion and cancellation are distinct outcomes. They must not be collapsed into ordinary workflow status values. The exact mapping between workflow status and outcome is still an integration design decision.
 
-**Open:** configuration file syntax, schema versioning, defaults for a new project, and behavior when a referenced status definition is missing.
+**Recommendation:** TOML in the project-local Todoing directory, based on the configuration-format evaluation. This is not yet an approved schema or implementation decision. **Open:** exact path, field schema, schema versioning, defaults for a new project, and behavior when a referenced status definition is missing. See `docs/architecture/research/status-config-format.md`.
 
 ## 5. Dependencies
 
