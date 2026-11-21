@@ -84,7 +84,7 @@ impl fmt::Debug for LockCredential {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct TaskLockService {
     store: Store,
     config: ProjectConfig,
