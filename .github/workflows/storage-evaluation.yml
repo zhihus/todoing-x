@@ -1,0 +1,21 @@
+name: Storage evaluation
+
+on:
+  pull_request:
+    paths:
+      - "spikes/storage-evaluation/**"
+      - ".github/workflows/storage-evaluation.yml"
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Run storage transaction and process tests
+        run: cargo test --manifest-path spikes/storage-evaluation/Cargo.toml
