@@ -134,6 +134,33 @@ struct DeleteArgs {
     force: bool,
 }
 
+#[derive(Args)]
+struct HooksArgs {
+    #[command(subcommand)]
+    command: HooksCommands,
+}
+
+#[derive(Subcommand)]
+enum HooksCommands {
+    Status,
+    Install {
+        #[arg(value_enum)]
+        hook: HookSelection,
+    },
+}
+
+#[derive(Clone, Copy, Debug, clap::ValueEnum)]
+enum HookSelection {
+    Git,
+    Openspec,
+    All,
+}
+
+#[derive(Args)]
+struct InternalHookArgs {
+    name: String,
+}
+
 fn fail(message: impl AsRef<str>) -> ! {
     eprintln!("Error: {}", message.as_ref());
     std::process::exit(1)
