@@ -303,7 +303,7 @@ impl TaskRepository {
         let transaction =
             connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
         self.check_lock(&transaction, task.id)?;
-        let previous = match load_task(&transaction, task.id) {        self.check_lock(&transaction, task.id)?;
+        let previous = match load_task(&transaction, task.id) {
 
             Ok(previous) => previous,
             Err(error @ StoreError::TaskNotFound(_)) => {
