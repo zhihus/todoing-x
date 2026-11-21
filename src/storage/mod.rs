@@ -5,6 +5,8 @@ mod task_repository;
 #[cfg(test)]
 mod task_repository_tests;
 #[cfg(test)]
+mod task_history_tests;
+#[cfg(test)]
 mod tests;
 
 pub use error::StoreError;
