@@ -349,7 +349,7 @@ Errors are JSON responses on stdout. Human diagnostics, if any, go to stderr. No
 - task.version.list, task.version.get, task.version.compare, task.version.approve
 - task.lock.acquire, task.lock.heartbeat, task.lock.release, task.lock.recover
 
-The request and response envelopes are specified in docs/api/v1/request.schema.json and docs/api/v1/response.schema.json. Per-operation args/data schemas are added before their handlers are implemented. Unknown operations and unsupported envelope fields are rejected, not silently ignored.
+The request and response envelopes are specified in docs/api/v1/request.schema.json and docs/api/v1/response.schema.json. Operation arguments, results, lock semantics, and no-op behavior are specified in docs/api/v1/operations.md. Per-operation JSON Schema definitions are added before their handlers are implemented. Unknown operations and unsupported envelope fields are rejected, not silently ignored.
 
 ### Error codes
 
