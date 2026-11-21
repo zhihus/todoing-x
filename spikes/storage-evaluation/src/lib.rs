@@ -1,5 +1,5 @@
 use redb::{
-    Builder, ConcurrencyMode, Database, ReadableDatabase, ReadableTableMetadata,
+    Builder, ConcurrencyMode, Database, ReadableDatabase, ReadableTable, ReadableTableMetadata,
     TableDefinition,
 };
 use rusqlite::{params, Connection, TransactionBehavior};
