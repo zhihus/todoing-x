@@ -1,9 +1,9 @@
 # Target Architecture: Todoing Core
 
-**Status:** Proposed architecture for review through implementation evidence.
+**Status:** Architecture overview. Resolved technical choices are specified in implementation-contract.md.
 **Date:** 2026-11-21
 **Scope:** Core MVP defined by PRODUCT.md and OpenSpec change core-task-capabilities.
-**Important:** SQLite and TOML are the preferred candidates, not final user-approved technology decisions.
+**Normative reference:** implementation-contract.md records the selected storage, configuration, locking, and API baseline.
 
 ## 1. Architectural goals
 
@@ -83,20 +83,20 @@ This is a logical layout; files can be grouped more compactly while the implemen
 
 ### 3.1 Preferred candidate
 
-Use one embedded database per project. The preferred candidate is SQLite accessed through rusqlite with the bundled feature.
+Use one embedded SQLite database per project, accessed through rusqlite with the bundled feature. This is the selected MVP storage baseline.
 
 The cross-platform proof of concept passed on ubuntu-latest and windows-latest. It verified the rollback-journal lock-acquisition barrier, non-owner read rejection, concurrent ID allocation, rollback after abrupt process termination, and fencing-token rejection.
 
-**Recommended starting settings for the production prototype:**
+**Selected MVP settings:**
 - Rollback-journal mode (DELETE), not WAL.
 - FULL synchronous mode until durability tests justify a change.
 - Foreign-key enforcement enabled and verified on every connection.
-- A bounded busy timeout and explicit retry/error mapping.
+- A 10-second busy timeout and explicit storage-busy error mapping.
 - A short EXCLUSIVE transaction for task-lock acquisition.
 
 The journal-mode recommendation is tied to the lock requirement: the tested EXCLUSIVE transaction waits for existing readers in rollback-journal mode. WAL has different reader behavior and does not provide that same barrier. Do not switch to WAL without a replacement mechanism and equivalent cross-platform tests.
 
-Final database selection remains a decision gate. redb 5.x remains the fallback if SQLite's filesystem-locking or transaction behavior fails a production requirement.
+SQLite is selected. redb 5.x remains a contingency alternative only if production verification exposes a requirement SQLite cannot satisfy.
 
 ### 3.2 Project store layout
 
@@ -112,25 +112,23 @@ Proposed layout:
 
 The legacy .todoing/tasks/ Markdown files and index.json remain untouched during migration and are retained as read-only recovery material after a successful cutover. They are not a second writable source of truth.
 
-A store metadata record contains the schema version and a stable project identifier. Human CLI invocations resolve the store from the project root. Manifest must supply/verify its expected project identifier at the integration boundary; the exact argument or environment transport remains open.
+A store metadata record contains the schema version and a stable project identifier. Human CLI invocations resolve the store from the project root. Manifest-facing JSON API requests supply the expected project identifier, which Todoing verifies against store metadata.
 
 ### 3.3 Logical relational entities
 
-The following entities are required if SQLite is selected. This is a logical model, not a final SQL schema.
+The following database entities are required by the selected SQLite architecture. This is a logical model, not the final SQL schema.
 
 | Entity | Responsibility |
 |---|---|
 | store_metadata | Schema version, project ID, store metadata. |
 | tasks | Stable task ID and current task fields. |
-| statuses | Configured status identifiers, labels, enabled state, terminal outcome mapping. |
-| status_transitions | Allowed transitions between configured statuses. |
 | task_dependencies | Directed dependency edges with foreign keys and uniqueness. |
 | task_versions | Immutable snapshots for each successful task save. |
 | task_baselines | The user-approved baseline version for each task. |
 | operation_history | Append-only successful and rejected operation records. |
 | task_locks | Current owner, token hash, lease, heartbeat, and fencing generation. |
-| task_labels | Labels, if normalized separately. |
-| task_commit_refs | Git commit references, if normalized separately. |
+| task_labels | Ordered labels with normalized lookup keys. |
+| task_commit_refs | Ordered full Git commit SHAs. |
 
 Preserve the existing task fields: numeric ID, title, creation timestamp, status, labels, body, and Git commit references. Existing numeric IDs should be imported without change. Priorities are not part of the model.
 
@@ -197,11 +195,11 @@ For the SQLite rollback-journal candidate:
 5. Append the lock-acquired operation event.
 6. Commit; this commit is the lock-acquisition linearization point.
 
-The EXCLUSIVE transaction briefly blocks database readers globally, not just readers of the selected task. It is held only for lock acquisition. The process-level prototype demonstrated the barrier on Windows and Linux.
+The EXCLUSIVE transaction briefly blocks database readers globally, not just readers of the selected task. It is held only for lock acquisition. The process-level prototype demonstrated the barrier on Windows and Linux. The selected defaults are a 300-second lease, 60-second heartbeat, and 60-second recovery grace.
 
 ### 5.3 Reads and mutations
 
-Every task read must check the lock record and ownership in the same read transaction as the task query. Every mutation must check ownership and fencing generation in the same write transaction as the mutation.
+Every task read must check the lock record and ownership in the same read transaction as the task query. Every mutation must check ownership and fencing generation in the same write transaction as the mutation. List/search operations omit all locked tasks; the owner reads its task through a direct get with a valid token. Direct reads by non-owners return a lock conflict without task content.
 
 - No active lock: normal client access is permitted.
 - Active lock owned by this client: access is permitted with the valid token.
@@ -225,9 +223,9 @@ Lease duration, heartbeat cadence, clock-change policy, and exact recovery thres
 
 ### 6.1 Configuration source
 
-TOML is the preferred candidate for the user-edited project status configuration. JSON remains the machine-interface format. YAML should not be carried forward merely because the legacy task files use YAML frontmatter.
+TOML is selected for the user-edited project status configuration. JSON is used for the machine interface. YAML is retained only as a legacy migration format.
 
-Proposed config location: .todoing/config.toml.
+Configuration location: .todoing/config.toml. Format version 1 and the default lock settings are defined in implementation-contract.md.
 
 The loader parses and validates the complete configuration once per CLI invocation. All operations in that invocation use the same immutable configuration snapshot. The configuration revision/fingerprint should be included in relevant history metadata so that a transition can be traced to the rules that permitted it.
 
@@ -248,12 +246,14 @@ A disabled status remains readable in historical/current records but cannot be s
 
 Workflow status and task outcome are separate concepts.
 
-Proposed model:
+Selected model:
 - Status represents the project's current workflow position.
 - Outcome is absent for active tasks and explicitly set to completed or cancelled for terminal results.
-- Project configuration maps a terminal status/transition to the corresponding outcome.
+- A configured status may map to completed (for example, Done).
+- The explicit cancellation operation sets cancelled without changing workflow status and accepts an optional reason.
+- Reopen clears the outcome. If the current status maps to an outcome, reopening requires a configured transition to an enabled status without an outcome; otherwise the current status may be retained.
 
-This preserves the distinction between a configurable status label and the semantic result. The exact configuration syntax and whether outcome is assigned by status definition or transition rule remain open design details.
+This preserves the distinction between a configurable status label and the semantic result.
 
 ## 7. CLI and JSON interface
 
@@ -273,7 +273,7 @@ The exact command tree and aliases are to be specified before implementation.
 
 All machine-readable responses must identify the API version, return deterministic JSON, and keep diagnostics on stderr.
 
-Proposed envelope, illustrative only:
+Version 1 envelope, defined normatively in implementation-contract.md:
 
 ```json
 {
@@ -283,7 +283,7 @@ Proposed envelope, illustrative only:
 }
 ```
 
-Proposed error envelope, illustrative only:
+Version 1 error envelope, defined normatively in implementation-contract.md:
 
 ```json
 {
@@ -297,15 +297,7 @@ Proposed error envelope, illustrative only:
 }
 ```
 
-The final API must define:
-- Version negotiation/identification.
-- Stable error-code catalogue.
-- Predictable process exit-code mapping.
-- Input validation and unknown-field policy.
-- Lock-token transport without leaking secrets into logs or process listings.
-- JSON schema tests for every supported operation.
-
-The exact envelope and command/API mapping remain open; these examples are not an approved contract.
+The API v1 request/response envelope is defined in implementation-contract.md and docs/api/v1/request.schema.json / docs/api/v1/response.schema.json. Per-operation argument and response schemas and their automated validation remain implementation work.
 
 ## 8. Migration from the current store
 
@@ -329,9 +321,7 @@ The exact activation/rename procedure must account for Windows file replacement 
 
 ## 9. Backup and recovery boundary
 
-Manifest/the consuming project owns backup destination, retention, and off-device replication. Todoing should expose a database-aware snapshot/export operation if SQLite is selected.
-
-For SQLite, use the Online Backup API or another supported consistent-snapshot mechanism. Do not copy a live database file blindly. A produced backup must be reopened and integrity-checked before being reported as valid.
+Manifest/the consuming project owns backup destination, retention, and off-device replication. Todoing exposes a database-aware snapshot operation using SQLite's Online Backup API through rusqlite; snapshot creation is rejected while any task lock is active. Do not copy a live database file blindly. A produced backup must be reopened and integrity-checked before being reported as valid.
 
 Git history is not a backup mechanism. Archive/restore and full task import/export remain post-MVP capabilities.
 
@@ -377,22 +367,20 @@ The existing SQLite spike is a reference test, not a substitute for production r
 - Manifest/OpenSpec/Git orchestration rules inside Todoing.
 - Priority fields or a priority-driven scheduler.
 
-## 13. Open design decisions before implementation
+## 13. Remaining implementation-level questions
 
-1. Final approval of SQLite + rusqlite versus redb.
-2. Final approval of rollback-journal mode and durability settings.
-3. TOML status configuration schema and default workflow.
-4. Completion/cancellation outcome mapping syntax.
-5. Actor identity source and semantics.
-6. Lease duration, heartbeat cadence, and clock-change recovery policy.
-7. JSON envelope, API versioning, error catalogue, and exit codes.
-8. Physical schema, version snapshot format, and baseline history.
-9. Rejected-operation logging behavior when the database itself is unavailable.
-10. Project ID transport at the Manifest integration boundary.
-11. Exact CLI command tree and compatibility/deprecation policy.
-12. Migration activation and rollback procedure on Windows.
+The implementation contract resolves the core technology and behavioral choices. These details must be verified while implementing, without changing the accepted contract silently:
 
-## 14. Implementation sequence after design approval
+1. Final SQL DDL, indexes, triggers, and migration numbering.
+2. Per-operation JSON request/response schemas and generated validation.
+3. Clock-jump and machine sleep/resume handling for leases.
+4. Windows same-volume database activation and recovery behavior.
+5. Online Backup API behavior while writes continue.
+6. Exact CLI aliases and deprecation period for legacy commands.
+7. Rejection-history behavior when the database itself is unavailable.
+8. Failure-injection coverage for disk-full, interrupted commit, and recovery races.
+
+## 14. Implementation sequence
 
 1. Freeze domain types and error taxonomy.
 2. Add configuration parsing and validation with fixture tests.

@@ -33,3 +33,21 @@ The system MUST provide a defined recovery mechanism for a lock whose owner term
 - **WHEN** a lock is determined to be abandoned under the configured recovery policy
 - **THEN** the system permits recovery without silently transferring ownership while the original lease is valid
 - **AND** subsequent operations observe one consistent lock owner
+
+#### Scenario: Hide locked tasks from list results
+
+- **WHEN** client A holds an active task lock and client B lists or searches tasks
+- **THEN** the locked task is omitted entirely from client B's results
+- **AND** its ID and task fields are not disclosed
+
+#### Scenario: Protect task history and versions
+
+- **WHEN** client B requests history, versions, labels, commit references, or dependencies for a task locked by client A
+- **THEN** the request is rejected or returns only an opaque locked dependency reference
+- **AND** no protected task content is disclosed
+
+#### Scenario: Reject a stale owner after recovery
+
+- **WHEN** client B recovers an expired lock after the configured grace period
+- **THEN** the fencing generation increases
+- **AND** subsequent reads and mutations from client A using its old token/generation are rejected

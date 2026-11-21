@@ -1,0 +1,86 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:todoing:api:v1:response",
+  "title": "Todoing API v1 response",
+  "oneOf": [
+    {
+      "type": "object",
+      "required": ["api_version", "ok", "data"],
+      "properties": {
+        "api_version": {
+          "const": 1
+        },
+        "request_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "ok": {
+          "const": true
+        },
+        "data": {
+          "type": "object"
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": ["api_version", "ok", "error"],
+      "properties": {
+        "api_version": {
+          "const": 1
+        },
+        "request_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "ok": {
+          "const": false
+        },
+        "error": {
+          "type": "object",
+          "required": ["code", "message", "retryable", "details"],
+          "properties": {
+            "code": {
+              "type": "string",
+              "enum": [
+                "invalid_request",
+                "unsupported_api_version",
+                "project_id_mismatch",
+                "config_invalid",
+                "task_not_found",
+                "task_terminal",
+                "task_locked",
+                "lock_expired",
+                "stale_lock",
+                "invalid_status_transition",
+                "dependency_not_found",
+                "dependency_cycle",
+                "version_not_found",
+                "store_busy",
+                "store_corrupt",
+                "migration_conflict",
+                "io_error",
+                "history_record_failed",
+                "internal_error"
+              ]
+            },
+            "message": {
+              "type": "string"
+            },
+            "retryable": {
+              "type": "boolean"
+            },
+            "details": {
+              "type": "object"
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    }
+  ]
+}

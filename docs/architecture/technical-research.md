@@ -1,16 +1,16 @@
 # Technical Research: Storage, Concurrency, and Configuration
 
-**Status:** Research findings and recommendations; no final architecture decisions recorded.
+**Status:** Research findings and evidence supporting the selected implementation baseline in implementation-contract.md.
 **Date:** 2026-11-21
 **Scope:** Core Todoing MVP defined by PRODUCT.md and the OpenSpec change core-task-capabilities.
 
 ## 1. Executive summary
 
-The leading storage candidate is **SQLite through rusqlite with the bundled feature**. It is the best current fit for Todoing's relational task model, multi-record atomic transactions, dependency graph, append-only history, versions, and local multi-process access. It avoids introducing a database server and has a mature Rust integration. This is a recommendation for the next architecture stage, **not a final storage decision**.
+**SQLite through rusqlite with the bundled feature is selected for the MVP.** It is the best fit for Todoing's relational task model, multi-record atomic transactions, dependency graph, append-only history, versions, and local multi-process access. It avoids introducing a database server and has a mature Rust integration. The rollback-journal mode was selected after the cross-platform acquisition-barrier prototype passed.
 
 **redb 5.x** is the strongest alternative. It offers ACID transactions, MVCC, crash safety, and documented multi-process modes including Windows. It is less attractive for this product because Todoing would need to implement and maintain relational indexing, constraints, joins, and graph traversal itself. Its 5.0 release also changes multi-process locking modes and compatibility requirements, so the exact pinned version and upgrade policy would need deliberate handling.
 
-The most important unresolved issue is not raw database performance. It is the semantics of **exclusive task locks that also exclude reads by other clients for an entire agent work session**. Database transaction locks do not automatically provide this application-level guarantee. The selected storage engine and lock protocol must be tested together with multiple OS processes.
+The remaining high-risk issue is production integration of **exclusive task locks that also exclude reads by other clients for an entire agent work session**. Database transaction locks do not automatically provide this application-level guarantee. The prototype validated the rollback-journal acquisition barrier; the full lease, heartbeat, recovery, and clock behavior still require production tests.
 
 ## 2. Requirements that drive the choice
 
@@ -78,9 +78,9 @@ fjall is a promising pure-Rust LSM option with snapshots and optional single-wri
 
 sled documents ACID transactions across items and trees, but the reviewed published crate line is 0.34.7. The available material did not establish a sufficiently clear multi-process contract for this project, so it should not be selected without additional due diligence.
 
-## 4. Preliminary storage recommendation
+## 4. Selected storage baseline
 
-Proceed to an architecture spike with:
+Use the following selected implementation baseline:
 
 - **Candidate:** SQLite.
 - **Rust access layer:** rusqlite, bundled feature.
@@ -99,7 +99,7 @@ The isolated SQLite spike was run by GitHub Actions on both ubuntu-latest and wi
 - After acquisition, a non-owner read was rejected while the lock owner retained access.
 - Eight independent processes allocated unique task identifiers through serialized write transactions.
 - An uncommitted transaction was rolled back after its process terminated without dropping the connection normally.
-- A fencing generation rejected a former owner after an expired lock was recovered by another owner.
+- A SHA-256 token hash rejected a wrong token even when the owner ID matched; a fencing generation rejected a former owner after an expired lock was recovered by another owner.
 
 The existing application test suite, release build, isolated installation, and binary smoke test also passed on both operating systems after restoring the missing Clap argument types in main.rs. The initial CI run had exposed those missing type definitions; the correction restores the existing hooks command's argument model and does not change hook execution behavior.
 
@@ -151,41 +151,42 @@ The architecture spike must test:
 
 OS file locks may help with process-level coordination and are released by the OS after a crash, but they do not by themselves provide a durable, cross-command agent-session lease.
 
-## 6. Relational data model candidate
+## 6. Selected relational data model
 
-A normalized relational schema is a natural fit if SQLite is selected. The following are logical entities only, not an approved physical schema:
+A normalized relational schema is selected for SQLite. The following are logical entities; the implementation contract defines the required table set, while physical DDL and indexes remain implementation work:
 
 | Entity | Responsibility |
 |---|---|
-| metadata | Schema version and project-store metadata. |
+| schema_migrations | Applied schema version and migration checksum. |
+| store_metadata | Schema version and project-store metadata, including project ID. |
 | tasks | Stable task identity and current task state. |
-| statuses | User-defined status definitions and enabled/disabled state. |
-| status_transitions | Permitted transition rules. |
+| task_labels | Ordered labels with normalized lookup keys. |
+| task_commit_refs | Ordered Git commit references. |
 | task_dependencies | Directed task-to-task relationships with uniqueness and foreign-key constraints. |
 | task_versions | Immutable snapshots for each successful task save. |
+| task_baselines | Current user-approved version per task. |
 | operation_history | Append-only successful and rejected task-operation records. |
 | task_locks | Current owner, lease, heartbeat, and fencing generation. |
-| task_commit_refs | Git commit traceability metadata, if normalized separately. |
 
-The schema must retain the current task fields (ID, title, creation timestamp, status, labels, body, and Git commit references) through migration. Whether labels and commit references are normalized or stored in structured columns remains a schema decision.
+The selected schema retains the current task fields (ID, title, creation timestamp, status, labels, body, and Git commit references) through migration. Labels and commit references are normalized into their own ordered tables. Status definitions and transition rules remain in TOML and are not duplicated in the database.
 
 Dependency-cycle detection can use a recursive query or an application graph traversal inside the same transaction that validates and writes the relationship. The chosen approach must be tested for self-dependencies, direct cycles, indirect cycles, and concurrent opposing dependency changes.
 
 ## 7. Project configuration format
 
-Status configuration is human-maintained project configuration, not the machine API. The candidates are:
+Status configuration is human-maintained project configuration, not the machine API. TOML is selected for project configuration and JSON for the machine API:
 
 | Format | Advantages | Risks / costs | Assessment |
 |---|---|---|---|
-| TOML | Comments, explicit types, readable tables/arrays, mature Serde integration, familiar in Rust projects. | Less suitable than JSON for direct machine interchange; needs a documented schema and validation. | **Preferred candidate for user-edited configuration.** |
-| JSON | Strict and widely supported; easy to exchange with agents and tools. | No comments; less convenient for users editing workflow definitions. | Strong alternative if a single format for config and API data is prioritized. |
+| TOML | Comments, explicit types, readable tables/arrays, mature Serde integration, familiar in Rust projects. | Less suitable than JSON for direct machine interchange; needs a documented schema and validation. | **Selected for project configuration.** |
+| JSON | Strict and widely supported; easy to exchange with agents and tools. | No comments; less convenient for users editing workflow definitions. | **Selected for API v1.** |
 | YAML | Familiar from current task frontmatter and supports comments. | Implicit typing and parser-dialect differences; the current Rust port already contains compatibility code for Python/PyYAML behavior. | Do not carry YAML forward by inertia. |
 
-Preliminary recommendation: TOML for project status configuration and JSON for the public machine interface. Keep both choices open until the configuration schema and API are designed. Do not use task Markdown frontmatter as the authoritative status configuration.
+TOML is selected for project status configuration and JSON for the public machine interface. The format version 1 configuration schema and API v1 envelope are defined in implementation-contract.md. Do not use task Markdown frontmatter as the authoritative status configuration.
 
 ## 8. Backup and recovery implications
 
-If SQLite is selected, a live database must be backed up through a database-aware method. SQLite's Online Backup API creates a consistent snapshot while allowing the source database to remain in use; rusqlite exposes this API behind its backup feature. A raw file copy while the database is active is not an adequate general backup contract, especially when journal/WAL files are involved.
+For the selected SQLite store, a live database must be backed up through a database-aware method. SQLite's Online Backup API creates a consistent snapshot while allowing the source database to remain in use; rusqlite exposes this API behind its backup feature. A raw file copy while the database is active is not an adequate general backup contract, especially when journal/WAL files are involved.
 
 Backup destination and retention remain the responsibility of Manifest/the consuming project, as already decided. Todoing's architecture should expose a safe snapshot or export mechanism that the consumer can invoke. Backups should be verified by reopening and integrity-checking the copied database before they are treated as valid.
 
@@ -193,15 +194,15 @@ Backup destination and retention remain the responsibility of Manifest/the consu
 
 | Decision area | Research position | Status |
 |---|---|---|
-| Primary database | SQLite is the preferred candidate; redb is the runner-up. | Prototype passed on Windows/Linux; final selection remains open pending approval. |
-| Rust binding | rusqlite with bundled. | Cross-platform prototype passed; production integration remains to be validated. |
-| Journal mode | Rollback-journal mode (DELETE) with a short EXCLUSIVE lock-acquisition barrier. | Preferred based on passing Windows/Linux prototype; final selection remains open. |
-| Logical task locks | Durable database-backed lease + owner capability + fencing generation. | Recommended design direction; details open. |
+| Primary database | SQLite + rusqlite bundled. | Selected after candidate evaluation and passing Windows/Linux prototype; production verification continues. |
+| Rust binding | rusqlite with bundled. | Selected; production repository integration remains to be validated. |
+| Journal mode | Rollback-journal mode (DELETE) with a short EXCLUSIVE lock-acquisition barrier. | Selected for MVP; WAL is excluded unless a replacement read-exclusion mechanism is proven. |
+| Logical task locks | Durable database-backed lease + owner capability + fencing generation; 300-second lease, 60-second heartbeat, 60-second recovery grace. | Selected defaults; production race and clock-change tests remain. |
 | Lock barrier | Rollback-journal EXCLUSIVE transaction serializes acquisition against in-flight reads; later non-owner reads are rejected. | Validated in the Windows/Linux prototype; production integration tests remain. |
-| Status config format | TOML is preferred; JSON is the alternative. | Preliminary. |
-| Schema | Relational entities listed above. | Conceptual only; physical schema open. |
-| Migration | Validated, non-destructive migration with source retained until verification. | Requirement accepted; procedure open. |
-| Backup | Database-aware snapshot; Manifest owns destination/retention. | Requirement accepted; integration contract open. |
+| Status config format | TOML for project configuration; JSON for API v1. | Selected. |
+| Schema | Relational SQLite schema defined in implementation-contract.md. | Logical contract selected; DDL, indexes, and migrations remain implementation work. |
+| Migration | Staged, validated, non-destructive migration; source retained after cutover. | Procedure defined; implementation and Windows activation tests remain. |
+| Backup | SQLite Online Backup API snapshot; Manifest owns destination/retention. | Interface defined; concurrent snapshot verification remains. |
 
 ### Architecture spike status
 

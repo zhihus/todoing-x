@@ -1,0 +1,74 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:todoing:api:v1:request",
+  "title": "Todoing API v1 request",
+  "type": "object",
+  "required": [
+    "api_version",
+    "project_id",
+    "actor_id",
+    "operation",
+    "args"
+  ],
+  "properties": {
+    "api_version": {
+      "const": 1
+    },
+    "request_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "project_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "actor_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "operation": {
+      "type": "string",
+      "enum": [
+        "store.info",
+        "store.verify",
+        "store.migrate",
+        "store.snapshot",
+        "task.create",
+        "task.list",
+        "task.get",
+        "task.update",
+        "task.status.set",
+        "task.complete",
+        "task.cancel",
+        "task.reopen",
+        "task.label.add",
+        "task.label.remove",
+        "task.commit.add",
+        "task.dependency.add",
+        "task.dependency.remove",
+        "task.dependency.list",
+        "task.history.list",
+        "task.version.list",
+        "task.version.get",
+        "task.version.compare",
+        "task.version.approve",
+        "task.lock.acquire",
+        "task.lock.heartbeat",
+        "task.lock.release",
+        "task.lock.recover"
+      ]
+    },
+    "args": {
+      "type": "object"
+    },
+    "lock_token": {
+      "type": ["string", "null"],
+      "minLength": 1,
+      "maxLength": 256
+    }
+  },
+  "additionalProperties": false
+}
