@@ -241,13 +241,13 @@ fn execute(request: Request, root: &Path) -> Result<Value, ApiError> {
     if let Some(token) = request.lock_token.as_deref() {
         let raw_task_id = request.args.get("task_id").and_then(Value::as_i64)
             .ok_or_else(|| invalid("lock_token requires task_id in args".into()))?;
-        let grant = lock_service.grant_from_token(id(raw_task_id).map_err(invalid)?, token).map_err(store_error)?;
+        let grant = lock_service.grant_from_token(id(raw_task_id).map_err(|error| invalid(error.to_string()))?, token).map_err(store_error)?;
         repository = repository.with_lock_grant(&grant);
     }
 
     match request.operation.as_str() {
         "store.info" => {
-            parse_args::<EmptyArgs>(request.args).map_err(invalid)?;
+            parse_args::<EmptyArgs>(request.args).map_err(|error| invalid(error.to_string()))?;
             let tasks = repository.list().map_err(store_error)?;
             Ok(json!({"project_id": store.project_id(), "schema_version": 1, "api_version": 1, "task_count": tasks.len()}))
         }
@@ -256,24 +256,25 @@ fn execute(request: Request, root: &Path) -> Result<Value, ApiError> {
             #[serde(deny_unknown_fields)]
             struct Args { #[serde(default = "default_true")] deep: bool }
             fn default_true() -> bool { true }
-            let args: Args = parse_args(request.args).map_err(invalid)?;
+            let args: Args = parse_args(request.args).map_err(|error| invalid(error.to_string()))?;
             if args.deep {
-                Ok(serde_json::to_value(store.verify().map_err(store_error)?).unwrap_or_else(|_| json!({})))
+                let report = store.verify().map_err(store_error)?;
+                Ok(json!({"integrity_check": report.integrity_check, "foreign_key_violations": report.foreign_key_violations, "schema_version": report.schema_version}))
             } else {
                 Ok(json!({"integrity_check": "skipped", "foreign_key_violations": 0, "schema_version": 1}))
             }
         }
         "task.create" => {
-            let args: CreateArgs = parse_args(request.args).map_err(invalid)?;
+            let args: CreateArgs = parse_args(request.args).map_err(|error| invalid(error.to_string()))?;
             let status = match args.status_id {
-                Some(value) => StatusId::new(value).map_err(invalid)?,
-                None => StatusId::new(config.first_enabled_status().ok_or_else(|| invalid("No enabled statuses".into()))?.id.clone()).map_err(invalid)?,
+                Some(value) => StatusId::new(value).map_err(|error| invalid(error.to_string()))?,
+                None => StatusId::new(config.first_enabled_status().ok_or_else(|| invalid("No enabled statuses".into()))?.id.clone()).map_err(|error| invalid(error.to_string()))?,
             };
             let task = repository.create(NewTask { title: args.title, status_id: status, outcome: None, body: args.body, labels: args.labels, commit_refs: vec![] }, &actor).map_err(store_error)?;
             Ok(json!({"task": task, "version_no": 1}))
         }
         "task.list" => {
-            let args: ListArgs = parse_args(request.args).map_err(invalid)?;
+            let args: ListArgs = parse_args(request.args).map_err(|error| invalid(error.to_string()))?;
             if args.limit == Some(0) { return Err(invalid("limit must be a positive integer".into())); }
             let mut tasks = repository.list().map_err(store_error)?;
             if let Some(status) = args.status_id { tasks.retain(|task| task.status_id.as_str() == status); }
@@ -299,16 +300,16 @@ fn execute(request: Request, root: &Path) -> Result<Value, ApiError> {
             Ok(json!({"tasks": tasks}))
         }
         "task.get" => {
-            let args: TaskIdArgs = parse_args(request.args).map_err(invalid)?;
-            let task = repository.get(id(args.task_id).map_err(invalid)?).map_err(store_error)?;
+            let args: TaskIdArgs = parse_args(request.args).map_err(|error| invalid(error.to_string()))?;
+            let task = repository.get(id(args.task_id).map_err(|error| invalid(error.to_string()))?).map_err(store_error)?;
             let version_no = repository.list_versions(task.id).map_err(store_error)?.last().map(|version| version.version_no).unwrap_or(0);
             let baseline = repository.get_baseline(task.id).map_err(store_error)?;
             Ok(json!({"task": task, "version_no": version_no, "baseline_version_no": baseline.map(|value| value.version_no)}))
         }
         "task.update" => {
-            let args: UpdateArgs = parse_args(request.args).map_err(invalid)?;
+            let args: UpdateArgs = parse_args(request.args).map_err(|error| invalid(error.to_string()))?;
             if args.patch.title.is_none() && args.patch.body.is_none() { return Err(invalid("patch must contain title and/or body".into())); }
-            let task_id = id(args.task_id).map_err(invalid)?;
+            let task_id = id(args.task_id).map_err(|error| invalid(error.to_string()))?;
             let mut task = repository.get(task_id).map_err(store_error)?;
             if let Some(title) = args.patch.title { task.title = title; }
             if let Some(body) = args.patch.body { task.body = body; }
@@ -316,74 +317,74 @@ fn execute(request: Request, root: &Path) -> Result<Value, ApiError> {
             Ok(json!({"task": updated}))
         }
         "task.status.set" => {
-            let args: StatusArgs = parse_args(request.args).map_err(invalid)?;
-            let status = StatusId::new(args.status_id).map_err(invalid)?;
-            let task = repository.set_status(id(args.task_id).map_err(invalid)?, status, &actor).map_err(store_error)?;
+            let args: StatusArgs = parse_args(request.args).map_err(|error| invalid(error.to_string()))?;
+            let status = StatusId::new(args.status_id).map_err(|error| invalid(error.to_string()))?;
+            let task = repository.set_status(id(args.task_id).map_err(|error| invalid(error.to_string()))?, status, &actor).map_err(store_error)?;
             Ok(json!({"task": task}))
         }
         "task.complete" => {
-            let args: TaskIdArgs = parse_args(request.args).map_err(invalid)?;
-            Ok(json!({"task": repository.complete(id(args.task_id).map_err(invalid)?, &actor).map_err(store_error)?}))
+            let args: TaskIdArgs = parse_args(request.args).map_err(|error| invalid(error.to_string()))?;
+            Ok(json!({"task": repository.complete(id(args.task_id).map_err(|error| invalid(error.to_string()))?, &actor).map_err(store_error)?}))
         }
         "task.cancel" => {
-            let args: CancelArgs = parse_args(request.args).map_err(invalid)?;
-            Ok(json!({"task": repository.cancel(id(args.task_id).map_err(invalid)?, args.reason.as_deref(), &actor).map_err(store_error)?}))
+            let args: CancelArgs = parse_args(request.args).map_err(|error| invalid(error.to_string()))?;
+            Ok(json!({"task": repository.cancel(id(args.task_id).map_err(|error| invalid(error.to_string()))?, args.reason.as_deref(), &actor).map_err(store_error)?}))
         }
         "task.reopen" => {
-            let args: ReopenArgs = parse_args(request.args).map_err(invalid)?;
-            let target = args.target_status_id.map(StatusId::new).transpose().map_err(invalid)?;
-            Ok(json!({"task": repository.reopen(id(args.task_id).map_err(invalid)?, target, &actor).map_err(store_error)?}))
+            let args: ReopenArgs = parse_args(request.args).map_err(|error| invalid(error.to_string()))?;
+            let target = args.target_status_id.map(StatusId::new).transpose().map_err(|error| invalid(error.to_string()))?;
+            Ok(json!({"task": repository.reopen(id(args.task_id).map_err(|error| invalid(error.to_string()))?, target, &actor).map_err(store_error)?}))
         }
         "task.dependency.add" => {
-            let args: DependencyArgs = parse_args(request.args).map_err(invalid)?;
-            let task_id = id(args.task_id).map_err(invalid)?;
-            repository.add_dependency(task_id, id(args.depends_on_task_id).map_err(invalid)?, &actor).map_err(store_error)?;
+            let args: DependencyArgs = parse_args(request.args).map_err(|error| invalid(error.to_string()))?;
+            let task_id = id(args.task_id).map_err(|error| invalid(error.to_string()))?;
+            repository.add_dependency(task_id, id(args.depends_on_task_id).map_err(|error| invalid(error.to_string()))?, &actor).map_err(store_error)?;
             Ok(json!({"task": repository.get(task_id).map_err(store_error)?}))
         }
         "task.dependency.remove" => {
-            let args: DependencyArgs = parse_args(request.args).map_err(invalid)?;
-            let task_id = id(args.task_id).map_err(invalid)?;
-            repository.remove_dependency(task_id, id(args.depends_on_task_id).map_err(invalid)?, &actor).map_err(store_error)?;
+            let args: DependencyArgs = parse_args(request.args).map_err(|error| invalid(error.to_string()))?;
+            let task_id = id(args.task_id).map_err(|error| invalid(error.to_string()))?;
+            repository.remove_dependency(task_id, id(args.depends_on_task_id).map_err(|error| invalid(error.to_string()))?, &actor).map_err(store_error)?;
             Ok(json!({"task": repository.get(task_id).map_err(store_error)?}))
         }
         "task.dependency.list" => {
-            let args: TaskIdArgs = parse_args(request.args).map_err(invalid)?;
-            Ok(json!({"dependencies": repository.list_dependencies(id(args.task_id).map_err(invalid)?).map_err(store_error)?}))
+            let args: TaskIdArgs = parse_args(request.args).map_err(|error| invalid(error.to_string()))?;
+            Ok(json!({"dependencies": repository.list_dependencies(id(args.task_id).map_err(|error| invalid(error.to_string()))?).map_err(store_error)?}))
         }
         "task.history.list" => {
-            let args: HistoryArgs = parse_args(request.args).map_err(invalid)?;
+            let args: HistoryArgs = parse_args(request.args).map_err(|error| invalid(error.to_string()))?;
             if args.limit == Some(0) { return Err(invalid("limit must be a positive integer".into())); }
-            let mut events = repository.get_history(id(args.task_id).map_err(invalid)?).map_err(store_error)?;
+            let mut events = repository.get_history(id(args.task_id).map_err(|error| invalid(error.to_string()))?).map_err(store_error)?;
             events.reverse();
             if let Some(cursor) = args.before_event_id { events.retain(|event| event.event_id < cursor); }
             events.truncate(args.limit.unwrap_or(100));
             Ok(json!({"events": events}))
         }
         "task.version.list" => {
-            let args: VersionListArgs = parse_args(request.args).map_err(invalid)?;
+            let args: VersionListArgs = parse_args(request.args).map_err(|error| invalid(error.to_string()))?;
             if args.limit == Some(0) { return Err(invalid("limit must be a positive integer".into())); }
-            let mut versions = repository.list_versions(id(args.task_id).map_err(invalid)?).map_err(store_error)?;
+            let mut versions = repository.list_versions(id(args.task_id).map_err(|error| invalid(error.to_string()))?).map_err(store_error)?;
             versions.reverse();
             if let Some(cursor) = args.before_version_no { versions.retain(|version| version.version_no < cursor); }
             versions.truncate(args.limit.unwrap_or(100));
             Ok(json!({"versions": versions}))
         }
         "task.version.get" => {
-            let args: VersionArgs = parse_args(request.args).map_err(invalid)?;
-            Ok(json!({"version": repository.get_version(id(args.task_id).map_err(invalid)?, args.version_no).map_err(store_error)?}))
+            let args: VersionArgs = parse_args(request.args).map_err(|error| invalid(error.to_string()))?;
+            Ok(json!({"version": repository.get_version(id(args.task_id).map_err(|error| invalid(error.to_string()))?, args.version_no).map_err(store_error)?}))
         }
         "task.version.compare" => {
-            let args: CompareArgs = parse_args(request.args).map_err(invalid)?;
-            Ok(serde_json::to_value(repository.compare_versions(id(args.task_id).map_err(invalid)?, args.from_version_no, args.to_version_no).map_err(store_error)?).unwrap_or_else(|_| json!({})))
+            let args: CompareArgs = parse_args(request.args).map_err(|error| invalid(error.to_string()))?;
+            Ok(serde_json::to_value(repository.compare_versions(id(args.task_id).map_err(|error| invalid(error.to_string()))?, args.from_version_no, args.to_version_no).map_err(store_error)?).unwrap_or_else(|_| json!({})))
         }
         "task.version.approve" => {
-            let args: VersionArgs = parse_args(request.args).map_err(invalid)?;
-            Ok(json!({"baseline": repository.approve_baseline(id(args.task_id).map_err(invalid)?, args.version_no, &actor).map_err(store_error)?}))
+            let args: VersionArgs = parse_args(request.args).map_err(|error| invalid(error.to_string()))?;
+            Ok(json!({"baseline": repository.approve_baseline(id(args.task_id).map_err(|error| invalid(error.to_string()))?, args.version_no, &actor).map_err(store_error)?}))
         }
         "task.label.add" | "task.label.remove" => {
-            let args: LabelArgs = parse_args(request.args).map_err(invalid)?;
+            let args: LabelArgs = parse_args(request.args).map_err(|error| invalid(error.to_string()))?;
             if args.label.trim().is_empty() { return Err(invalid("label must not be empty".into())); }
-            let task_id = id(args.task_id).map_err(invalid)?;
+            let task_id = id(args.task_id).map_err(|error| invalid(error.to_string()))?;
             let mut task = repository.get(task_id).map_err(store_error)?;
             let before = task.labels.clone();
             if request.operation == "task.label.add" {
@@ -398,7 +399,7 @@ fn execute(request: Request, root: &Path) -> Result<Value, ApiError> {
             Ok(json!({"task": updated, "no_op": !changed}))
         }
         "task.commit.add" => {
-            let args: CommitArgs = parse_args(request.args).map_err(invalid)?;
+            let args: CommitArgs = parse_args(request.args).map_err(|error| invalid(error.to_string()))?;
             if args.revision.trim().is_empty() { return Err(invalid("revision must not be empty".into())); }
             let output = Command::new("git")
                 .current_dir(root)
@@ -413,7 +414,7 @@ fn execute(request: Request, root: &Path) -> Result<Value, ApiError> {
             if !((sha.len() == 40 || sha.len() == 64) && sha.bytes().all(|byte| byte.is_ascii_hexdigit())) {
                 return Err(invalid("Git returned an invalid commit object ID".into()));
             }
-            let task_id = id(args.task_id).map_err(invalid)?;
+            let task_id = id(args.task_id).map_err(|error| invalid(error.to_string()))?;
             let mut task = repository.get(task_id).map_err(store_error)?;
             let before = task.commit_refs.clone();
             if !task.commit_refs.iter().any(|reference| reference.eq_ignore_ascii_case(&sha)) {
@@ -424,25 +425,25 @@ fn execute(request: Request, root: &Path) -> Result<Value, ApiError> {
             Ok(json!({"task": updated, "commit_sha": sha, "no_op": !changed}))
         }
         "task.lock.acquire" => {
-            let args: LockArgs = parse_args(request.args).map_err(invalid)?;
+            let args: LockArgs = parse_args(request.args).map_err(|error| invalid(error.to_string()))?;
             if request.lock_token.is_some() { return Err(invalid("lock_token is not accepted by task.lock.acquire".into())); }
-            let task_id = id(args.task_id).map_err(invalid)?;
+            let task_id = id(args.task_id).map_err(|error| invalid(error.to_string()))?;
             let owner_id = new_owner_id()?;
             let grant = lock_service.acquire(task_id, &owner_id, &actor).map_err(store_error)?;
             Ok(lock_grant_json(&grant))
         }
         "task.lock.recover" => {
-            let args: LockArgs = parse_args(request.args).map_err(invalid)?;
+            let args: LockArgs = parse_args(request.args).map_err(|error| invalid(error.to_string()))?;
             if request.lock_token.is_some() { return Err(invalid("lock_token is not accepted by task.lock.recover".into())); }
-            let task_id = id(args.task_id).map_err(invalid)?;
+            let task_id = id(args.task_id).map_err(|error| invalid(error.to_string()))?;
             let owner_id = new_owner_id()?;
             let grant = lock_service.recover(task_id, &owner_id, &actor).map_err(store_error)?;
             Ok(lock_grant_json(&grant))
         }
         "task.lock.heartbeat" | "task.lock.release" => {
-            let args: LockOwnerArgs = parse_args(request.args).map_err(invalid)?;
+            let args: LockOwnerArgs = parse_args(request.args).map_err(|error| invalid(error.to_string()))?;
             let token = request.lock_token.as_deref().ok_or_else(|| invalid("lock_token is required for heartbeat and release".into()))?;
-            let task_id = id(args.task_id).map_err(invalid)?;
+            let task_id = id(args.task_id).map_err(|error| invalid(error.to_string()))?;
             let grant = lock_service.grant_from_token(task_id, token).map_err(store_error)?;
             if grant.owner_id != args.owner_id || grant.fencing_generation != args.fencing_generation {
                 return Err(store_error(StoreError::StaleLock));
