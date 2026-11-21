@@ -11,7 +11,7 @@ impl ActorId {
     pub fn new(value: impl Into<String>) -> Result<Self, AppError> {
         let value = value.into();
         if value.trim().is_empty()
-            || value.trim() != value
+            || value.trim() != value.as_str()
             || value.chars().any(char::is_control)
             || value.chars().count() > MAX_ACTOR_ID_CHARS
         {
