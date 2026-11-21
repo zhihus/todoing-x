@@ -120,3 +120,112 @@ fn terminal_outcome_is_persisted_and_restored() {
     assert_eq!(completed.outcome, Some(TaskOutcome::Completed));
     assert_eq!(loaded.outcome, Some(TaskOutcome::Completed));
 }
+
+
+#[test]
+fn archive_and_restore_preserve_identity_outcome_and_relationships() {
+    let (_root, repository) = repository();
+    let prerequisite = repository.create(new_task("prerequisite"), &actor()).unwrap();
+    let dependent = repository.create(new_task("dependent"), &actor()).unwrap();
+    repository.add_dependency(dependent.id, prerequisite.id, &actor()).unwrap();
+
+    let archived = repository.archive(prerequisite.id, &actor()).unwrap();
+    assert!(!archived.no_op);
+    assert!(archived.task.archived_at.is_some());
+    assert_eq!(archived.task.archived_by.as_ref().unwrap().as_str(), "agent:repository-tests");
+    assert_eq!(archived.task.id, prerequisite.id);
+    assert_eq!(archived.task.status_id, prerequisite.status_id);
+    assert_eq!(archived.task.outcome, prerequisite.outcome);
+    assert!(repository.list().unwrap().iter().all(|task| task.id != prerequisite.id));
+    assert_eq!(repository.list_archived().unwrap(), vec![archived.task.clone()]);
+    assert_eq!(repository.list_all().unwrap().len(), 2);
+    assert_eq!(repository.get(prerequisite.id).unwrap(), archived.task);
+
+    assert_eq!(repository.list_dependencies(dependent.id).unwrap(), vec![prerequisite.id]);
+    let versions = repository.list_versions(prerequisite.id).unwrap();
+    assert_eq!(versions.len(), 2);
+    let archived_snapshot: serde_json::Value =
+        serde_json::from_str(&versions.last().unwrap().snapshot_json).unwrap();
+    assert!(archived_snapshot["archived_at"].is_string());
+    assert_eq!(archived_snapshot["archived_by"], "agent:repository-tests");
+
+    let restored = repository.restore(prerequisite.id, &actor()).unwrap();
+    assert!(!restored.no_op);
+    assert_eq!(restored.task.archived_at, None);
+    assert_eq!(restored.task.archived_by, None);
+    assert_eq!(restored.task.status_id, prerequisite.status_id);
+    assert_eq!(restored.task.outcome, prerequisite.outcome);
+    assert_eq!(repository.list().unwrap().len(), 2);
+    assert!(repository.list_archived().unwrap().is_empty());
+    assert_eq!(repository.list_dependencies(dependent.id).unwrap(), vec![prerequisite.id]);
+
+    let history = repository.get_history(prerequisite.id).unwrap();
+    assert!(history.iter().any(|event| event.operation == "task.archive"));
+    assert!(history.iter().any(|event| event.operation == "task.restore"));
+}
+
+#[test]
+fn archive_and_restore_are_idempotent_without_redundant_versions() {
+    let (_root, repository) = repository();
+    let task = repository.create(new_task("idempotent"), &actor()).unwrap();
+
+    let first_archive = repository.archive(task.id, &actor()).unwrap();
+    assert!(!first_archive.no_op);
+    let versions_after_archive = repository.list_versions(task.id).unwrap().len();
+
+    let second_archive = repository.archive(task.id, &actor()).unwrap();
+    assert!(second_archive.no_op);
+    assert_eq!(repository.list_versions(task.id).unwrap().len(), versions_after_archive);
+
+    let first_restore = repository.restore(task.id, &actor()).unwrap();
+    assert!(!first_restore.no_op);
+    let versions_after_restore = repository.list_versions(task.id).unwrap().len();
+
+    let second_restore = repository.restore(task.id, &actor()).unwrap();
+    assert!(second_restore.no_op);
+    assert_eq!(repository.list_versions(task.id).unwrap().len(), versions_after_restore);
+
+    let history = repository.get_history(task.id).unwrap();
+    assert_eq!(history.iter().filter(|event| event.operation == "task.archive").count(), 2);
+    assert_eq!(history.iter().filter(|event| event.operation == "task.restore").count(), 2);
+}
+
+#[test]
+fn archived_tasks_are_read_only_until_restored() {
+    let (_root, repository) = repository();
+    let task = repository.create(new_task("read only"), &actor()).unwrap();
+    let archived = repository.archive(task.id, &actor()).unwrap().task;
+
+    let mut edited = archived.clone();
+    edited.title = "must not change".into();
+    assert!(matches!(repository.update(&edited, &actor()), Err(super::StoreError::TaskArchived)));
+
+    assert!(matches!(
+        repository.add_dependency(archived.id, TaskId::new(999).unwrap(), &actor()),
+        Err(super::StoreError::TaskArchived)
+    ));
+    assert_eq!(repository.get(task.id).unwrap(), archived);
+
+    repository.restore(task.id, &actor()).unwrap();
+    let mut edited = repository.get(task.id).unwrap();
+    edited.title = "restored and editable".into();
+    assert_eq!(repository.update(&edited, &actor()).unwrap().title, "restored and editable");
+}
+
+#[test]
+fn archive_obeys_existing_task_lock_ownership() {
+    let (_root, repository) = repository();
+    let task = repository.create(new_task("locked"), &actor()).unwrap();
+    let service = repository.lock_service().unwrap();
+    let owner = actor();
+    let grant = service.acquire(task.id, &owner).unwrap();
+    let other = ActorContext::new(ActorId::new("agent:other").unwrap());
+
+    assert!(matches!(repository.archive(task.id, &other), Err(super::StoreError::TaskLocked)));
+    let owner_repository = repository.with_lock_grant(&grant);
+    let archived = owner_repository.archive(task.id, &owner).unwrap();
+    assert!(archived.task.archived_at.is_some());
+
+    service.release(&grant, &owner).unwrap();
+    assert_eq!(repository.list_archived().unwrap().len(), 1);
+}
