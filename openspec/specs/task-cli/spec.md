@@ -24,15 +24,23 @@ A title MUST contain a non-whitespace character. Supplied labels MUST contain a 
 - **THEN** the command fails
 - **AND** the invalid task is not persisted
 
-### Requirement: List and filter tasks
+### Requirement: List tasks
 
 The CLI MUST provide an `ls` command that lists tasks in descending task-ID order by default. The `--reverse` option MUST list tasks in ascending task-ID order.
 
-The command MUST support filtering by status, one or more labels, and a case-insensitive query. Query matching MUST use substring matching for title, body, and labels, and exact matching for the status value. Multiple label filters MUST use AND semantics.
+#### Scenario: List tasks in default order
 
-The command MUST support a result limit. A positive limit truncates the result after sorting and filtering; zero or a negative limit means no limit.
+- **WHEN** the user runs `todoing ls` without `--reverse`
+- **THEN** tasks are listed in descending task-ID order
 
-The `--scan` option MUST scan task Markdown files and rebuild `.todoing/index.json` before listing. The listing is then produced from the rebuilt index; this option is not a read-only operation.
+#### Scenario: Reverse task order
+
+- **WHEN** the user runs `todoing ls --reverse`
+- **THEN** tasks are listed in ascending task-ID order
+
+### Requirement: Filter tasks
+
+The `ls` command MUST support filtering by status, one or more labels, and a case-insensitive query. Query matching MUST use substring matching for title, body, and labels, and exact matching for the status value. Multiple label filters MUST use AND semantics.
 
 #### Scenario: Filter by multiple labels
 
@@ -46,6 +54,17 @@ The `--scan` option MUST scan task Markdown files and rebuild `.todoing/index.js
 - **THEN** the CLI performs case-insensitive substring matching against title, body, and labels
 - **AND** matches status only when the query equals the complete status value
 
+### Requirement: Limit and scan task results
+
+The `ls` command MUST support a result limit. A positive limit truncates the result after sorting and filtering; zero or a negative limit means no limit.
+
+The `--scan` option MUST scan task Markdown files and rebuild `.todoing/index.json` before listing. The listing is then produced from the rebuilt index; this option is not a read-only operation.
+
+#### Scenario: Apply a positive result limit
+
+- **WHEN** the user supplies a positive limit
+- **THEN** the sorted and filtered task result is truncated to that number of tasks
+
 #### Scenario: List after scan
 
 - **WHEN** the user runs `todoing ls --scan`
@@ -57,6 +76,27 @@ The `--scan` option MUST scan task Markdown files and rebuild `.todoing/index.js
 The CLI MUST provide a `see` command to show a task, an `edit` command to open its Markdown file in the configured editor, `body` to replace its description, `append` to append to its description, `status` to change its status, and `label` to add or remove labels.
 
 Task operations MUST accept a numeric task identifier, optionally prefixed with `#`.
+
+#### Scenario: Show a task
+
+- **WHEN** the user runs `todoing see` with an existing task ID
+- **THEN** the task is displayed with its Markdown frontmatter and body
+
+#### Scenario: Edit a task in the configured editor
+
+- **WHEN** the user runs `todoing edit` with an existing task ID
+- **THEN** the task's Markdown file is opened using the configured editor
+
+#### Scenario: Replace or append task body
+
+- **WHEN** the user runs `todoing body` or `todoing append` for an existing task
+- **THEN** the task body is replaced or appended respectively
+- **AND** the updated task is persisted
+
+#### Scenario: Change status or labels
+
+- **WHEN** the user runs `todoing status` or `todoing label` for an existing task
+- **THEN** the requested status or label changes are persisted
 
 ### Requirement: Link Git commits
 
@@ -78,6 +118,11 @@ This requirement records current behavior. It does not assert that physical dele
 
 - **WHEN** the user declines the confirmation or confirmation input ends
 - **THEN** the task remains stored
+
+#### Scenario: Confirm deletion
+
+- **WHEN** the user confirms deletion or supplies the force option
+- **THEN** the task file and corresponding index entry are deleted
 
 ### Requirement: JSON output
 

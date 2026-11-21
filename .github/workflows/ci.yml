@@ -43,3 +43,15 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Test SQLite locking spike
         run: cargo test --manifest-path spikes/sqlite-locking/Cargo.toml
+
+  openspec-validation:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Install OpenSpec CLI
+        run: npm install --global @fission-ai/openspec@1.16.0
+      - name: Validate OpenSpec changes and specs
+        run: openspec validate --all
