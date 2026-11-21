@@ -11,6 +11,8 @@ mod status_workflow_tests;
 #[cfg(test)]
 mod dependency_tests;
 #[cfg(test)]
+mod lock_tests;
+#[cfg(test)]
 mod tests;
 
 pub use error::StoreError;
