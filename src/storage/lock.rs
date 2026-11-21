@@ -58,6 +58,7 @@ impl fmt::Debug for LockGrant {
 
 #[derive(Clone)]
 pub(crate) struct LockCredential {
+    pub(crate) task_id: TaskId,
     pub(crate) owner_id: String,
     pub(crate) token: String,
     pub(crate) fencing_generation: i64,
@@ -66,6 +67,7 @@ pub(crate) struct LockCredential {
 impl From<&LockGrant> for LockCredential {
     fn from(grant: &LockGrant) -> Self {
         Self {
+            task_id: grant.task_id,
             owner_id: grant.owner_id.clone(),
             token: grant.token.clone(),
             fencing_generation: grant.fencing_generation,
@@ -507,6 +509,7 @@ pub(crate) fn check_lock_access(
     credential: Option<&LockCredential>,
     now_millis: i64,
 ) -> Result<Option<i64>, StoreError> {
+    let credential = credential.filter(|value| value.task_id == task_id);
     let Some(record) = load_lock(connection, task_id)? else {
         return if credential.is_some() {
             Err(StoreError::StaleLock)

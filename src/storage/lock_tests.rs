@@ -111,3 +111,44 @@ fn lock_owner_id_must_be_nonempty_and_bounded() {
     assert!(service.acquire(task_id, " ", &actor()).is_err());
     assert!(service.acquire(task_id, &"x".repeat(129), &actor()).is_err());
 }
+
+
+#[test]
+fn repository_enforces_lock_for_reads_writes_history_and_version_access() {
+    use crate::storage::TaskRepository;
+
+    let (_root, store, _service, _clock, task_id) = setup();
+    store.connection().unwrap().execute(
+        "INSERT INTO tasks(title, status_id, created_at, updated_at)
+         VALUES ('dependency task', 'todo', '2026-11-21T00:00:00Z', '2026-11-21T00:00:00Z')",
+        [],
+    ).unwrap();
+
+    let config = ProjectConfig::default();
+    let repository = TaskRepository::new(store, config).unwrap();
+    let actor = actor();
+    let original = repository.get(task_id).unwrap();
+    let service = repository.lock_service().unwrap();
+    let grant = service.acquire(task_id, "session-owner", &actor).unwrap();
+    let owner_repository = repository.with_lock_grant(&grant);
+
+    assert!(matches!(repository.get(task_id), Err(StoreError::TaskLocked)));
+    assert!(repository.list().unwrap().iter().all(|task| task.id != task_id));
+    assert!(matches!(repository.list_versions(task_id), Err(StoreError::TaskLocked)));
+    assert!(matches!(repository.get_version(task_id, 1), Err(StoreError::TaskLocked)));
+    assert!(matches!(repository.get_history(task_id), Err(StoreError::TaskLocked)));
+    assert!(matches!(repository.get_baseline(task_id), Err(StoreError::TaskLocked)));
+    assert!(matches!(repository.update(&original, &actor), Err(StoreError::TaskLocked)));
+    assert!(matches!(repository.complete(task_id, &actor), Err(StoreError::TaskLocked)));
+    assert!(matches!(
+        repository.add_dependency(task_id, TaskId::new(2).unwrap(), &actor),
+        Err(StoreError::TaskLocked)
+    ));
+    assert!(matches!(repository.approve_baseline(task_id, 1, &actor), Err(StoreError::TaskLocked)));
+    assert!(repository.get_store_history().unwrap().iter().all(|entry| entry.task_id != Some(task_id)));
+
+    let mut changed = owner_repository.get(task_id).unwrap();
+    changed.title = "changed by owner".into();
+    assert_eq!(owner_repository.update(&changed, &actor).unwrap().title, "changed by owner");
+
+}
