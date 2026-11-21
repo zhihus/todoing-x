@@ -409,7 +409,11 @@ fn execute(request: Request, root: &Path) -> Result<Value, ApiError> {
         }
         "task.dependency.list" => {
             let args: TaskIdArgs = parse_args(request.args).map_err(|error| invalid(error.to_string()))?;
-            Ok(json!({"dependencies": repository.list_dependencies(id(args.task_id).map_err(|error| invalid(error.to_string()))?).map_err(store_error)?}))
+            let task_id = id(args.task_id).map_err(|error| invalid(error.to_string()))?;
+            Ok(json!({
+                "dependencies": repository.list_dependencies(task_id).map_err(store_error)?,
+                "states": repository.list_dependency_states(task_id).map_err(store_error)?
+            }))
         }
         "task.history.list" => {
             let args: HistoryArgs = parse_args(request.args).map_err(|error| invalid(error.to_string()))?;
