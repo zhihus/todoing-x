@@ -259,12 +259,8 @@ fn execute(request: Request, root: &Path) -> Result<Value, ApiError> {
             struct Args { #[serde(default = "default_true")] deep: bool }
             fn default_true() -> bool { true }
             let args: Args = parse_args(request.args).map_err(|error| invalid(error.to_string()))?;
-            if args.deep {
-                let report = store.verify().map_err(store_error)?;
-                Ok(json!({"integrity_check": report.integrity_check, "foreign_key_violations": report.foreign_key_violations, "schema_version": report.schema_version}))
-            } else {
-                Ok(json!({"integrity_check": "skipped", "foreign_key_violations": 0, "schema_version": 1}))
-            }
+            let report = store.verify().map_err(store_error)?;
+            Ok(json!({"integrity_check": report.integrity_check, "foreign_key_violations": report.foreign_key_violations, "schema_version": report.schema_version, "deep": args.deep}))
         }
         "task.create" => {
             let args: CreateArgs = parse_args(request.args).map_err(|error| invalid(error.to_string()))?;
@@ -331,7 +327,7 @@ fn execute(request: Request, root: &Path) -> Result<Value, ApiError> {
         }
         "task.cancel" => {
             let args: CancelArgs = parse_args(request.args).map_err(|error| invalid(error.to_string()))?;
-            Ok(json!({"task": repository.cancel(id(args.task_id).map_err(|error| invalid(error.to_string()))?, args.reason.as_deref(), &actor).map_err(store_error)?}))
+            Ok(json!({"task": repository.cancel(id(args.task_id).map_err(|error| invalid(error.to_string()))?, args.reason.as_deref().filter(|reason| !reason.is_empty()), &actor).map_err(store_error)?}))
         }
         "task.reopen" => {
             let args: ReopenArgs = parse_args(request.args).map_err(|error| invalid(error.to_string()))?;
