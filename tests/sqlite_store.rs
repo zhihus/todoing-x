@@ -1,7 +1,7 @@
 use rusqlite::Connection;
+use serde_json::json;
 use tempfile::tempdir;
 use todoing::sqlite_store::{NewTask, SqliteStore, StoreCounts};
-use serde_json::json;
 
 fn new_task(title: &str) -> NewTask {
     NewTask {
@@ -73,9 +73,11 @@ fn task_ids_are_not_reused_and_physical_delete_is_rejected() {
     assert_eq!((first.id, second.id), (1, 2));
 
     let connection = Connection::open(store.db_path()).unwrap();
-    assert!(connection
-        .execute("DELETE FROM tasks WHERE id = ?1", [second.id])
-        .is_err());
+    assert!(
+        connection
+            .execute("DELETE FROM tasks WHERE id = ?1", [second.id])
+            .is_err()
+    );
     drop(connection);
 
     let third = store.create_task(new_task("third")).unwrap();
@@ -112,7 +114,10 @@ fn dependency_graph_rejects_direct_and_indirect_cycles() {
 
     assert!(store.add_dependency(c.id, a.id, "test").is_err());
     assert!(store.add_dependency(a.id, a.id, "test").is_err());
-    assert_eq!(store.get_task(a.id).unwrap().unwrap().dependencies, vec![b.id]);
+    assert_eq!(
+        store.get_task(a.id).unwrap().unwrap().dependencies,
+        vec![b.id]
+    );
 }
 
 #[test]
@@ -125,7 +130,11 @@ fn approved_baseline_points_to_a_specific_immutable_version() {
 
     store.approve_version(task.id, 1, "reviewer").unwrap();
     assert_eq!(
-        store.get_approved_version(task.id).unwrap().unwrap().version_no,
+        store
+            .get_approved_version(task.id)
+            .unwrap()
+            .unwrap()
+            .version_no,
         1
     );
 
@@ -135,11 +144,13 @@ fn approved_baseline_points_to_a_specific_immutable_version() {
         2
     );
     assert_eq!(store.get_versions(task.id).unwrap().len(), 2);
-    assert!(store
-        .get_history(task.id)
-        .unwrap()
-        .iter()
-        .any(|entry| entry.operation == "baseline_approve"));
+    assert!(
+        store
+            .get_history(task.id)
+            .unwrap()
+            .iter()
+            .any(|entry| entry.operation == "baseline_approve")
+    );
 }
 
 #[test]
