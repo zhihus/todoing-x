@@ -67,13 +67,8 @@ heartbeat_seconds = 60
 recovery_grace_seconds = 60
 
 [[statuses]]
-id = "backlog"
-label = "Backlog"
-enabled = true
-
-[[statuses]]
-id = "ready"
-label = "Ready"
+id = "todo"
+label = "To Do"
 enabled = true
 
 [[statuses]]
@@ -82,50 +77,18 @@ label = "In Progress"
 enabled = true
 
 [[statuses]]
-id = "in_review"
-label = "In Review"
-enabled = true
-
-[[statuses]]
-id = "reviewed"
-label = "Reviewed"
-enabled = true
-
-[[statuses]]
 id = "done"
 label = "Done"
 enabled = true
 outcome = "completed"
 
-[[statuses]]
-id = "cancelled"
-label = "Cancelled"
-enabled = true
-outcome = "cancelled"
-
 [[transitions]]
-from = "backlog"
-to = "ready"
-
-[[transitions]]
-from = "ready"
+from = "todo"
 to = "in_progress"
 
 [[transitions]]
 from = "in_progress"
-to = "in_review"
-
-[[transitions]]
-from = "in_review"
-to = "reviewed"
-
-[[transitions]]
-from = "reviewed"
 to = "done"
-
-[[transitions]]
-from = "backlog"
-to = "cancelled"
 ~~~
 
 This is an example configuration, not a mandatory Todoing workflow. A project may replace status IDs, labels, order, and permitted transitions. The order of statuses entries is the presentation order.
@@ -138,8 +101,8 @@ This is an example configuration, not a mandatory Todoing workflow. A project ma
 - Status IDs MUST NOT be silently renamed or reused for a different meaning.
 - enabled defaults to true.
 - outcome is omitted for ordinary workflow states; supported values are completed and cancelled.
-- A status with an outcome sets that outcome when a task enters the status.
-- Moving a task to a status without an outcome clears its current outcome, allowing an explicitly configured reopen transition.
+- A status with an outcome sets that outcome when a task enters the status. This is useful for completion statuses such as Done; a cancelled outcome can also be set by the explicit cancellation operation without changing the workflow status.
+- Moving a task to a status without an outcome clears its current outcome only through an explicit reopen operation; a task with a non-null outcome cannot be status-transitioned until reopened.
 - Transition endpoints MUST refer to configured statuses.
 - A disabled status cannot be a transition target. A task already in a disabled status remains readable and may transition out if that transition is explicitly configured.
 - The loader validates the complete file once per CLI/API invocation. All operations in that invocation use the same immutable configuration snapshot.
@@ -150,9 +113,9 @@ A project may remove a status from the active workflow only after existing tasks
 
 ### 3.3 Default and migration configuration
 
-For a new project, todoing init writes a generic example configuration that the user can edit. It is not hard-coded into the domain model.
+For a new project, todoing init writes a generic example configuration with todo, in_progress, and done. It is not hard-coded into the domain model and is not a Manifest-specific workflow.
 
-For legacy migration, the generated compatibility configuration includes todo, in_progress, done, and cancelled; done maps to completed, and cancelled maps to cancelled. To preserve the previous CLI's unrestricted status changes, the generated transition set allows every transition between those four statuses. The user can tighten the workflow after migration.
+For legacy migration, the generated compatibility configuration includes todo, in_progress, done, and cancelled; done maps to completed, and the legacy cancelled status maps to cancelled. To preserve the previous CLI's unrestricted status changes, the generated transition set allows every transition between those four statuses. The user can tighten the workflow after migration.
 
 ## 4. Domain model
 
@@ -176,7 +139,7 @@ Use SQLite INTEGER PRIMARY KEY AUTOINCREMENT for new IDs. Imported legacy IDs ar
 
 ### Task outcome
 
-Workflow status is configurable; outcome is semantic. A task can be in any configured status, while outcome records whether it ended as completed or cancelled. The outcome is set from the target status configuration on transition and cleared when moved to a status with no outcome. The operation history preserves every previous outcome.
+Workflow status is configurable; outcome is semantic. A task can be in any configured status, while outcome records whether it ended as completed or cancelled. The outcome is set from the target status configuration when a task enters a mapped status. An explicit task.cancel operation sets cancelled without changing the workflow status and accepts an optional reason. task.complete sets completed when no configured status transition is used. task.reopen clears the outcome; status can then be changed through the normal transition rules. The operation history preserves every previous outcome and cancellation reason.
 
 ### Dependencies
 
@@ -378,7 +341,7 @@ Errors are JSON responses on stdout. Human diagnostics, if any, go to stderr. No
 ### Initial operation namespace
 
 - store.info, store.verify, store.migrate, store.snapshot
-- task.create, task.list, task.get, task.update, task.status.set
+- task.create, task.list, task.get, task.update, task.status.set, task.complete, task.cancel, task.reopen
 - task.label.add, task.label.remove
 - task.commit.add
 - task.dependency.add, task.dependency.remove, task.dependency.list
@@ -454,6 +417,8 @@ A snapshot is reported successful only after the destination database is reopene
 
 Keep existing human commands where the semantics still make sense:
 - add, ls, see, body, append, status, label, commit.
+
+Add explicit complete, cancel, and reopen operations. Cancellation reason is optional; it is stored in the operation-history event.
 
 Add:
 - depends, history, version, lock, config, migrate, verify, snapshot, and api.
