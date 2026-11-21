@@ -45,13 +45,22 @@ The CLI MUST NOT overwrite an existing hook file when installing a standard hook
 - **THEN** only the selected missing standard hook files are installed
 - **AND** existing hook files are preserved
 
-### Requirement: Completion hook order
+### Requirement: Completion hook order and triggers
 
-The CLI MUST run installed completion hooks in this order: `before-done-git`, `before-done-openspec`, then the project-specific `before-done` hook.
+When a task transitions to `done`, the CLI MUST run installed completion hooks in this order: `before-done-git`, `before-done-openspec`, then the project-specific `before-done` hook.
 
-The `on-create` hook MUST run for task creation, including creation with the initial status `done`.
+The CLI MUST run completion hooks when a task is created with its initial status set to `done`.
+
+The `on-create` hook MUST run for every task creation after any applicable completion hooks.
 
 #### Scenario: Completion is rejected
 
 - **WHEN** any installed completion hook exits with a non-zero code
 - **THEN** the completion operation fails
+- **AND** the task mutation is not written
+
+#### Scenario: Create a task as done
+
+- **WHEN** the user creates a task with initial status `done`
+- **THEN** installed completion hooks run in the documented order
+- **AND** the `on-create` hook runs after the completion hooks
