@@ -1,6 +1,6 @@
 use crate::config::ProjectConfig;
 use super::{HistoryOutcome, NewTask, Store, TaskRepository};
-use crate::domain::{ActorContext, ActorId, ProjectId, StatusId, TaskOutcome};
+use crate::domain::{ActorContext, ActorId, ProjectId, StatusId};
 use tempfile::tempdir;
 
 fn actor() -> ActorContext {
