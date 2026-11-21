@@ -26,7 +26,7 @@ Dependencies are directed task relationships. The system rejects any operation t
 
 Every successful task save creates a new immutable version. A separate append-only operation history records the actor, timestamp, operation, previous value, new value, and outcome. A user-approved version is identifiable as the task's baseline. Clients can inspect versions and compare any two versions.
 
-The representation of actor identity, version snapshots, diff semantics, and whether rejected attempts are recorded as history events must be resolved in design. A rejected operation must never create a successful task version or partially mutate task state.
+The representation of actor identity, version snapshots, and diff semantics must be resolved in design. Rejected task-operation attempts that reach the task operation layer are part of the operation history and record their outcome; they do not create a successful task version or mutate committed task state.
 
 ## Locking
 
