@@ -19,6 +19,7 @@ pub struct Task {
     pub updated_at: String,
     pub labels: Vec<String>,
     pub commit_refs: Vec<String>,
+    pub dependencies: Vec<TaskId>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -276,12 +277,23 @@ impl TaskRepository {
             Err(error @ StoreError::TaskNotFound(_)) => {
                 drop(transaction);
                 return self.reject_operation(
-                    Some(task.id), actor, "task.update", "task_not_found",
+                    None, actor, "task.update", "task_not_found",
                     serde_json::to_string(task).ok(), error,
                 );
             }
             Err(error) => return Err(error),
         };
+
+        if task.dependencies != previous.dependencies {
+            drop(transaction);
+            return self.reject_operation(
+                Some(task.id), actor, "task.update", "invalid_request",
+                serde_json::to_string(task).ok(),
+                StoreError::InvalidTask(
+                    "Use dependency operations to change task dependencies".into(),
+                ),
+            );
+        }
 
         let status_changed = previous.status_id != task.status_id;
         if status_changed && previous.outcome.is_some() {
@@ -360,7 +372,7 @@ impl TaskRepository {
             Err(error @ StoreError::TaskNotFound(_)) => {
                 drop(transaction);
                 return self.reject_operation(
-                    Some(task_id), actor, "task.status.set", "task_not_found",
+                    None, actor, "task.status.set", "task_not_found",
                     Some(serde_json::json!({"status_id": target}).to_string()), error,
                 );
             }
@@ -438,7 +450,7 @@ impl TaskRepository {
             Err(error @ StoreError::TaskNotFound(_)) => {
                 drop(transaction);
                 return self.reject_operation(
-                    Some(task_id), actor, "task.reopen", "task_not_found",
+                    None, actor, "task.reopen", "task_not_found",
                     None, error,
                 );
             }
@@ -526,7 +538,7 @@ impl TaskRepository {
             Err(error @ StoreError::TaskNotFound(_)) => {
                 drop(transaction);
                 return self.reject_operation(
-                    Some(task_id), actor, operation, "task_not_found", details_json.map(str::to_owned), error,
+                    None, actor, operation, "task_not_found", details_json.map(str::to_owned), error,
                 );
             }
             Err(error) => return Err(error),
@@ -568,6 +580,164 @@ impl TaskRepository {
         let serialized = self.config.to_toml()
             .map_err(|error| StoreError::InvalidConfig(error.to_string()))?;
         Ok(hex::encode(Sha256::digest(serialized.as_bytes())))
+    }
+
+    pub fn add_dependency(
+        &self,
+        task_id: TaskId,
+        depends_on: TaskId,
+        actor: &ActorContext,
+    ) -> Result<(), StoreError> {
+        let mut connection = self.store.connection()?;
+        let transaction =
+            connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let previous = match load_task(&transaction, task_id) {
+            Ok(task) => task,
+            Err(error @ StoreError::TaskNotFound(_)) => {
+                drop(transaction);
+                return self.reject_operation(
+                    None, actor, "task.dependency.add", "task_not_found",
+                    Some(serde_json::json!({"depends_on": depends_on}).to_string()), error,
+                );
+            }
+            Err(error) => return Err(error),
+        };
+        match load_task(&transaction, depends_on) {
+            Ok(_) => {}
+            Err(StoreError::TaskNotFound(_)) => {
+                drop(transaction);
+                return self.reject_operation(
+                    Some(task_id), actor, "task.dependency.add", "dependency_not_found",
+                    Some(serde_json::json!({"depends_on": depends_on}).to_string()),
+                    StoreError::DependencyNotFound(depends_on.get()),
+                );
+            }
+            Err(error) => return Err(error),
+        }
+
+        if task_id == depends_on {
+            drop(transaction);
+            return self.reject_operation(
+                Some(task_id), actor, "task.dependency.add", "dependency_cycle",
+                Some(serde_json::json!({"depends_on": depends_on}).to_string()),
+                StoreError::DependencyCycle,
+            );
+        }
+
+        let exists: bool = transaction.query_row(
+            "SELECT EXISTS(
+                SELECT 1 FROM task_dependencies
+                WHERE task_id = ?1 AND depends_on_task_id = ?2
+             )",
+            params![task_id.get(), depends_on.get()],
+            |row| row.get(0),
+        )?;
+        if exists {
+            drop(transaction);
+            return Ok(());
+        }
+
+        let creates_cycle: bool = transaction.query_row(
+            "WITH RECURSIVE reachable(task_id) AS (
+                SELECT depends_on_task_id
+                FROM task_dependencies
+                WHERE task_id = ?1
+                UNION
+                SELECT dependency.depends_on_task_id
+                FROM task_dependencies dependency
+                JOIN reachable current ON dependency.task_id = current.task_id
+             )
+             SELECT EXISTS(SELECT 1 FROM reachable WHERE task_id = ?2)",
+            params![depends_on.get(), task_id.get()],
+            |row| row.get(0),
+        )?;
+        if creates_cycle {
+            drop(transaction);
+            return self.reject_operation(
+                Some(task_id), actor, "task.dependency.add", "dependency_cycle",
+                Some(serde_json::json!({"depends_on": depends_on}).to_string()),
+                StoreError::DependencyCycle,
+            );
+        }
+
+        let previous_snapshot = snapshot_json(&transaction, &previous)?;
+        let now = now_string();
+        transaction.execute(
+            "INSERT INTO task_dependencies(task_id, depends_on_task_id, created_at)
+             VALUES (?1, ?2, ?3)",
+            params![task_id.get(), depends_on.get(), now],
+        )?;
+        let updated = load_task(&transaction, task_id)?;
+        let updated_snapshot = snapshot_json(&transaction, &updated)?;
+        let version_no = next_version_no(&transaction, task_id)?;
+        insert_version(
+            &transaction, task_id, version_no, &updated_snapshot, &now,
+            actor.actor_id().as_str(),
+        )?;
+        insert_history(
+            &transaction, Some(task_id), actor.actor_id().as_str(), &now,
+            "task.dependency.add", Some(&previous_snapshot), Some(&updated_snapshot),
+            HistoryOutcome::Succeeded, None, None, None,
+        )?;
+        transaction.commit()?;
+        Ok(())
+    }
+
+    pub fn remove_dependency(
+        &self,
+        task_id: TaskId,
+        depends_on: TaskId,
+        actor: &ActorContext,
+    ) -> Result<(), StoreError> {
+        let mut connection = self.store.connection()?;
+        let transaction =
+            connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let previous = match load_task(&transaction, task_id) {
+            Ok(task) => task,
+            Err(error @ StoreError::TaskNotFound(_)) => {
+                drop(transaction);
+                return self.reject_operation(
+                    None, actor, "task.dependency.remove", "task_not_found",
+                    Some(serde_json::json!({"depends_on": depends_on}).to_string()), error,
+                );
+            }
+            Err(error) => return Err(error),
+        };
+
+        let previous_snapshot = snapshot_json(&transaction, &previous)?;
+        let changed = transaction.execute(
+            "DELETE FROM task_dependencies
+             WHERE task_id = ?1 AND depends_on_task_id = ?2",
+            params![task_id.get(), depends_on.get()],
+        )?;
+        if changed == 0 {
+            drop(transaction);
+            return self.reject_operation(
+                Some(task_id), actor, "task.dependency.remove", "dependency_not_found",
+                Some(serde_json::json!({"depends_on": depends_on}).to_string()),
+                StoreError::DependencyNotFound(depends_on.get()),
+            );
+        }
+
+        let updated = load_task(&transaction, task_id)?;
+        let updated_snapshot = snapshot_json(&transaction, &updated)?;
+        let now = now_string();
+        let version_no = next_version_no(&transaction, task_id)?;
+        insert_version(
+            &transaction, task_id, version_no, &updated_snapshot, &now,
+            actor.actor_id().as_str(),
+        )?;
+        insert_history(
+            &transaction, Some(task_id), actor.actor_id().as_str(), &now,
+            "task.dependency.remove", Some(&previous_snapshot), Some(&updated_snapshot),
+            HistoryOutcome::Succeeded, None, None, None,
+        )?;
+        transaction.commit()?;
+        Ok(())
+    }
+
+    pub fn list_dependencies(&self, task_id: TaskId) -> Result<Vec<TaskId>, StoreError> {
+        Ok(self.get(task_id)?.dependencies)
     }
 
     pub fn list_versions(&self, task_id: TaskId) -> Result<Vec<TaskVersion>, StoreError> {
@@ -643,7 +813,7 @@ impl TaskRepository {
         let Some(version_id) = version_id else {
             drop(transaction);
             self.record_rejection(
-                Some(task_id),
+                None,
                 actor,
                 "task.version.approve",
                 "version_not_found",
@@ -873,6 +1043,7 @@ fn same_task_state(current: &Task, requested: &Task) -> bool {
         && current.body == requested.body
         && current.labels == requested.labels.iter().map(|label| label.trim().to_owned()).collect::<Vec<_>>()
         && current.commit_refs == requested.commit_refs
+        && current.dependencies == requested.dependencies
 }
 
 fn load_task(connection: &Connection, id: TaskId) -> Result<Task, StoreError> {
@@ -910,6 +1081,25 @@ fn load_task(connection: &Connection, id: TaskId) -> Result<Task, StoreError> {
         rows.collect::<Result<Vec<String>, _>>()?
     };
 
+    let dependencies = {
+        let mut statement = connection.prepare(
+            "SELECT depends_on_task_id FROM task_dependencies
+             WHERE task_id = ?1 ORDER BY depends_on_task_id ASC",
+        )?;
+        let rows = statement.query_map(params![id.get()], |row| row.get::<_, i64>(0))?;
+        rows.map(|row| {
+            let raw_id = row?;
+            TaskId::new(raw_id).map_err(|error| {
+                rusqlite::Error::FromSqlConversionFailure(
+                    0,
+                    rusqlite::types::Type::Integer,
+                    Box::new(error),
+                )
+            })
+        })
+        .collect::<Result<Vec<_>, _>>()?
+    };
+
     let outcome = match row.2.as_deref() {
         None => None,
         Some("completed") => Some(TaskOutcome::Completed),
@@ -934,29 +1124,11 @@ fn load_task(connection: &Connection, id: TaskId) -> Result<Task, StoreError> {
         updated_at: row.5,
         labels,
         commit_refs,
+        dependencies,
     })
 }
 
-fn snapshot_json(connection: &Connection, task: &Task) -> Result<String, StoreError> {
-    let dependencies = {
-        let mut statement = connection.prepare(
-            "SELECT depends_on_task_id FROM task_dependencies
-             WHERE task_id = ?1 ORDER BY depends_on_task_id ASC",
-        )?;
-        let rows = statement.query_map(params![task.id.get()], |row| row.get::<_, i64>(0))?;
-        rows.map(|row| {
-            let raw_id = row?;
-            TaskId::new(raw_id).map_err(|error| {
-                rusqlite::Error::FromSqlConversionFailure(
-                    0,
-                    rusqlite::types::Type::Integer,
-                    Box::new(error),
-                )
-            })
-        })
-        .collect::<Result<Vec<_>, _>>()?
-    };
-
+fn snapshot_json(_connection: &Connection, task: &Task) -> Result<String, StoreError> {
     let snapshot = TaskSnapshot {
         task_id: task.id,
         title: task.title.clone(),
@@ -967,7 +1139,7 @@ fn snapshot_json(connection: &Connection, task: &Task) -> Result<String, StoreEr
         updated_at: task.updated_at.clone(),
         labels: task.labels.clone(),
         commit_refs: task.commit_refs.clone(),
-        dependencies,
+        dependencies: task.dependencies.clone(),
     };
     serde_json::to_string(&snapshot)
         .map_err(|error| StoreError::InvalidTask(format!("Cannot serialize task snapshot: {error}")))
