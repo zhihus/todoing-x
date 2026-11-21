@@ -228,3 +228,84 @@ fn configuration_changes_do_not_rewrite_existing_task_outcomes() {
     let created = store.create_task(new_task).unwrap();
     assert_eq!(created.outcome.as_deref(), Some("cancelled"));
 }
+
+#[test]
+fn compare_versions_returns_stable_field_changes_without_mutating_snapshots() {
+    let dir = tempdir().unwrap();
+    let mut store = SqliteStore::new(dir.path()).unwrap();
+    let mut task = store.create_task(new_task("before")).unwrap();
+
+    task.title = "after".into();
+    task.body = "updated body".into();
+    task.labels = vec!["mvp".into(), "reviewed".into()];
+    task.metadata = json!({"source": "version-two"});
+    store.update_task(&task, "test").unwrap();
+
+    let versions_before = store.get_versions(task.id).unwrap();
+    let diff = store.compare_versions(task.id, 1, 2).unwrap();
+
+    assert_eq!(diff.task_id, task.id);
+    assert_eq!(diff.from_version, 1);
+    assert_eq!(diff.to_version, 2);
+    assert_eq!(
+        diff.changes
+            .iter()
+            .map(|change| change.field.as_str())
+            .collect::<Vec<_>>(),
+        vec!["title", "body", "labels", "metadata"]
+    );
+    assert_eq!(diff.changes[0].before, json!("before"));
+    assert_eq!(diff.changes[0].after, json!("after"));
+    assert_eq!(diff.changes[1].before, json!("body for before"));
+    assert_eq!(diff.changes[1].after, json!("updated body"));
+    assert_eq!(diff.changes[2].before, json!(["mvp"]));
+    assert_eq!(diff.changes[2].after, json!(["mvp", "reviewed"]));
+    assert_eq!(diff.changes[3].after, json!({"source": "version-two"}));
+    assert_eq!(store.get_versions(task.id).unwrap(), versions_before);
+
+    let reverse = store.compare_versions(task.id, 2, 1).unwrap();
+    assert_eq!(reverse.changes[0].before, json!("after"));
+    assert_eq!(reverse.changes[0].after, json!("before"));
+}
+
+#[test]
+fn comparing_a_version_with_itself_returns_no_changes() {
+    let dir = tempdir().unwrap();
+    let mut store = SqliteStore::new(dir.path()).unwrap();
+    let task = store.create_task(new_task("unchanged")).unwrap();
+
+    let diff = store.compare_versions(task.id, 1, 1).unwrap();
+
+    assert!(diff.changes.is_empty());
+}
+
+#[test]
+fn comparing_a_missing_version_returns_a_clear_error() {
+    let dir = tempdir().unwrap();
+    let mut store = SqliteStore::new(dir.path()).unwrap();
+    let task = store.create_task(new_task("existing")).unwrap();
+
+    let error = store.compare_versions(task.id, 1, 99).unwrap_err();
+
+    assert!(error.contains("Version 99"));
+    assert!(error.contains(&format!("#{}", task.id)));
+}
+
+#[test]
+fn version_comparison_includes_dependency_changes() {
+    let dir = tempdir().unwrap();
+    let mut store = SqliteStore::new(dir.path()).unwrap();
+    let dependent = store.create_task(new_task("dependent")).unwrap();
+    let prerequisite = store.create_task(new_task("prerequisite")).unwrap();
+
+    store
+        .add_dependency(dependent.id, prerequisite.id, "test")
+        .unwrap();
+
+    let diff = store.compare_versions(dependent.id, 1, 2).unwrap();
+
+    assert_eq!(diff.changes.len(), 1);
+    assert_eq!(diff.changes[0].field, "dependencies");
+    assert_eq!(diff.changes[0].before, json!([]));
+    assert_eq!(diff.changes[0].after, json!([prerequisite.id]));
+}
