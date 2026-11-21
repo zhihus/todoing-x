@@ -196,6 +196,11 @@ impl Store {
         })?;
         let canonical_parent = parent.canonicalize()?;
         let destination = canonical_parent.join(file_name);
+        let destination = if destination.exists() {
+            destination.canonicalize()?
+        } else {
+            destination
+        };
         let active_database = self.database_path.canonicalize()?;
         if destination == active_database {
             return Err(StoreError::InvalidTask("Snapshot destination must differ from the active database".into()));
