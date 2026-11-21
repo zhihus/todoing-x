@@ -191,3 +191,10 @@ fn verify_rejects_migration_checksum_drift() {
         Err(StoreError::MigrationChecksumMismatch { version: 1 })
     ));
 }
+
+#[test]
+fn initial_migration_matches_the_documented_schema() {
+    const DOCUMENTED: &str = include_str!("../../docs/architecture/sqlite-schema-v1.sql");
+    const MIGRATION: &str = include_str!("../../migrations/0001_initial.sql");
+    assert_eq!(MIGRATION, DOCUMENTED);
+}
