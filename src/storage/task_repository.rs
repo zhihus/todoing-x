@@ -1,4 +1,6 @@
 use super::{Store, StoreError};
+use crate::config::ProjectConfig;
+use sha2::{Digest, Sha256};
 use crate::domain::{ActorContext, ActorId, StatusId, TaskId, TaskOutcome};
 use chrono::{SecondsFormat, Utc};
 use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior, params};
@@ -108,6 +110,7 @@ pub struct TaskVersionDiff {
 #[derive(Clone, Debug)]
 pub struct TaskRepository {
     store: Store,
+    config: ProjectConfig,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -125,15 +128,23 @@ struct TaskSnapshot {
 }
 
 impl TaskRepository {
-    pub fn new(store: Store) -> Self {
-        Self { store }
+    pub fn new(store: Store, config: ProjectConfig) -> Result<Self, StoreError> {
+        config
+            .validate()
+            .map_err(|error| StoreError::InvalidConfig(error.to_string()))?;
+        Ok(Self { store, config })
     }
 
     pub fn open(
         root: impl AsRef<Path>,
         expected_project_id: Option<&crate::domain::ProjectId>,
+        config: ProjectConfig,
     ) -> Result<Self, StoreError> {
-        Ok(Self::new(Store::open(root, expected_project_id)?))
+        Self::new(Store::open(root, expected_project_id)?, config)
+    }
+
+    pub fn config(&self) -> &ProjectConfig {
+        &self.config
     }
 
     pub fn create(
