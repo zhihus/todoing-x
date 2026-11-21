@@ -108,3 +108,21 @@ fn rejects_unknown_toml_fields() {
     let raw = sample().to_toml().unwrap() + "\nunknown = true\n";
     assert!(matches!(ProjectConfig::from_toml(&raw), Err(ConfigError::Parse(_))));
 }
+
+#[test]
+fn omitted_optional_fields_use_documented_defaults() {
+    let raw = r#"
+format_version = 1
+
+[[statuses]]
+id = "open"
+label = "Open"
+"#;
+    let config = ProjectConfig::from_toml(raw).unwrap();
+    assert!(config.statuses[0].enabled);
+    assert_eq!(config.statuses[0].outcome, None);
+    assert!(config.transitions.is_empty());
+    assert_eq!(config.locking.lease_seconds, 300);
+    assert_eq!(config.locking.heartbeat_seconds, 60);
+    assert_eq!(config.locking.recovery_grace_seconds, 60);
+}
