@@ -1,4 +1,5 @@
 use super::{Store, StoreError};
+use super::lock::{LockCredential, LockGrant, SystemClock, TaskLockService, check_lock_access};
 use crate::config::ProjectConfig;
 use sha2::{Digest, Sha256};
 use crate::domain::{ActorContext, ActorId, StatusId, TaskId, TaskOutcome};
@@ -112,6 +113,7 @@ pub struct TaskVersionDiff {
 pub struct TaskRepository {
     store: Store,
     config: ProjectConfig,
+    lock_credential: Option<LockCredential>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -133,7 +135,7 @@ impl TaskRepository {
         config
             .validate()
             .map_err(|error| StoreError::InvalidConfig(error.to_string()))?;
-        Ok(Self { store, config })
+        Ok(Self { store, config, lock_credential: None })
     }
 
     pub fn open(
@@ -146,6 +148,29 @@ impl TaskRepository {
 
     pub fn config(&self) -> &ProjectConfig {
         &self.config
+    }
+
+    pub fn with_lock_grant(&self, grant: &LockGrant) -> Self {
+        let mut repository = self.clone();
+        repository.lock_credential = Some(LockCredential::from(grant));
+        repository
+    }
+
+    pub fn lock_service(&self) -> Result<TaskLockService, StoreError> {
+        TaskLockService::new(self.store.clone(), self.config.clone())
+    }
+
+    fn check_lock(
+        &self,
+        connection: &Connection,
+        task_id: TaskId,
+    ) -> Result<Option<i64>, StoreError> {
+        check_lock_access(
+            connection,
+            task_id,
+            self.lock_credential.as_ref(),
+            SystemClock.now_millis(),
+        )
     }
 
     pub fn create(
