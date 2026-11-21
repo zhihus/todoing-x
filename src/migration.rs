@@ -232,6 +232,10 @@ fn collect_source_hashes(root: &Path, warnings: &mut Vec<String>) -> Result<Vec<
             }
         }
     }
+    let config_path = todoing_dir.join("config.toml");
+    if config_path.exists() {
+        paths.push(config_path);
+    }
     let index_path = todoing_dir.join("index.json");
     if index_path.exists() {
         let bytes = fs::read(&index_path)?;
