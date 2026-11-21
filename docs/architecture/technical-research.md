@@ -91,7 +91,19 @@ Proceed to an architecture spike with:
 - **Backup:** use a database-aware snapshot/backup mechanism; do not copy a live database file blindly.
 - **Compatibility:** keep the current Markdown/YAML + JSON format as a migration/import-export concern, not as a second writable source of truth.
 
-Do not finalize the journal mode until the lock-acquisition proof of concept is complete. WAL is attractive for ordinary concurrent reads and writes, but its reader behavior differs from rollback-journal mode and may affect a strict lock-acquisition barrier.
+### 4.1 Cross-platform proof-of-concept results
+
+The isolated SQLite spike was run by GitHub Actions on both ubuntu-latest and windows-latest. All five process-level tests passed on both platforms:
+
+- An EXCLUSIVE transaction in rollback-journal mode waited for an already active reader to finish before the lock record was committed.
+- After acquisition, a non-owner read was rejected while the lock owner retained access.
+- Eight independent processes allocated unique task identifiers through serialized write transactions.
+- An uncommitted transaction was rolled back after its process terminated without dropping the connection normally.
+- A fencing generation rejected a former owner after an expired lock was recovered by another owner.
+
+The existing application test suite, release build, isolated installation, and binary smoke test also passed on both operating systems after restoring the missing Clap argument types in main.rs. The initial CI run had exposed those missing type definitions; the correction restores the existing hooks command's argument model and does not change hook execution behavior.
+
+**Updated recommendation:** use SQLite rollback-journal mode (DELETE) as the MVP starting point, with a short EXCLUSIVE transaction as the task-lock acquisition barrier. The prototype validates this mechanism on Windows and Linux. WAL is not recommended for this lock protocol because EXCLUSIVE does not provide the same reader barrier in WAL mode. The prototype is deliberately small: it does not prove production-scale behavior, power-loss durability, clock-change handling, or the final lease protocol. Those remain implementation tests.
 
 ## 5. Task-lock design findings
 
@@ -181,9 +193,9 @@ Backup destination and retention remain the responsibility of Manifest/the consu
 
 | Decision area | Research position | Status |
 |---|---|---|
-| Primary database | SQLite is the preferred candidate; redb is the runner-up. | Preliminary; requires prototype and explicit approval. |
+| Primary database | SQLite is the preferred candidate; redb is the runner-up. | Prototype passed on Windows/Linux; final selection remains open pending approval. |
 | Rust binding | rusqlite with bundled. | Preliminary; validate Windows and Unix CI. |
-| Journal mode | Do not choose before testing lock acquisition/read exclusion. | Open. |
+| Journal mode | Rollback-journal mode (DELETE) with a short EXCLUSIVE lock-acquisition barrier. | Preferred based on passing Windows/Linux prototype; final selection remains open. |
 | Logical task locks | Durable database-backed lease + owner capability + fencing generation. | Recommended design direction; details open. |
 | Lock barrier | Must serialize acquisition against in-flight reads and reject later non-owner reads. | Open; proof of concept required. |
 | Status config format | TOML is preferred; JSON is the alternative. | Preliminary. |
