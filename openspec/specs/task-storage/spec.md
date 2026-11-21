@@ -2,96 +2,148 @@
 
 ## Purpose
 
-Describe the task persistence behavior implemented by the current Todoing CLI.
+Describe the task persistence behavior currently implemented by Todoing, including the legacy Markdown backend, explicit migration, and the SQLite backend.
 
 ## Requirements
 
-### Requirement: Project-local task store
+### Requirement: Select and retain the project-local task store
 
-The system MUST store task data under the `.todoing/` directory of the current working project.
+The system MUST store Todoing data under the project's `.todoing/` directory. Before migration, the Markdown task files and JSON index are authoritative. After successful migration, `.todoing/todoing.db` is authoritative.
 
-#### Scenario: First task operation
+#### Scenario: Initialize the legacy store
 
-- **WHEN** a task operation requires storage and the project has no Todoing store
-- **THEN** the system creates the required `.todoing/tasks/` directory
-- **AND** creates or rebuilds `.todoing/index.json` when the operation requires the index
+- **WHEN** a task operation requires storage and the project has no active SQLite database
+- **THEN** the system uses `.todoing/tasks/` and `.todoing/index.json`
 
-### Requirement: Markdown task records
+#### Scenario: Open the migrated store
 
-The system MUST persist each task as a Markdown file under `.todoing/tasks/`, named with its task identifier and the `.md` extension.
+- **WHEN** the project contains an active `.todoing/todoing.db`
+- **THEN** the system opens the SQLite store and validates its project identity and schema
 
-Task records use YAML frontmatter and a Markdown body. The task identifier and title are required. If omitted, status defaults to `todo`, labels and commit references default to empty collections, the creation timestamp defaults to the current local time, and the description body defaults to empty.
+#### Scenario: Retain legacy source files
 
-#### Scenario: Read and rewrite a task
+- **WHEN** migration activates SQLite
+- **THEN** the original Markdown task files and JSON index remain available
+- **AND** SQLite operations do not update them as a secondary source of current task state
 
-- **WHEN** a task file contains valid supported frontmatter fields
+### Requirement: Persist legacy Markdown task records
+
+The legacy backend MUST persist each task as a Markdown file under `.todoing/tasks/`, named with its task identifier and the `.md` extension. Task records use YAML frontmatter and a Markdown body. The JSON index is rebuildable from valid task files.
+
+#### Scenario: Read and rewrite a legacy task
+
+- **WHEN** a legacy task file contains valid supported frontmatter fields
 - **THEN** the system parses the task fields
 - **AND** can rewrite the task in the Todoing Markdown representation
 
-The current implementation trims leading and trailing whitespace from the description body when reading and writing a task. Frontmatter fields not represented by the current task model are not preserved when the task is rewritten.
+The legacy implementation trims leading and trailing whitespace from the description body when reading and writing a task. Frontmatter fields not represented by the legacy task model are not preserved when the task is rewritten.
 
-#### Scenario: Skip a task file without usable frontmatter
+#### Scenario: Rebuild the legacy index
 
-- **WHEN** a scanned Markdown file has no opening frontmatter delimiter, no closing delimiter, or frontmatter that cannot be parsed as YAML
-- **THEN** the file is skipped during index rebuild
-- **AND** a warning is emitted when the opening delimiter is missing
-
-#### Scenario: Reject invalid task fields
-
-- **WHEN** a scanned file has non-mapping frontmatter or an invalid or missing required field, or an invalid supplied status, label, commit reference, or creation timestamp
-- **THEN** index rebuild fails with an error identifying the task file
-
-Unreadable files caused by invalid UTF-8 produce an error. Other file-read errors are skipped by the current implementation.
-
-### Requirement: Rebuildable JSON index
-
-The system MUST maintain a JSON index at `.todoing/index.json` for task listing and lookup.
-
-The index MUST be rebuildable from valid Markdown task files.
-
-#### Scenario: Rebuild index
-
-- **WHEN** the user runs `todoing reindex`
-- **THEN** the system scans task Markdown files in ascending numeric filename order
-- **AND** rewrites the JSON index from the task files it can parse
-- **AND** fails if a scanned file contains invalid required or supplied task fields
-
-#### Scenario: Recover a missing or structurally invalid index
-
-- **WHEN** the index is missing, contains invalid JSON, is not a JSON array, or contains an item missing its `id` or `title` key
-- **THEN** the system rebuilds the index from task Markdown files
-
-An index item that contains the required keys but has invalid field values produces an error instead of triggering a rebuild.
-
-#### Scenario: Scan before listing
-
-- **WHEN** the user runs `todoing ls --scan`
+- **WHEN** the user runs `todoing reindex` or `todoing ls --scan` before migration
 - **THEN** the system scans task Markdown files and rebuilds `.todoing/index.json`
-- **AND** produces the listing from the rebuilt index
 
-### Requirement: Atomic replacement of individual files
+### Requirement: Migrate legacy data non-destructively
 
-The system MUST write an individual task or index file through a temporary file in the destination directory and replace the destination only after the temporary file has been written and synchronized.
+The system MUST provide a validated migration path from Markdown/YAML task files and the JSON index to SQLite. Markdown task files are the migration source of truth; the JSON index is hashed for reporting but is not trusted as task data.
 
-This requirement describes individual file replacement only. It does not establish atomicity across a task file and the JSON index as one logical transaction.
+Migration MUST preserve supported task IDs, titles, creation timestamps, statuses and their outcomes, labels, bodies, and Git commit references. Migration MUST refuse to overwrite an existing database.
 
-#### Scenario: Successful file replacement
+#### Scenario: Validate a migration without mutation
 
-- **WHEN** the system successfully writes a task or index file
-- **THEN** the destination contains the complete new file content
-- **AND** the replacement operation does not expose partially written destination content
+- **WHEN** the user runs migration with `dry_run=true`
+- **THEN** source files are validated and hashed
+- **AND** no configuration, staging database, report, or active database is created
 
-#### Scenario: Failure between task and index writes
+#### Scenario: Activate a migrated store
 
-- **WHEN** a task file is successfully written but the subsequent index update fails
-- **THEN** the task file may contain the new task state while the index remains stale
-- **AND** the index can be rebuilt from task Markdown files
+- **WHEN** migration validates all source records and imports them into a staging database
+- **THEN** the staging database is integrity-checked before activation
+- **AND** the active database is installed atomically without replacing an existing database
+- **AND** source Markdown and index files remain unchanged
 
-### Requirement: Existing storage compatibility
+#### Scenario: Reject invalid migration input
 
-The system MUST continue to read the current Markdown/YAML task representation and JSON index format used by the Rust port.
+- **WHEN** a source task or required legacy status mapping is invalid
+- **THEN** migration fails before database activation
+- **AND** source task files remain intact
 
-#### Scenario: Existing task without optional commit references
+#### Scenario: Preserve user configuration
 
-- **WHEN** a valid task record does not contain a `commits` field
-- **THEN** the system reads it with an empty commit-reference collection
+- **WHEN** a valid project `config.toml` already exists
+- **THEN** migration validates and uses it without overwriting it
+- **AND** it requires the four legacy status IDs and their expected completion/cancellation outcome mappings
+
+#### Scenario: Generate compatibility configuration
+
+- **WHEN** migration finds no project configuration
+- **THEN** it generates a compatibility configuration for the legacy status set
+- **AND** does so without overwriting any existing file
+
+#### Scenario: Report migration provenance
+
+- **WHEN** migration completes
+- **THEN** it writes a report containing imported task count, warnings, and SHA-256 hashes of source files
+- **AND** a report-write failure is reported as a warning without discarding the activated database
+
+### Requirement: Persist SQLite task state transactionally
+
+The SQLite backend MUST persist task state, labels, commit references, dependencies, immutable versions, and operation history. A successful task mutation, its new version, the corresponding history event, and related state MUST become visible atomically.
+
+#### Scenario: Commit a task mutation
+
+- **WHEN** a valid task mutation succeeds
+- **THEN** the task state, new version, operation-history entry, and related state become visible together
+
+#### Scenario: Roll back a failed task mutation
+
+- **WHEN** a failure occurs before the logical transaction commits
+- **THEN** none of the mutation's task, version, history, or related state changes become visible
+- **AND** the previously committed task state remains intact
+
+#### Scenario: Avoid redundant versions for no-op operations
+
+- **WHEN** an accepted task operation does not change task state
+- **THEN** the operation is recorded as a successful no-op
+- **AND** no new task version is created
+
+### Requirement: Preserve data integrity across concurrent clients
+
+The SQLite backend MUST prevent concurrent clients from silently overwriting committed task changes or allocating duplicate task identifiers.
+
+#### Scenario: Concurrent task creation
+
+- **WHEN** multiple clients create tasks concurrently in the same project store
+- **THEN** every committed task receives a unique stable identifier
+- **AND** no committed task is silently overwritten
+
+#### Scenario: Verify database integrity
+
+- **WHEN** the user invokes store verification
+- **THEN** SQLite integrity and foreign-key constraints are checked
+- **AND** schema metadata and project identity are validated
+
+### Requirement: Create verified SQLite snapshots
+
+The system MUST provide SQLite Online Backup snapshots. A snapshot MUST be written to a temporary file in the destination directory, verified before activation, and persisted without overwriting an existing destination unless overwrite is explicitly requested.
+
+A snapshot MUST be rejected while any task lock is active. The destination MUST differ from the active database path.
+
+#### Scenario: Create a snapshot
+
+- **WHEN** a client requests a snapshot to a valid destination
+- **THEN** the Online Backup API creates a consistent copy
+- **AND** the copy is reopened and checked for project identity, schema, SQLite integrity, and foreign-key integrity
+- **AND** the response includes destination path, size, and SHA-256 checksum
+
+#### Scenario: Preserve an existing destination
+
+- **WHEN** the destination already exists and overwrite is false
+- **THEN** snapshot creation fails
+- **AND** the existing destination remains unchanged
+
+#### Scenario: Reject a snapshot during an active task lock
+
+- **WHEN** any task lock is active
+- **THEN** snapshot creation is rejected
+- **AND** no snapshot is activated at the destination
