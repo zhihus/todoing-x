@@ -193,7 +193,6 @@ fn shared_file_access_guard_blocks_exclusive_lock_until_operation_finishes() {
     let started = Instant::now();
     file.lock().unwrap();
     let elapsed = started.elapsed();
-    file.unlock().unwrap();
     drop(file);
 
     let status = child.wait().unwrap();
