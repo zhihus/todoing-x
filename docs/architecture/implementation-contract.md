@@ -191,7 +191,7 @@ Database triggers MUST prevent UPDATE and DELETE on task_versions and operation_
 
 ### Baseline
 
-task_baselines stores one current approved baseline per task, referencing a version belonging to that same task. Replacing a baseline is an explicit user approval operation and creates an operation-history event. Previous approvals remain visible in history.
+task_baselines stores one current approved baseline per task, referencing a version belonging to that same task. Replacing a baseline is an explicit user approval operation and creates an operation-history event. Previous approvals remain visible in history. The CLI approval command requires interactive confirmation. Todoing records actor attribution but does not authenticate a human; Manifest must invoke the JSON approval operation only after an explicit user approval.
 
 ## 6. Transaction rules
 
