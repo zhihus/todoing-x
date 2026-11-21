@@ -927,6 +927,7 @@ fn append_history(
     before_json: Option<&str>,
     after_json: Option<&str>,
 ) -> Result<(), String> {
+    validate_actor(actor)?;
     transaction
         .execute(
             "INSERT INTO operation_history(task_id, actor, occurred_at, operation, before_json, after_json, result)
