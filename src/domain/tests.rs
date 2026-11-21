@@ -15,3 +15,14 @@ fn status_and_actor_ids_validate_during_json_deserialization() {
     assert_eq!(serde_json::from_str::<ActorId>("\"agent:worker\"").unwrap().as_str(), "agent:worker");
     assert!(serde_json::from_str::<ActorId>("\" agent:worker\"").is_err());
 }
+
+#[test]
+fn project_ids_are_non_empty_bounded_and_json_safe() {
+    let id = ProjectId::new("investplan").unwrap();
+    assert_eq!(id.as_str(), "investplan");
+    assert_eq!(serde_json::to_string(&id).unwrap(), "\"investplan\"");
+    assert_eq!(serde_json::from_str::<ProjectId>("\"investplan\"").unwrap(), id);
+    assert!(ProjectId::new(" ").is_err());
+    assert!(ProjectId::new(" project ").is_err());
+    assert!(ProjectId::new("x".repeat(129)).is_err());
+}
