@@ -1,3 +1,4 @@
+use crate::config::ProjectConfig;
 use super::{NewTask, Store, TaskRepository};
 use crate::domain::{ActorContext, ActorId, ProjectId, StatusId, TaskId, TaskOutcome};
 use tempfile::tempdir;
@@ -9,7 +10,7 @@ fn actor() -> ActorContext {
 fn repository() -> (tempfile::TempDir, TaskRepository) {
     let root = tempdir().unwrap();
     let store = Store::initialize(root.path(), ProjectId::new("task-repository-tests").unwrap()).unwrap();
-    let repository = TaskRepository::new(store);
+    let repository = TaskRepository::new(store, ProjectConfig::default()).unwrap();
     (root, repository)
 }
 
