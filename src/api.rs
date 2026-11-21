@@ -372,6 +372,7 @@ fn execute(request: Request, root: &Path) -> Result<Value, ApiError> {
             if args.label.trim().is_empty() { return Err(invalid("label must not be empty".into())); }
             let task_id = id(args.task_id).map_err(invalid)?;
             let mut task = repository.get(task_id).map_err(store_error)?;
+            let before = task.labels.clone();
             if request.operation == "task.label.add" {
                 if !task.labels.iter().any(|label| label.eq_ignore_ascii_case(&args.label)) {
                     task.labels.push(args.label);
@@ -379,8 +380,9 @@ fn execute(request: Request, root: &Path) -> Result<Value, ApiError> {
             } else {
                 task.labels.retain(|label| !label.eq_ignore_ascii_case(&args.label));
             }
+            let changed = before != task.labels;
             let updated = repository.update(&task, &actor).map_err(store_error)?;
-            Ok(json!({"task": updated, "no_op": updated.labels == task.labels}))
+            Ok(json!({"task": updated, "no_op": !changed}))
         }
         "task.commit.add" => {
             let args: CommitArgs = parse_args(request.args).map_err(invalid)?;
@@ -400,11 +402,13 @@ fn execute(request: Request, root: &Path) -> Result<Value, ApiError> {
             }
             let task_id = id(args.task_id).map_err(invalid)?;
             let mut task = repository.get(task_id).map_err(store_error)?;
+            let before = task.commit_refs.clone();
             if !task.commit_refs.iter().any(|reference| reference.eq_ignore_ascii_case(&sha)) {
                 task.commit_refs.push(sha.clone());
             }
+            let changed = before != task.commit_refs;
             let updated = repository.update(&task, &actor).map_err(store_error)?;
-            Ok(json!({"task": updated, "commit_sha": sha, "no_op": updated.commit_refs == task.commit_refs}))
+            Ok(json!({"task": updated, "commit_sha": sha, "no_op": !changed}))
         }
         "task.lock.acquire" => {
             let args: LockArgs = parse_args(request.args).map_err(invalid)?;
