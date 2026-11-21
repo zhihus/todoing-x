@@ -13,6 +13,9 @@ pub enum StoreError {
     TaskTerminal,
     DependencyNotFound(i64),
     DependencyCycle,
+    TaskLocked,
+    LockExpired,
+    StaleLock,
     ProjectIdMismatch { expected: String, actual: String },
     UnsupportedSchemaVersion(u32),
     MigrationChecksumMismatch { version: u32 },
@@ -38,6 +41,9 @@ impl fmt::Display for StoreError {
             Self::TaskTerminal => formatter.write_str("Task has a terminal outcome and must be reopened first"),
             Self::DependencyNotFound(id) => write!(formatter, "Dependency task #{id} was not found"),
             Self::DependencyCycle => formatter.write_str("Dependency would create a cycle"),
+            Self::TaskLocked => formatter.write_str("Task is locked by another client"),
+            Self::LockExpired => formatter.write_str("Task lock lease has expired"),
+            Self::StaleLock => formatter.write_str("Task lock ownership is stale or invalid"),
             Self::ProjectIdMismatch { expected, actual } => {
                 write!(formatter, "Project ID mismatch: expected {expected}, found {actual}")
             }
