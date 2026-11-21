@@ -1,5 +1,6 @@
 pub mod config;
 pub mod domain;
+pub mod storage;
 
 use chrono::{DateTime, FixedOffset, Local, NaiveDateTime, Timelike};
 use serde::{de, Deserializer, Serializer};
