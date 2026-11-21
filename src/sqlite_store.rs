@@ -305,26 +305,40 @@ impl SqliteStore {
         Ok(task)
     }
 
-    pub fn get_task(&self, id: i64) -> Result<Option<StoredTask>, String> {
-        load_task(&self.connection, id)
+    pub fn get_task(&mut self, id: i64) -> Result<Option<StoredTask>, String> {
+        let transaction = self
+            .connection
+            .transaction()
+            .map_err(|error| error.to_string())?;
+        let task = load_task(&transaction, id)?;
+        transaction.commit().map_err(|error| error.to_string())?;
+        Ok(task)
     }
 
-    pub fn list_tasks(&self) -> Result<Vec<StoredTask>, String> {
-        let mut statement = self
+    pub fn list_tasks(&mut self) -> Result<Vec<StoredTask>, String> {
+        let transaction = self
             .connection
-            .prepare("SELECT id FROM tasks ORDER BY id")
+            .transaction()
             .map_err(|error| error.to_string())?;
-        let ids = statement
-            .query_map([], |row| row.get::<_, i64>(0))
-            .map_err(|error| error.to_string())?
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(|error| error.to_string())?;
-        ids.into_iter()
+        let ids = {
+            let mut statement = transaction
+                .prepare("SELECT id FROM tasks ORDER BY id")
+                .map_err(|error| error.to_string())?;
+            statement
+                .query_map([], |row| row.get::<_, i64>(0))
+                .map_err(|error| error.to_string())?
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|error| error.to_string())?
+        };
+        let tasks = ids
+            .into_iter()
             .map(|id| {
-                load_task(&self.connection, id)?
+                load_task(&transaction, id)?
                     .ok_or_else(|| format!("Task #{id} disappeared while listing"))
             })
-            .collect()
+            .collect::<Result<Vec<_>, _>>()?;
+        transaction.commit().map_err(|error| error.to_string())?;
+        Ok(tasks)
     }
 
     pub fn update_task(
