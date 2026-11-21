@@ -199,7 +199,7 @@ The EXCLUSIVE transaction briefly blocks database readers globally, not just rea
 
 ### 5.3 Reads and mutations
 
-Every task read must check the lock record and ownership in the same read transaction as the task query. Every mutation must check ownership and fencing generation in the same write transaction as the mutation. List/search operations omit tasks locked by another client; direct reads return a lock conflict without task content.
+Every task read must check the lock record and ownership in the same read transaction as the task query. Every mutation must check ownership and fencing generation in the same write transaction as the mutation. List/search operations omit all locked tasks; the owner reads its task through a direct get with a valid token. Direct reads by non-owners return a lock conflict without task content.
 
 - No active lock: normal client access is permitted.
 - Active lock owned by this client: access is permitted with the valid token.
@@ -321,7 +321,7 @@ The exact activation/rename procedure must account for Windows file replacement 
 
 ## 9. Backup and recovery boundary
 
-Manifest/the consuming project owns backup destination, retention, and off-device replication. Todoing exposes a database-aware snapshot operation using SQLite's Online Backup API through rusqlite. Do not copy a live database file blindly. A produced backup must be reopened and integrity-checked before being reported as valid.
+Manifest/the consuming project owns backup destination, retention, and off-device replication. Todoing exposes a database-aware snapshot operation using SQLite's Online Backup API through rusqlite; snapshot creation is rejected while any task lock is active. Do not copy a live database file blindly. A produced backup must be reopened and integrity-checked before being reported as valid.
 
 Git history is not a backup mechanism. Archive/restore and full task import/export remain post-MVP capabilities.
 
