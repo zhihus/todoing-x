@@ -26,9 +26,11 @@ fn create_with_failure(backend: &str, path: &Path) {
     match backend {
         "sqlite" => {
             let mut store = SqliteStore::open(path).unwrap();
-            assert!(store
-                .create_task_with_fault("will-rollback", Fault::ReturnAfterTask)
-                .is_err());
+            assert!(
+                store
+                    .create_task_with_fault("will-rollback", Fault::ReturnAfterTask)
+                    .is_err()
+            );
         }
         "redb" => {
             let store = RedbStore::open(path).unwrap();
@@ -53,7 +55,11 @@ fn sqlite_transaction_rolls_back_task_version_and_history_together() {
     store.create_task("committed").unwrap();
     assert_eq!(
         store.counts().unwrap(),
-        Counts { tasks: 1, versions: 1, history: 1 }
+        Counts {
+            tasks: 1,
+            versions: 1,
+            history: 1
+        }
     );
 }
 
@@ -97,7 +103,11 @@ fn assert_multi_process_writes(backend: &str, path: &Path) {
 
     assert_eq!(
         counts(backend, path),
-        Counts { tasks: 100, versions: 100, history: 100 }
+        Counts {
+            tasks: 100,
+            versions: 100,
+            history: 100
+        }
     );
 }
 
@@ -122,7 +132,11 @@ fn assert_process_exit_recovery(backend: &str, path: &Path) {
         .arg(path)
         .status()
         .unwrap();
-    assert_eq!(status.code(), Some(86), "{backend} worker did not exit at the fault point");
+    assert_eq!(
+        status.code(),
+        Some(86),
+        "{backend} worker did not exit at the fault point"
+    );
 
     assert_eq!(counts(backend, path), Counts::default());
 }
