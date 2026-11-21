@@ -198,3 +198,18 @@ fn initial_migration_matches_the_documented_schema() {
     const MIGRATION: &str = include_str!("../../migrations/0001_initial.sql");
     assert_eq!(MIGRATION, DOCUMENTED);
 }
+
+#[test]
+fn verify_rejects_project_identity_drift() {
+    let root = tempdir().unwrap();
+    let store = Store::initialize(root.path(), project_id()).unwrap();
+    store.connection().unwrap().execute(
+        "UPDATE store_metadata SET value = 'different-project' WHERE key = 'project_id'",
+        [],
+    ).unwrap();
+
+    assert!(matches!(
+        store.verify(),
+        Err(StoreError::ProjectIdMismatch { .. })
+    ));
+}
