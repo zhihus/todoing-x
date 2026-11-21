@@ -69,7 +69,7 @@ Historical task records remain readable when a status is disabled or retired.
 
 Completion and cancellation are distinct outcomes. They must not be collapsed into ordinary workflow status values. The exact mapping between workflow status and outcome is still an integration design decision.
 
-**Recommendation:** TOML in the project-local Todoing directory, based on the configuration-format evaluation. This is not yet an approved schema or implementation decision. **Open:** exact path, field schema, schema versioning, defaults for a new project, and behavior when a referenced status definition is missing. See `docs/architecture/research/status-config-format.md`.
+**Decision:** use TOML at `.todoing/config.toml` for user-edited status and transition configuration. The exact field schema, schema versioning, defaults for a new project, and behavior when a referenced status definition is missing remain to be specified. See `docs/architecture/research/status-config-format.md`.
 
 ## 5. Dependencies
 
@@ -105,9 +105,7 @@ The storage-engine comparison shows why database concurrency alone is insufficie
 - how stale reader/owner state is recovered after process termination;
 - how lock acquisition, renewal, expiry, and task mutation are serialized across OS processes.
 
-The leading candidate for a prototype is a hybrid protocol: persist the long-lived owner lease in the transactional store, and use short-lived per-task shared/exclusive OS file locks as an access barrier. The exclusive barrier drains in-flight operations before lock acquisition; later operations check the persisted lease while holding a shared barrier. This avoids holding a database transaction for the full agent session.
-
-A dedicated local coordinator remains an alternative if the hybrid protocol cannot provide reliable cross-platform behavior. The hybrid protocol is not approved until Windows and Unix multi-process tests prove strict read exclusion, in-flight operation handling, and crash recovery. See `docs/architecture/research/task-lock-protocol.md`.
+The selected coordination model is a hybrid protocol: persist the long-lived owner lease in the transactional store, and use short-lived per-task shared/exclusive OS file locks as an access barrier. Ordinary task operations hold a shared barrier while checking the lease and accessing the task. Lock acquisition, release, and stale-lease recovery take the exclusive barrier, which drains in-flight operations. The task-lock research prototype verified the shared/exclusive OS barrier on Windows and Ubuntu; the persisted lease, owner authorization, and recovery logic still require implementation tests. See `docs/architecture/research/task-lock-protocol.md`.
 
 A task lock must not be implemented by holding a long-lived database transaction for the entire agent work session.
 
@@ -115,9 +113,9 @@ A task lock must not be implemented by holding a long-lived database transaction
 
 The application layer depends on a storage interface that can express atomic units of work, uniqueness constraints, and concurrent access results.
 
-SQLite via rusqlite is the leading prototype candidate. redb is the required comparison candidate. The storage engine remains undecided until the cross-platform, multi-process, crash-recovery, lock, migration, and backup tests in the research note are completed.
+**Decision:** use SQLite via rusqlite with the bundled SQLite library. Use WAL mode on a local project filesystem; network filesystems are unsupported. The isolated prototype passed transaction rollback, process-exit recovery, and multi-process writer tests on Windows and Ubuntu. SQLite was selected over redb because its relational model reduces custom indexing and consistency code for tasks, dependencies, versions, history, statuses, and locks. See `docs/architecture/research/storage-engine-evaluation.md`.
 
-No database-specific schema, SQL dialect, or file layout is approved by this draft.
+The production schema, SQL migrations, busy handling, and backup/restore procedure remain to be specified.
 
 ## 9. CLI and JSON contract
 
@@ -164,14 +162,13 @@ The application must return deterministic errors for recoverable conflicts and m
 
 ## 12. Decisions required before implementation
 
-1. Final storage engine after prototype and failure testing.
-2. Task lock protocol, including strict read exclusion and in-flight read handling.
-3. Status configuration format, schema, and default configuration.
-4. Completion/cancellation outcome representation and workflow mapping.
-5. Actor identity model.
-6. Version snapshot and comparison semantics.
-7. JSON contract versioning, envelope, error codes, and exit-code mapping.
-8. Migration conflict, rerun, and unknown-field policy.
-9. Backup/restore integration contract and integrity checks.
+1. Exact SQLite schema, schema migration policy, busy handling, and backup/restore procedure.
+2. Task lock owner identity versus credential, credential delivery, lease duration, heartbeat interval, expiry/recovery policy, and list/filter behavior for locked tasks.
+3. Completion/cancellation outcome representation and workflow mapping.
+4. Actor identity model.
+5. Version snapshot and comparison semantics.
+6. JSON contract versioning, envelope, error codes, and exit-code mapping.
+7. Migration conflict, rerun, and unknown-field policy.
+8. Rust MSRV is 1.89 to use the standard-library file-lock API; implementation must keep CI aligned with this requirement.
 
 Implementation must not silently resolve these open decisions.
