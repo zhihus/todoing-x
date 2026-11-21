@@ -105,3 +105,15 @@ This section records static repository inspection. It does not claim that tests 
 - Preliminary decisions require validation before becoming final.
 - Open questions require an explicit decision record.
 - Implementation status must be tracked separately from decision status. A requirement being accepted or documented does not mean it has been implemented.
+
+
+## 8. Storage research outcome — recommendation, not final decision
+
+The technical comparison is recorded in [Storage Engine Research](storage-research.md).
+
+- SQLite via `rusqlite` is the recommended first prototype because the target data model is relational and depends on multi-entity transactions, constraints, and indexed dependency/history/version queries.
+- redb 5.x remains the principal alternative and must be tested against the same transaction, multi-process, lock, recovery, and backup workload.
+- LMDB/heed remains a secondary alternative. sled is not recommended for the current multi-process CLI workload.
+- Markdown/YAML task files and the JSON index remain migration/interchange formats, not the target transactional primary store.
+
+**Decision status: Preliminary.** No storage engine is selected. A final decision requires comparable prototypes, failure-injection tests, Windows/Linux multi-process validation, and backup/restore verification. The accepted product requirement for atomic task/version/history/state changes remains unchanged.
