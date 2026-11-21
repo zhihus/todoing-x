@@ -1,4 +1,4 @@
-use clap::{Args, Parser, Subcommand};
+use clap::{Args, Parser, Subcommand, ValueEnum};
 use serde::Serialize;
 use std::{
     fs,
@@ -132,6 +132,34 @@ struct DeleteArgs {
     id: String,
     #[arg(short='f', long="force", help="Skip confirmation")]
     force: bool,
+}
+
+#[derive(Args)]
+struct HooksArgs {
+    #[command(subcommand)]
+    command: HooksCommands,
+}
+
+#[derive(Subcommand)]
+enum HooksCommands {
+    Status,
+    Install {
+        #[arg(value_enum, help="Standard hook set to install")]
+        hook: HookSelection,
+    },
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
+enum HookSelection {
+    Git,
+    Openspec,
+    All,
+}
+
+#[derive(Args)]
+struct InternalHookArgs {
+    #[arg(help="Internal hook name")]
+    name: String,
 }
 
 fn fail(message: impl AsRef<str>) -> ! {
@@ -472,4 +500,53 @@ fn run() {
         None => {}
     }
 }
+
+#[cfg(test)]
+mod cli_tests {
+    use super::*;
+
+    #[test]
+    fn parses_hook_status_command() {
+        let cli = Cli::try_parse_from(["todoing", "hooks", "status"]).unwrap();
+        assert!(matches!(
+            cli.command,
+            Some(Commands::Hooks(HooksArgs {
+                command: HooksCommands::Status
+            }))
+        ));
+    }
+
+    #[test]
+    fn parses_each_standard_hook_install_target() {
+        for (value, expected) in [
+            ("git", HookSelection::Git),
+            ("openspec", HookSelection::Openspec),
+            ("all", HookSelection::All),
+        ] {
+            let cli = Cli::try_parse_from(["todoing", "hooks", "install", value]).unwrap();
+            assert!(matches!(
+                cli.command,
+                Some(Commands::Hooks(HooksArgs {
+                    command: HooksCommands::Install { hook }
+                })) if hook == expected
+            ));
+        }
+    }
+
+    #[test]
+    fn parses_hidden_internal_hook_command() {
+        let cli = Cli::try_parse_from(["todoing", "__hook", "before-done-git"]).unwrap();
+        assert!(matches!(
+            cli.command,
+            Some(Commands::InternalHook(InternalHookArgs { name }))
+                if name == "before-done-git"
+        ));
+    }
+
+    #[test]
+    fn rejects_unknown_standard_hook_install_target() {
+        assert!(Cli::try_parse_from(["todoing", "hooks", "install", "unknown"]).is_err());
+    }
+}
+
 fn main() { run(); }
