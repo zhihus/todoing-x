@@ -323,7 +323,7 @@ mod tests {
         legacy.write_task(&legacy_task(7, LegacyStatus::InProgress)).unwrap();
         let index_path = root.path().join(TODOING_DIR).join("index.json");
         fs::write(&index_path, "broken index").unwrap();
-        let original_task = fs::read(legacy.tasks.join("7.md")).unwrap();
+        let original_task = fs::read(root.path().join(TODOING_DIR).join("tasks").join("7.md")).unwrap();
         let original_index = fs::read(&index_path).unwrap();
 
         let report = migrate(
@@ -399,7 +399,7 @@ mod tests {
         let root = tempdir().unwrap();
         let legacy = LegacyStore::new(root.path());
         legacy.write_task(&legacy_task(0, LegacyStatus::Todo)).unwrap();
-        let original = fs::read(legacy.tasks.join("0.md")).unwrap();
+        let original = fs::read(root.path().join(TODOING_DIR).join("tasks").join("0.md")).unwrap();
 
         let result = migrate(
             root.path(),
@@ -420,7 +420,7 @@ mod tests {
         let legacy = LegacyStore::new(root.path());
         legacy.write_task(&legacy_task(1, LegacyStatus::Todo)).unwrap();
         SqliteStore::initialize(root.path(), ProjectId::new("existing-project").unwrap()).unwrap();
-        let original = fs::read(legacy.tasks.join("1.md")).unwrap();
+        let original = fs::read(root.path().join(TODOING_DIR).join("tasks").join("1.md")).unwrap();
 
         assert!(matches!(
             migrate(root.path(), &ProjectId::new("migration-project").unwrap(), &actor_id(), false),
