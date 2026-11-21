@@ -13,26 +13,35 @@ The system MUST store task data under the `.todoing/` directory of the current w
 #### Scenario: First task operation
 
 - **WHEN** a task operation requires storage and the project has no Todoing store
-- **THEN** the system creates the required `.todoing/tasks/` directory and storage files as needed
+- **THEN** the system creates the required `.todoing/tasks/` directory
+- **AND** creates or rebuilds `.todoing/index.json` when the operation requires the index
 
 ### Requirement: Markdown task records
 
 The system MUST persist each task as a Markdown file under `.todoing/tasks/`, named with its task identifier and the `.md` extension.
 
-Each task record MUST represent the task identifier, title, creation timestamp, status, labels, description body, and optional Git commit references using YAML frontmatter and Markdown body content.
+Task records use YAML frontmatter and a Markdown body. The task identifier and title are required. If omitted, status defaults to `todo`, labels and commit references default to empty collections, the creation timestamp defaults to the current local time, and the description body defaults to empty.
 
-#### Scenario: Read an existing task
+#### Scenario: Read and rewrite a task
 
-- **WHEN** a task file contains valid YAML frontmatter and supported field values
-- **THEN** the system parses the supported task fields
-- **AND** can rewrite those fields in the Todoing Markdown representation
+- **WHEN** a task file contains valid supported frontmatter fields
+- **THEN** the system parses the task fields
+- **AND** can rewrite the task in the Todoing Markdown representation
 
-The current implementation normalizes the description body by trimming its leading and trailing whitespace when reading a task. Frontmatter fields not represented by the current task model are not preserved when the task is rewritten.
+The current implementation trims leading and trailing whitespace from the description body when reading and writing a task. Frontmatter fields not represented by the current task model are not preserved when the task is rewritten.
 
-#### Scenario: Invalid or unreadable task file
+#### Scenario: Skip a task file without usable frontmatter
 
-- **WHEN** a task file cannot be parsed as a valid task
-- **THEN** the system skips some malformed or incomplete files during index rebuild, or returns an error for invalid required fields and unreadable content, according to the failure condition
+- **WHEN** a scanned Markdown file has no opening frontmatter delimiter, no closing delimiter, or frontmatter that cannot be parsed as YAML
+- **THEN** the file is skipped during index rebuild
+- **AND** a warning is emitted when the opening delimiter is missing
+
+#### Scenario: Reject invalid task fields
+
+- **WHEN** a scanned file has non-mapping frontmatter or an invalid or missing required field, or an invalid supplied status, label, commit reference, or creation timestamp
+- **THEN** index rebuild fails with an error identifying the task file
+
+Unreadable files caused by invalid UTF-8 produce an error. Other file-read errors are skipped by the current implementation.
 
 ### Requirement: Rebuildable JSON index
 
@@ -43,14 +52,21 @@ The index MUST be rebuildable from valid Markdown task files.
 #### Scenario: Rebuild index
 
 - **WHEN** the user runs `todoing reindex`
-- **THEN** the system scans task Markdown files
-- **AND** rewrites the JSON index from the tasks it can parse
-- **AND** fails if a scanned file has invalid required task fields
+- **THEN** the system scans task Markdown files in ascending numeric filename order
+- **AND** rewrites the JSON index from the task files it can parse
+- **AND** fails if a scanned file contains invalid required or supplied task fields
+
+#### Scenario: Recover a missing or structurally invalid index
+
+- **WHEN** the index is missing, contains invalid JSON, is not a JSON array, or contains an item missing its `id` or `title` key
+- **THEN** the system rebuilds the index from task Markdown files
+
+An index item that contains the required keys but has invalid field values produces an error instead of triggering a rebuild.
 
 #### Scenario: Scan before listing
 
 - **WHEN** the user runs `todoing ls --scan`
-- **THEN** the system scans task Markdown files and rebuilds the JSON index
+- **THEN** the system scans task Markdown files and rebuilds `.todoing/index.json`
 - **AND** produces the listing from the rebuilt index
 
 ### Requirement: Atomic replacement of individual files
@@ -63,7 +79,7 @@ This requirement describes individual file replacement only. It does not establi
 
 - **WHEN** the system successfully writes a task or index file
 - **THEN** the destination contains the complete new file content
-- **AND** no partially written destination content is exposed by the replacement operation
+- **AND** the replacement operation does not expose partially written destination content
 
 #### Scenario: Failure between task and index writes
 
