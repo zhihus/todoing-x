@@ -119,6 +119,8 @@ CREATE TABLE task_locks (
 );
 
 CREATE INDEX idx_tasks_status ON tasks(status_id, task_id);
+CREATE INDEX idx_task_labels_key ON task_labels(label_key, task_id);
+CREATE INDEX idx_task_commit_refs_sha ON task_commit_refs(sha, task_id);
 CREATE INDEX idx_tasks_outcome ON tasks(outcome, task_id);
 CREATE INDEX idx_tasks_updated ON tasks(updated_at, task_id);
 CREATE INDEX idx_versions_task_no ON task_versions(task_id, version_no DESC);
