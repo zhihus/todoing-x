@@ -1,4 +1,11 @@
-use std::{env, process};
+use std::{
+    env,
+    fs::OpenOptions,
+    io::{self, Write},
+    process,
+    thread,
+    time::Duration,
+};
 use todoing_storage_evaluation::{Fault, RedbStore, SqliteStore};
 
 fn main() {
@@ -46,6 +53,21 @@ fn main() {
         ("crash", "redb") => {
             let store = RedbStore::open(path).unwrap_or_else(fail);
             let _ = store.create_task_with_fault("interrupted", Fault::ExitAfterTask);
+        }
+        ("guard", "file") => {
+            let milliseconds = args.get(3).and_then(|v| v.parse::<u64>().ok()).unwrap_or(700);
+            let file = OpenOptions::new()
+                .read(true)
+                .write(true)
+                .create(true)
+                .open(path)
+                .unwrap_or_else(|e| fail(e.to_string()));
+            file.lock_shared()
+                .unwrap_or_else(|e| fail(e.to_string()));
+            println!("ready");
+            io::stdout().flush().unwrap_or_else(|e| fail(e.to_string()));
+            thread::sleep(Duration::from_millis(milliseconds));
+            drop(file);
         }
         _ => {
             eprintln!("unsupported mode/backend: {mode}/{backend}");
