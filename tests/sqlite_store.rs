@@ -140,7 +140,11 @@ fn approved_baseline_points_to_a_specific_immutable_version() {
 
     store.approve_version(task.id, 2, "reviewer").unwrap();
     assert_eq!(
-        store.get_approved_version(task.id).unwrap().unwrap().version_no,
+        store
+            .get_approved_version(task.id)
+            .unwrap()
+            .unwrap()
+            .version_no,
         2
     );
     assert_eq!(store.get_versions(task.id).unwrap().len(), 2);
