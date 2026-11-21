@@ -96,7 +96,7 @@ This is an example configuration, not a mandatory Todoing workflow. A project ma
 ### 3.2 Validation rules
 
 - format_version MUST be supported.
-- Status IDs MUST be unique, stable slugs matching [a-z0-9][a-z0-9_-]*.
+- Status IDs MUST be unique, stable lowercase ASCII slugs matching [a-z0-9][a-z0-9_-]* and no longer than 64 characters.
 - Labels MUST contain a non-whitespace character.
 - Status IDs MUST NOT be silently renamed or reused for a different meaning.
 - enabled defaults to true.
@@ -245,7 +245,7 @@ The busy timeout is 10 seconds. If SQLite remains busy after the timeout, return
 - Lease: 300 seconds.
 - Heartbeat: every 60 seconds.
 - Recovery grace: 60 seconds after lease expiry.
-- Values may be changed in project configuration, subject to validation: heartbeat MUST be less than one third of lease duration.
+- Lease duration MUST be at least 60 seconds. Values may be changed in project configuration, subject to validation: heartbeat MUST be positive and less than one third of lease duration.
 
 The lock record uses UTC epoch milliseconds for acquisition, heartbeat, and expiry. Clock source is abstracted behind a testable clock interface. The system assumes the local machine clock is maintained by the OS time service. A forward clock jump may expire a lease early; a fencing generation prevents the stale owner from writing after recovery. A backward jump may delay recovery. The CLI exposes expiry details and does not automatically steal an expired lock.
 
