@@ -61,7 +61,7 @@ The model is independent of the final database schema.
 
 The exact representation of completion and cancellation alongside configurable statuses is unresolved. The model must preserve the semantic distinction without assuming that a particular status string is the outcome itself.
 
-Dependency records must be queryable in both directions. Whether a cancelled prerequisite satisfies a dependent task remains unresolved.
+Dependency records must be queryable in both directions, and clients must be able to inspect each prerequisite's current state. Whether a particular dependency state blocks a status transition is a separate product decision and is not defined by this change.
 
 History and version records must remain separate concepts: history records operations and outcomes; versions preserve task snapshots. A successful save creates a version, but not every history event necessarily changes task content.
 
@@ -243,7 +243,7 @@ Performance tests must use representative task counts and history/version growth
 1. Final storage engine after SQLite/redb prototype comparison.
 2. Physical schema and schema migration/versioning strategy.
 3. Status configuration syntax and completion/cancellation representation.
-4. Whether dependency state blocks status transitions and how dependency state is derived from prerequisite outcomes.
+4. Whether dependency state blocks status transitions and how prerequisite states affect that policy.
 5. Lock owner identity, credential transport, lease duration, heartbeat, and recovery rules.
 6. Lock-aware list behavior and read/acquisition linearization.
 7. Which events outside the task-operation layer belong in history, and how failures that prevent a history write are surfaced.
