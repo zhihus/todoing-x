@@ -10,7 +10,6 @@ use std::{
     time::Duration,
 };
 use tempfile::NamedTempFile;
-use sha2::{Digest, Sha256};
 
 const SCHEMA_VERSION: u32 = 1;
 const BUSY_TIMEOUT: Duration = Duration::from_secs(10);
