@@ -169,6 +169,8 @@ No final table schema, database filename, journal mode, connection pool, or Rust
 
 ## 8. CLI and JSON contract
 
+Detailed options for actor identity, operation-history semantics, version snapshots/comparison, JSON envelopes, error codes, and migration are recorded in [Design Proposals: History, JSON Contract, and Migration](api-history-migration-design.md). Those recommendations remain proposals until accepted in the decision register.
+
 The CLI is the primary user and agent interface. Command handlers must call application services and must not contain independent business logic.
 
 The JSON interface must be explicitly versioned and deterministic. The contract must define:
@@ -202,7 +204,7 @@ Todoing must not ship Manifest's six workflow statuses as mandatory built-in beh
 
 ## 10. Migration
 
-Migration from the existing format is a required MVP capability.
+Migration from the existing format is a required MVP capability. Detailed source-conflict, preservation, cutover, and rollback options are recorded in [Design Proposals: History, JSON Contract, and Migration](api-history-migration-design.md).
 
 The migration service must:
 
