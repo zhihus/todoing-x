@@ -218,7 +218,7 @@ fn archive_obeys_existing_task_lock_ownership() {
     let task = repository.create(new_task("locked"), &actor()).unwrap();
     let service = repository.lock_service().unwrap();
     let owner = actor();
-    let grant = service.acquire(task.id, &owner).unwrap();
+    let grant = service.acquire(task.id, "repository-test-owner", &owner).unwrap();
     let other = ActorContext::new(ActorId::new("agent:other").unwrap());
 
     assert!(matches!(repository.archive(task.id, &other), Err(super::StoreError::TaskLocked)));
