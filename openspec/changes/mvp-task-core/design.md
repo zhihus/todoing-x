@@ -105,7 +105,9 @@ The storage-engine comparison shows why database concurrency alone is insufficie
 - how stale reader/owner state is recovered after process termination;
 - how lock acquisition, renewal, expiry, and task mutation are serialized across OS processes.
 
-Candidate mechanisms include a persisted lease protocol coordinated through the transactional store, cross-process OS locks, or a dedicated local coordinator. None is selected in this draft. A mechanism is acceptable only after Windows and Unix multi-process tests prove the required read exclusion and crash recovery.
+The leading candidate for a prototype is a hybrid protocol: persist the long-lived owner lease in the transactional store, and use short-lived per-task shared/exclusive OS file locks as an access barrier. The exclusive barrier drains in-flight operations before lock acquisition; later operations check the persisted lease while holding a shared barrier. This avoids holding a database transaction for the full agent session.
+
+A dedicated local coordinator remains an alternative if the hybrid protocol cannot provide reliable cross-platform behavior. The hybrid protocol is not approved until Windows and Unix multi-process tests prove strict read exclusion, in-flight operation handling, and crash recovery. See `docs/architecture/research/task-lock-protocol.md`.
 
 A task lock must not be implemented by holding a long-lived database transaction for the entire agent work session.
 
