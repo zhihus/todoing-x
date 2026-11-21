@@ -48,7 +48,7 @@ fn main() {
     }
 }
 
-fn fail(error: String) -> ! {
+fn fail<T>(error: String) -> T {
     eprintln!("{error}");
     process::exit(1);
 }
