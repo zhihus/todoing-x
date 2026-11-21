@@ -251,7 +251,7 @@ Selected model:
 - Outcome is absent for active tasks and explicitly set to completed or cancelled for terminal results.
 - A configured status may map to completed (for example, Done).
 - The explicit cancellation operation sets cancelled without changing workflow status and accepts an optional reason.
-- Reopen clears the outcome; any status change then follows normal configured transition rules.
+- Reopen clears the outcome. If the current status maps to an outcome, reopening requires a configured transition to an enabled status without an outcome; otherwise the current status may be retained.
 
 This preserves the distinction between a configurable status label and the semantic result.
 
