@@ -899,4 +899,75 @@ mod contract_tests {
         assert_eq!(api_exit_code("internal_error"), 70);
     }
 
+
+    #[test]
+    fn api_archive_restore_and_archive_state_filtering_are_consistent() {
+        let root = setup_project();
+        let first = execute(request("api-test-project", "task.create", json!({
+            "title": "Archive candidate"
+        })), root.path()).unwrap();
+        let first_id = first["task"]["id"].as_i64().unwrap();
+        let second = execute(request("api-test-project", "task.create", json!({
+            "title": "Active candidate"
+        })), root.path()).unwrap();
+        let second_id = second["task"]["id"].as_i64().unwrap();
+
+        let archived = execute(request("api-test-project", "task.archive", json!({
+            "task_id": first_id
+        })), root.path()).unwrap();
+        assert_eq!(archived["no_op"], false);
+        assert!(archived["task"]["archived_at"].is_string());
+        assert_eq!(archived["task"]["archived_by"], "contract-test-agent");
+
+        let active = execute(request("api-test-project", "task.list", json!({})), root.path()).unwrap();
+        assert_eq!(active["tasks"].as_array().unwrap().len(), 1);
+        assert_eq!(active["tasks"][0]["id"], second_id);
+
+        let archive_view = execute(request("api-test-project", "task.list", json!({
+            "archive_state": "archived"
+        })), root.path()).unwrap();
+        assert_eq!(archive_view["tasks"].as_array().unwrap().len(), 1);
+        assert_eq!(archive_view["tasks"][0]["id"], first_id);
+
+        let all = execute(request("api-test-project", "task.list", json!({
+            "archive_state": "all"
+        })), root.path()).unwrap();
+        assert_eq!(all["tasks"].as_array().unwrap().len(), 2);
+
+        let read = execute(request("api-test-project", "task.get", json!({
+            "task_id": first_id
+        })), root.path()).unwrap();
+        assert_eq!(read["task"]["archived_at"], archived["task"]["archived_at"]);
+
+        let denied = execute(request("api-test-project", "task.update", json!({
+            "task_id": first_id, "patch": {"title": "cannot edit"}
+        })), root.path()).unwrap_err();
+        assert_eq!(denied.code, "task_archived");
+
+        let lock_denied = execute(request("api-test-project", "task.lock.acquire", json!({
+            "task_id": first_id
+        })), root.path()).unwrap_err();
+        assert_eq!(lock_denied.code, "task_archived");
+
+        let repeated = execute(request("api-test-project", "task.archive", json!({
+            "task_id": first_id
+        })), root.path()).unwrap();
+        assert_eq!(repeated["no_op"], true);
+
+        let restored = execute(request("api-test-project", "task.restore", json!({
+            "task_id": first_id
+        })), root.path()).unwrap();
+        assert_eq!(restored["no_op"], false);
+        assert!(restored["task"]["archived_at"].is_null());
+        assert!(restored["task"]["archived_by"].is_null());
+
+        let repeated_restore = execute(request("api-test-project", "task.restore", json!({
+            "task_id": first_id
+        })), root.path()).unwrap();
+        assert_eq!(repeated_restore["no_op"], true);
+
+        let final_list = execute(request("api-test-project", "task.list", json!({})), root.path()).unwrap();
+        assert_eq!(final_list["tasks"].as_array().unwrap().len(), 2);
+    }
+
 }
