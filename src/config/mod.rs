@@ -92,12 +92,12 @@ impl ProjectConfig {
 
         let mut transitions = HashSet::new();
         for transition in &self.transitions {
-            let Some(source) = statuses.get(transition.from.as_str()) else {
+            if !statuses.contains_key(transition.from.as_str()) {
                 return Err(ConfigError::UnknownTransitionEndpoint {
                     from: transition.from.clone(),
                     to: transition.to.clone(),
                 });
-            };
+            }
             let Some(target) = statuses.get(transition.to.as_str()) else {
                 return Err(ConfigError::UnknownTransitionEndpoint {
                     from: transition.from.clone(),
@@ -116,7 +116,6 @@ impl ProjectConfig {
                     to: transition.to.clone(),
                 });
             }
-            let _ = source;
         }
 
         Ok(())
@@ -174,7 +173,7 @@ pub struct StatusDefinition {
     pub label: String,
     #[serde(default = "default_enabled")]
     pub enabled: bool,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub outcome: Option<TaskOutcome>,
 }
 
@@ -256,3 +255,9 @@ impl fmt::Display for ConfigError {
 }
 
 impl std::error::Error for ConfigError {}
+
+impl From<ConfigError> for crate::domain::AppError {
+    fn from(error: ConfigError) -> Self {
+        Self::new(crate::domain::ErrorCode::ConfigInvalid, error.to_string())
+    }
+}
