@@ -230,11 +230,14 @@ fn execute(request: Request, root: &Path) -> Result<Value, ApiError> {
             let mut tasks = repository.list().map_err(store_error)?;
             if let Some(status) = args.status_id { tasks.retain(|task| task.status_id.as_str() == status); }
             if let Some(outcome) = args.outcome {
+                if !matches!(outcome.as_str(), "active" | "completed" | "cancelled") {
+                    return Err(invalid("outcome must be active, completed, or cancelled".into()));
+                }
                 tasks.retain(|task| match outcome.as_str() {
                     "active" => task.outcome.is_none(),
                     "completed" => task.outcome.is_some_and(|value| value == crate::domain::TaskOutcome::Completed),
                     "cancelled" => task.outcome.is_some_and(|value| value == crate::domain::TaskOutcome::Cancelled),
-                    _ => false,
+                    _ => unreachable!(),
                 });
             }
             for label in args.labels { tasks.retain(|task| task.labels.iter().any(|item| item.eq_ignore_ascii_case(&label))); }
