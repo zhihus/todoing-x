@@ -141,3 +141,23 @@ fn approved_baseline_points_to_a_specific_immutable_version() {
         .iter()
         .any(|entry| entry.operation == "baseline_approve"));
 }
+
+#[test]
+fn rejects_invalid_outcomes_commit_ids_and_empty_actors() {
+    let dir = tempdir().unwrap();
+    let mut store = SqliteStore::new(dir.path()).unwrap();
+
+    let mut invalid_outcome = new_task("invalid outcome");
+    invalid_outcome.outcome = Some("finished".into());
+    assert!(store.create_task(invalid_outcome).is_err());
+
+    let mut abbreviated_commit = new_task("abbreviated commit");
+    abbreviated_commit.commits = vec!["abc123".into()];
+    assert!(store.create_task(abbreviated_commit).is_err());
+
+    let mut empty_actor = new_task("empty actor");
+    empty_actor.actor.clear();
+    assert!(store.create_task(empty_actor).is_err());
+
+    assert_eq!(store.counts().unwrap(), StoreCounts::default());
+}
