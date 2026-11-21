@@ -99,7 +99,7 @@ The isolated SQLite spike was run by GitHub Actions on both ubuntu-latest and wi
 - After acquisition, a non-owner read was rejected while the lock owner retained access.
 - Eight independent processes allocated unique task identifiers through serialized write transactions.
 - An uncommitted transaction was rolled back after its process terminated without dropping the connection normally.
-- A fencing generation rejected a former owner after an expired lock was recovered by another owner.
+- A SHA-256 token hash rejected a wrong token even when the owner ID matched; a fencing generation rejected a former owner after an expired lock was recovered by another owner.
 
 The existing application test suite, release build, isolated installation, and binary smoke test also passed on both operating systems after restoring the missing Clap argument types in main.rs. The initial CI run had exposed those missing type definitions; the correction restores the existing hooks command's argument model and does not change hook execution behavior.
 
