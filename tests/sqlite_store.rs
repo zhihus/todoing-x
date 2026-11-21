@@ -42,7 +42,7 @@ fn create_task_commits_task_version_and_history_together() {
 #[test]
 fn failed_history_insert_rolls_back_task_and_version() {
     let dir = tempdir().unwrap();
-    let store = SqliteStore::new(dir.path()).unwrap();
+    let mut store = SqliteStore::new(dir.path()).unwrap();
     let db_path = store.db_path().to_path_buf();
     drop(store);
 
@@ -58,7 +58,7 @@ fn failed_history_insert_rolls_back_task_and_version() {
         .unwrap();
     drop(connection);
 
-    let store = SqliteStore::new(dir.path()).unwrap();
+    let mut store = SqliteStore::new(dir.path()).unwrap();
     assert!(store.create_task(new_task("must roll back")).is_err());
     assert_eq!(store.counts().unwrap(), StoreCounts::default());
 }
@@ -66,7 +66,7 @@ fn failed_history_insert_rolls_back_task_and_version() {
 #[test]
 fn task_ids_are_not_reused_and_physical_delete_is_rejected() {
     let dir = tempdir().unwrap();
-    let store = SqliteStore::new(dir.path()).unwrap();
+    let mut store = SqliteStore::new(dir.path()).unwrap();
 
     let first = store.create_task(new_task("first")).unwrap();
     let second = store.create_task(new_task("second")).unwrap();
