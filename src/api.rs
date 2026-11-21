@@ -248,8 +248,10 @@ fn execute(request: Request, root: &Path) -> Result<Value, ApiError> {
     match request.operation.as_str() {
         "store.info" => {
             parse_args::<EmptyArgs>(request.args).map_err(|error| invalid(error.to_string()))?;
-            let tasks = repository.list().map_err(store_error)?;
-            Ok(json!({"project_id": store.project_id(), "schema_version": 1, "api_version": 1, "task_count": tasks.len()}))
+            let connection = store.connection().map_err(store_error)?;
+            let task_count: i64 = connection.query_row("SELECT COUNT(*) FROM tasks", [], |row| row.get(0))
+                .map_err(|error| store_error(StoreError::from(error)))?;
+            Ok(json!({"project_id": store.project_id(), "schema_version": 1, "api_version": 1, "task_count": task_count}))
         }
         "store.verify" => {
             #[derive(Deserialize)]
@@ -271,7 +273,8 @@ fn execute(request: Request, root: &Path) -> Result<Value, ApiError> {
                 None => StatusId::new(config.first_enabled_status().ok_or_else(|| invalid("No enabled statuses".into()))?.id.clone()).map_err(|error| invalid(error.to_string()))?,
             };
             let task = repository.create(NewTask { title: args.title, status_id: status, outcome: None, body: args.body, labels: args.labels, commit_refs: vec![] }, &actor).map_err(store_error)?;
-            Ok(json!({"task": task, "version_no": 1}))
+            let event_id = repository.get_history(task.id).map_err(store_error)?.last().map(|event| event.event_id);
+            Ok(json!({"task": task, "version_no": 1, "event_id": event_id}))
         }
         "task.list" => {
             let args: ListArgs = parse_args(request.args).map_err(|error| invalid(error.to_string()))?;
