@@ -149,7 +149,9 @@ impl RedbStore {
         {
             let _meta = transaction.open_table(META).map_err(|e| e.to_string())?;
             let _tasks = transaction.open_table(TASKS).map_err(|e| e.to_string())?;
-            let _versions = transaction.open_table(VERSIONS).map_err(|e| e.to_string())?;
+            let _versions = transaction
+                .open_table(VERSIONS)
+                .map_err(|e| e.to_string())?;
             let _history = transaction.open_table(HISTORY).map_err(|e| e.to_string())?;
         }
         transaction.commit().map_err(|e| e.to_string())?;
