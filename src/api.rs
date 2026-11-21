@@ -82,6 +82,8 @@ struct ListArgs {
     limit: Option<usize>,
     #[serde(default)]
     reverse: bool,
+    #[serde(default)]
+    archive_state: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -319,7 +321,12 @@ fn execute(request: Request, root: &Path) -> Result<Value, ApiError> {
         "task.list" => {
             let args: ListArgs = parse_args(request.args).map_err(|error| invalid(error.to_string()))?;
             if args.limit == Some(0) { return Err(invalid("limit must be a positive integer".into())); }
-            let mut tasks = repository.list().map_err(store_error)?;
+            let mut tasks = match args.archive_state.as_deref().unwrap_or("active") {
+                "active" => repository.list(),
+                "archived" => repository.list_archived(),
+                "all" => repository.list_all(),
+                _ => return Err(invalid("archive_state must be active, archived, or all".into())),
+            }.map_err(store_error)?;
             if let Some(status) = args.status_id { tasks.retain(|task| task.status_id.as_str() == status); }
             if let Some(outcome) = args.outcome {
                 if !matches!(outcome.as_str(), "active" | "completed" | "cancelled") {
@@ -341,6 +348,16 @@ fn execute(request: Request, root: &Path) -> Result<Value, ApiError> {
             if !args.reverse { tasks.reverse(); }
             if let Some(limit) = args.limit { tasks.truncate(limit); }
             Ok(json!({"tasks": tasks}))
+        }
+        "task.archive" => {
+            let args: TaskIdArgs = parse_args(request.args).map_err(|error| invalid(error.to_string()))?;
+            let result = repository.archive(id(args.task_id).map_err(|error| invalid(error.to_string()))?, &actor).map_err(store_error)?;
+            Ok(json!({"task": result.task, "no_op": result.no_op}))
+        }
+        "task.restore" => {
+            let args: TaskIdArgs = parse_args(request.args).map_err(|error| invalid(error.to_string()))?;
+            let result = repository.restore(id(args.task_id).map_err(|error| invalid(error.to_string()))?, &actor).map_err(store_error)?;
+            Ok(json!({"task": result.task, "no_op": result.no_op}))
         }
         "task.get" => {
             let args: TaskIdArgs = parse_args(request.args).map_err(|error| invalid(error.to_string()))?;
@@ -549,7 +566,7 @@ fn api_exit_code(code: &str) -> i32 {
     match code {
         "invalid_request" | "unsupported_api_version" | "project_id_mismatch" | "config_invalid" => 2,
         "task_not_found" | "version_not_found" | "dependency_not_found" => 3,
-        "task_terminal" | "task_locked" | "lock_expired" | "stale_lock" |
+        "task_terminal" | "task_archived" | "task_locked" | "lock_expired" | "stale_lock" |
         "invalid_status_transition" | "dependency_cycle" => 4,
         "io_error" | "store_corrupt" | "store_busy" | "history_record_failed" => 5,
         "migration_conflict" => 6,
