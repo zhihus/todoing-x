@@ -17,6 +17,8 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: cargo test
+      - name: Test SQLite locking spike
+        run: cargo test --manifest-path spikes/sqlite-locking/Cargo.toml
       - run: cargo build --release
       - name: Install binary into isolated directory
         run: cargo install --path . --root target/install-check
