@@ -602,15 +602,17 @@ impl TaskRepository {
             }
             Err(error) => return Err(error),
         };
-        if let Err(error @ StoreError::TaskNotFound(_)) = load_task(&transaction, depends_on) {
-            drop(transaction);
-            return self.reject_operation(
-                Some(task_id), actor, "task.dependency.add", "dependency_not_found",
-                Some(serde_json::json!({"depends_on": depends_on}).to_string()),
-                StoreError::DependencyNotFound(depends_on.get()),
-            );
-        } else {
-            load_task(&transaction, depends_on)?;
+        match load_task(&transaction, depends_on) {
+            Ok(_) => {}
+            Err(StoreError::TaskNotFound(_)) => {
+                drop(transaction);
+                return self.reject_operation(
+                    Some(task_id), actor, "task.dependency.add", "dependency_not_found",
+                    Some(serde_json::json!({"depends_on": depends_on}).to_string()),
+                    StoreError::DependencyNotFound(depends_on.get()),
+                );
+            }
+            Err(error) => return Err(error),
         }
 
         if task_id == depends_on {
@@ -1041,6 +1043,7 @@ fn same_task_state(current: &Task, requested: &Task) -> bool {
         && current.body == requested.body
         && current.labels == requested.labels.iter().map(|label| label.trim().to_owned()).collect::<Vec<_>>()
         && current.commit_refs == requested.commit_refs
+        && current.dependencies == requested.dependencies
 }
 
 fn load_task(connection: &Connection, id: TaskId) -> Result<Task, StoreError> {
