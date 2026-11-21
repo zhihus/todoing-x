@@ -31,7 +31,7 @@
 
 store.migrate is non-destructive. It refuses to overwrite an existing database. A dry run validates sources and reports expected actions without activating a database.
 
-store.snapshot uses SQLite Online Backup API. The destination must not resolve to the active database path. Existing destination files are not overwritten unless overwrite=true. The snapshot is reopened and integrity-checked before success is returned.
+store.snapshot uses SQLite Online Backup API. It is rejected while any task lock is active so a client cannot use a snapshot to bypass task read exclusion. The destination must not resolve to the active database path. Existing destination files are not overwritten unless overwrite=true. The snapshot is reopened and integrity-checked before success is returned.
 
 ## 3. Task operations
 
@@ -57,7 +57,7 @@ Optional:
 - limit: positive integer; omitted means no limit.
 - reverse: boolean; default false. Default order is descending task ID; reverse=true is ascending.
 
-Locked tasks owned by another client are omitted entirely, including their IDs and fields.
+All locked tasks are omitted entirely from list/search results, including their IDs and fields. The lock owner reads its task through task.get with its token.
 
 ### task.get
 
