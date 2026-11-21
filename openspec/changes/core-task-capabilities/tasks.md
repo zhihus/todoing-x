@@ -21,7 +21,7 @@
 
 ## 3. Verification
 
-- [ ] 3.1 Validate the OpenSpec change with the OpenSpec CLI.
-- [ ] 3.2 Check that every normative requirement has observable scenarios.
-- [ ] 3.3 Check that no future capability is represented as implemented current behavior.
-- [ ] 3.4 Review Windows and Unix-like implications.
+- [x] 3.1 Validate the OpenSpec change with the OpenSpec CLI.
+- [x] 3.2 Check that every normative requirement has observable scenarios.
+- [x] 3.3 Check that no future capability is represented as implemented current behavior.
+- [x] 3.4 Review Windows and Unix-like implications.

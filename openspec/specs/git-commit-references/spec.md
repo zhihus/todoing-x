@@ -32,3 +32,9 @@ The Rust implementation MUST preserve a task's commit references when supported 
 Todoing MUST treat commit references as task traceability metadata.
 
 The presence of a commit reference MUST NOT by itself be treated as proof that a task is complete. The optional bundled Git completion hook may require and validate commit references when that hook is installed.
+
+#### Scenario: Treat commit references as traceability metadata
+
+- **WHEN** a task has one or more linked commit references
+- **THEN** Todoing exposes those references as traceability metadata
+- **AND** does not treat their presence alone as proof that the task is complete

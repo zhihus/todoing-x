@@ -44,8 +44,10 @@
 
 | Area | Preliminary position | Required validation |
 |---|---|---|
-| Primary storage | SQLite is the leading candidate, not a final selection. | Compare transactions, concurrency, locks, history/version growth, portability, backup/restore, performance, and maintenance. |
-| Human-readable format | Markdown/YAML may remain an interchange format. | Define import/export and migration requirements after storage design. |
+| Primary storage | SQLite via rusqlite (bundled) is the preferred candidate; redb remains the alternative. Rollback-journal mode is preferred for the tested lock-acquisition barrier. | Cross-platform prototype passed. Final engine/settings still require explicit approval and production-level tests. |
+| Status configuration format | TOML is the preferred candidate; JSON remains the machine-interface format. | Define the final schema, validation, defaults, and compatibility policy. |
+| Task locking | Durable lease + owner token + fencing generation, with a short SQLite EXCLUSIVE acquisition barrier, is the preferred direction. | Prototype passed on Windows/Linux. Lease timing, clock behavior, and production race/failure tests remain open. |
+| Human-readable format | Markdown/YAML remains the legacy migration source and may be retained as an interchange format. | Define import/export and migration requirements after storage design. |
 | Implementation sequencing | Core reliability and task model precede integration features. | Refine after architecture and dependency analysis. |
 
 ## 4. Open architecture questions
@@ -56,7 +58,7 @@
 4. Stable CLI command set and compatibility policy for existing commands.
 5. JSON API versioning, envelopes, error schema, and exit-code mapping.
 6. Event names, payload schema, ordering, delivery guarantees, retries, and handler failure semantics.
-7. Lock ownership identity, lease/heartbeat protocol, timeout, crash recovery, and filesystem/database behavior.
+7. Lock owner identity, lease/heartbeat timing, clock-change policy, crash recovery, and production filesystem/database behavior. The rollback-journal EXCLUSIVE acquisition barrier passed the current cross-platform prototype.
 8. Version snapshot format, diff semantics, approval marker, and actor identity.
 9. Archive/restore data model and optional retention/limit policies.
 10. Migration from Markdown/YAML plus JSON index, including preservation of IDs and Git references.
@@ -105,3 +107,13 @@ This section records static repository inspection. It does not claim that tests 
 - Preliminary decisions require validation before becoming final.
 - Open questions require an explicit decision record.
 - Implementation status must be tracked separately from decision status. A requirement being accepted or documented does not mean it has been implemented.
+
+
+## 8. Technical research evidence (21 November 2026)
+
+- Detailed candidate comparison and design implications: `docs/architecture/technical-research.md`.
+- Proposed Rust module structure, logical data model, transactions, locking, configuration, API, and migration: `docs/architecture/target-architecture.md`.
+- The isolated SQLite proof of concept passed all five process-level tests on both Ubuntu and Windows: active-reader barrier, non-owner read exclusion, concurrent ID allocation, rollback after abrupt process termination, and stale-owner fencing.
+- The existing application test suite, release build, installation, and binary smoke test also passed on both platforms after restoring missing Clap argument type definitions used by the existing hooks commands.
+- These results validate the prototype scenarios only. The production storage layer, full lease protocol, migration, version/history implementation, and API are not yet implemented.
+- SQLite and TOML remain preliminary recommendations, not final approved technology decisions.
