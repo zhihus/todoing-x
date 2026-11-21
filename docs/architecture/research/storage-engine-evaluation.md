@@ -106,3 +106,19 @@ No prototype, benchmark, cross-platform build, or crash-injection test has been 
 - [heed documentation](https://docs.rs/heed/latest/heed/)
 - [heed read transaction limitations](https://docs.rs/heed/latest/heed/struct.RoTxn.html)
 - [sled documentation](https://docs.rs/sled/latest/sled/)
+
+
+## 8. Prototype evidence (2026-11-21)
+
+An isolated evaluation crate was added in [PR #9](https://github.com/zhihus/todoing-x/pull/9). Its seven tests passed on both Ubuntu and Windows:
+
+- SQLite and redb each rolled back task, version, and history records together after an injected failure.
+- SQLite and redb each recovered the pre-commit state after a child process exited without running Rust destructors.
+- Four independent writer processes per engine created 100 tasks without lost records.
+- The standard-library shared/exclusive file-lock primitive blocked exclusive acquisition until an active shared operation finished.
+
+This evidence establishes basic viability on the two CI platforms. It does **not** establish physical power-loss durability, backup/restore correctness, migration correctness, full task-lease behavior, network-filesystem support, or comparative performance. The lock test validates only the OS barrier primitive, not the complete persisted lease protocol.
+
+Both SQLite and redb passed the scoped tests. SQLite remains the selected engine because Todoing's domain is relational and SQL constraints/indexes reduce custom consistency code across tasks, dependencies, versions, history, status definitions, and locks. redb's pure-Rust implementation and multi-process mode are technically viable, but its key-value model would require Todoing to own more secondary-index and relationship logic. The expected local-first workload does not justify that additional application-level storage complexity.
+
+The SQLite selection is therefore based on the data model, transaction boundary, cross-platform build, and maintainability—not on an unperformed performance benchmark. Revisit only if realistic workload measurements expose a material limitation.
