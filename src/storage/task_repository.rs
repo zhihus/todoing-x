@@ -342,11 +342,27 @@ impl TaskRepository {
     }
 
     pub fn list(&self) -> Result<Vec<Task>, StoreError> {
+        self.list_with_archive_filter(Some(false))
+    }
+
+    pub fn list_archived(&self) -> Result<Vec<Task>, StoreError> {
+        self.list_with_archive_filter(Some(true))
+    }
+
+    pub fn list_all(&self) -> Result<Vec<Task>, StoreError> {
+        self.list_with_archive_filter(None)
+    }
+
+    fn list_with_archive_filter(&self, archived: Option<bool>) -> Result<Vec<Task>, StoreError> {
         let mut connection = self.store.connection()?;
         let transaction = connection.transaction()?;
+        let sql = match archived {
+            Some(false) => "SELECT task_id FROM tasks WHERE archived_at IS NULL ORDER BY task_id ASC",
+            Some(true) => "SELECT task_id FROM tasks WHERE archived_at IS NOT NULL ORDER BY task_id ASC",
+            None => "SELECT task_id FROM tasks ORDER BY task_id ASC",
+        };
         let ids = {
-            let mut statement =
-                transaction.prepare("SELECT task_id FROM tasks ORDER BY task_id ASC")?;
+            let mut statement = transaction.prepare(sql)?;
             let rows = statement.query_map([], |row| row.get::<_, i64>(0))?;
             rows.collect::<Result<Vec<_>, _>>()?
         };
@@ -363,6 +379,75 @@ impl TaskRepository {
         }
         transaction.commit()?;
         Ok(tasks)
+    }
+
+    pub fn archive(&self, task_id: TaskId, actor: &ActorContext) -> Result<TaskArchiveResult, StoreError> {
+        self.set_archive_state(task_id, true, actor)
+    }
+
+    pub fn restore(&self, task_id: TaskId, actor: &ActorContext) -> Result<TaskArchiveResult, StoreError> {
+        self.set_archive_state(task_id, false, actor)
+    }
+
+    fn set_archive_state(
+        &self,
+        task_id: TaskId,
+        archived: bool,
+        actor: &ActorContext,
+    ) -> Result<TaskArchiveResult, StoreError> {
+        let operation = if archived { "task.archive" } else { "task.restore" };
+        let mut connection = self.store.connection()?;
+        let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        self.check_lock(&transaction, task_id)?;
+        let previous = match load_task(&transaction, task_id) {
+            Ok(task) => task,
+            Err(error @ StoreError::TaskNotFound(_)) => {
+                drop(transaction);
+                return self.reject_operation(None, actor, operation, "task_not_found", None, error);
+            }
+            Err(error) => return Err(error),
+        };
+
+        let already_in_state = previous.archived_at.is_some() == archived;
+        if already_in_state {
+            let snapshot = snapshot_json(&transaction, &previous)?;
+            let now = now_string();
+            insert_history(
+                &transaction,
+                Some(task_id),
+                actor.actor_id().as_str(),
+                &now,
+                operation,
+                Some(&snapshot),
+                Some(&snapshot),
+                HistoryOutcome::Succeeded,
+                None,
+                Some(r#"{"no_op":true}"#),
+                None,
+            )?;
+            transaction.commit()?;
+            return Ok(TaskArchiveResult { task: previous, no_op: true });
+        }
+
+        let mut updated = previous.clone();
+        if archived {
+            updated.archived_at = Some(now_string());
+            updated.archived_by = Some(actor.actor_id().clone());
+        } else {
+            updated.archived_at = None;
+            updated.archived_by = None;
+        }
+        let task = persist_task_change(
+            &transaction,
+            &previous,
+            updated,
+            actor,
+            operation,
+            None,
+            None,
+        )?;
+        transaction.commit()?;
+        Ok(TaskArchiveResult { task, no_op: false })
     }
 
     pub fn update(
@@ -393,6 +478,14 @@ impl TaskRepository {
             }
             Err(error) => return Err(error),
         };
+
+        if previous.archived_at.is_some() {
+            drop(transaction);
+            return self.reject_operation(
+                Some(task.id), actor, "task.update", "task_archived",
+                serde_json::to_string(task).ok(), StoreError::TaskArchived,
+            );
+        }
 
         if task.dependencies != previous.dependencies {
             drop(transaction);
@@ -490,6 +583,13 @@ impl TaskRepository {
             Err(error) => return Err(error),
         };
 
+        if previous.archived_at.is_some() {
+            drop(transaction);
+            return self.reject_operation(
+                Some(task_id), actor, "task.status.set", "task_archived",
+                Some(serde_json::json!({"status_id": target}).to_string()), StoreError::TaskArchived,
+            );
+        }
         if previous.outcome.is_some() {
             drop(transaction);
             return self.reject_operation(
@@ -569,6 +669,13 @@ impl TaskRepository {
             Err(error) => return Err(error),
         };
 
+        if previous.archived_at.is_some() {
+            drop(transaction);
+            return self.reject_operation(
+                Some(task_id), actor, "task.reopen", "task_archived",
+                None, StoreError::TaskArchived,
+            );
+        }
         if previous.outcome.is_none() {
             drop(transaction);
             return self.reject_operation(
@@ -656,6 +763,13 @@ impl TaskRepository {
             }
             Err(error) => return Err(error),
         };
+        if previous.archived_at.is_some() {
+            drop(transaction);
+            return self.reject_operation(
+                Some(task_id), actor, operation, "task_archived",
+                details_json.map(str::to_owned), StoreError::TaskArchived,
+            );
+        }
         if previous.outcome.is_some() {
             drop(transaction);
             return self.reject_operation(
@@ -716,6 +830,13 @@ impl TaskRepository {
             }
             Err(error) => return Err(error),
         };
+        if previous.archived_at.is_some() {
+            drop(transaction);
+            return self.reject_operation(
+                Some(task_id), actor, "task.dependency.add", "task_archived",
+                Some(serde_json::json!({"depends_on": depends_on}).to_string()), StoreError::TaskArchived,
+            );
+        }
         match load_task(&transaction, depends_on) {
             Ok(_) => {}
             Err(StoreError::TaskNotFound(_)) => {
@@ -819,6 +940,13 @@ impl TaskRepository {
             Err(error) => return Err(error),
         };
 
+        if previous.archived_at.is_some() {
+            drop(transaction);
+            return self.reject_operation(
+                Some(task_id), actor, "task.dependency.remove", "task_archived",
+                Some(serde_json::json!({"depends_on": depends_on}).to_string()), StoreError::TaskArchived,
+            );
+        }
         let previous_snapshot = snapshot_json(&transaction, &previous)?;
         let changed = transaction.execute(
             "DELETE FROM task_dependencies
@@ -952,6 +1080,21 @@ impl TaskRepository {
         let transaction =
             connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
         self.check_lock(&transaction, task_id)?;
+        let task = match load_task(&transaction, task_id) {
+            Ok(task) => task,
+            Err(error @ StoreError::TaskNotFound(_)) => {
+                drop(transaction);
+                return self.reject_operation(None, actor, "task.version.approve", "task_not_found", None, error);
+            }
+            Err(error) => return Err(error),
+        };
+        if task.archived_at.is_some() {
+            drop(transaction);
+            return self.reject_operation(
+                Some(task_id), actor, "task.version.approve", "task_archived",
+                Some(serde_json::json!({"version_no": version_no}).to_string()), StoreError::TaskArchived,
+            );
+        }
         let version_id = transaction
             .query_row(
                 "SELECT version_id FROM task_versions WHERE task_id = ?1 AND version_no = ?2",
