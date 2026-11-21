@@ -2,7 +2,7 @@ use redb::{
     Builder, ConcurrencyMode, Database, ReadableDatabase, ReadableTable, ReadableTableMetadata,
     TableDefinition,
 };
-use rusqlite::{params, Connection, TransactionBehavior};
+use rusqlite::{Connection, TransactionBehavior, params};
 use serde::Serialize;
 use std::{path::Path, time::Duration};
 
@@ -86,11 +86,7 @@ impl SqliteStore {
         self.create_task_with_fault(title, Fault::None)
     }
 
-    pub fn create_task_with_fault(
-        &mut self,
-        title: &str,
-        fault: Fault,
-    ) -> Result<u64, String> {
+    pub fn create_task_with_fault(&mut self, title: &str, fault: Fault) -> Result<u64, String> {
         let transaction = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)
@@ -107,8 +103,8 @@ impl SqliteStore {
             Fault::ExitAfterTask => std::process::exit(86),
         }
 
-        let snapshot = serde_json::to_string(&TaskRecord { id, title })
-            .map_err(|e| e.to_string())?;
+        let snapshot =
+            serde_json::to_string(&TaskRecord { id, title }).map_err(|e| e.to_string())?;
         transaction
             .execute(
                 "INSERT INTO task_versions (task_id, snapshot) VALUES (?1, ?2)",
@@ -163,11 +159,7 @@ impl RedbStore {
         self.create_task_with_fault(title, Fault::None)
     }
 
-    pub fn create_task_with_fault(
-        &self,
-        title: &str,
-        fault: Fault,
-    ) -> Result<u64, String> {
+    pub fn create_task_with_fault(&self, title: &str, fault: Fault) -> Result<u64, String> {
         let transaction = self.database.begin_write().map_err(|e| e.to_string())?;
 
         let id = {
@@ -182,8 +174,7 @@ impl RedbStore {
             next_id
         };
 
-        let snapshot = serde_json::to_vec(&TaskRecord { id, title })
-            .map_err(|e| e.to_string())?;
+        let snapshot = serde_json::to_vec(&TaskRecord { id, title }).map_err(|e| e.to_string())?;
         {
             let mut tasks = transaction.open_table(TASKS).map_err(|e| e.to_string())?;
             tasks
@@ -205,7 +196,9 @@ impl RedbStore {
         })
         .map_err(|e| e.to_string())?;
         {
-            let mut versions = transaction.open_table(VERSIONS).map_err(|e| e.to_string())?;
+            let mut versions = transaction
+                .open_table(VERSIONS)
+                .map_err(|e| e.to_string())?;
             versions
                 .insert(&id, snapshot.as_slice())
                 .map_err(|e| e.to_string())?;
@@ -224,7 +217,9 @@ impl RedbStore {
     pub fn counts(&self) -> Result<Counts, String> {
         let transaction = self.database.begin_read().map_err(|e| e.to_string())?;
         let tasks = transaction.open_table(TASKS).map_err(|e| e.to_string())?;
-        let versions = transaction.open_table(VERSIONS).map_err(|e| e.to_string())?;
+        let versions = transaction
+            .open_table(VERSIONS)
+            .map_err(|e| e.to_string())?;
         let history = transaction.open_table(HISTORY).map_err(|e| e.to_string())?;
         Ok(Counts {
             tasks: tasks.len().map_err(|e| e.to_string())?,
