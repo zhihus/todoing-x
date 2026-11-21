@@ -915,6 +915,9 @@ mod contract_tests {
             "title": "Active candidate"
         })), root.path()).unwrap();
         let second_id = second["task"]["id"].as_i64().unwrap();
+        execute(request("api-test-project", "task.dependency.add", json!({
+            "task_id": second_id, "depends_on_task_id": first_id
+        })), root.path()).unwrap();
 
         let archived = execute(request("api-test-project", "task.archive", json!({
             "task_id": first_id
@@ -937,6 +940,13 @@ mod contract_tests {
             "archive_state": "all"
         })), root.path()).unwrap();
         assert_eq!(all["tasks"].as_array().unwrap().len(), 2);
+
+        let dependency_state = execute(request("api-test-project", "task.dependency.list", json!({
+            "task_id": second_id
+        })), root.path()).unwrap();
+        assert_eq!(dependency_state["dependencies"][0], first_id);
+        assert_eq!(dependency_state["states"][0]["archived"], true);
+        assert_eq!(dependency_state["states"][0]["locked"], false);
 
         let read = execute(request("api-test-project", "task.get", json!({
             "task_id": first_id
