@@ -1,3 +1,4 @@
+use crate::config::ProjectConfig;
 use super::{HistoryOutcome, NewTask, Store, TaskRepository};
 use crate::domain::{ActorContext, ActorId, ProjectId, StatusId, TaskOutcome};
 use tempfile::tempdir;
@@ -9,7 +10,7 @@ fn actor() -> ActorContext {
 fn repository() -> (tempfile::TempDir, TaskRepository) {
     let root = tempdir().unwrap();
     let store = Store::initialize(root.path(), ProjectId::new("task-history-tests").unwrap()).unwrap();
-    (root, TaskRepository::new(store))
+    (root, TaskRepository::new(store, ProjectConfig::default()).unwrap())
 }
 
 fn new_task(title: &str) -> NewTask {
