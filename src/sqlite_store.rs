@@ -47,6 +47,21 @@ pub struct TaskVersion {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct TaskFieldChange {
+    pub field: String,
+    pub before: Value,
+    pub after: Value,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct TaskVersionDiff {
+    pub task_id: i64,
+    pub from_version: i64,
+    pub to_version: i64,
+    pub changes: Vec<TaskFieldChange>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct HistoryEntry {
     pub event_id: i64,
     pub operation: String,
@@ -555,6 +570,43 @@ impl SqliteStore {
         .collect()
     }
 
+    /// Compare two immutable snapshots of the same task.
+    ///
+    /// Changes are returned in a stable field order. Immutable identity/creation
+    /// fields and the per-version update timestamp are excluded; version metadata
+    /// is available from get_versions.
+    pub fn compare_versions(
+        &self,
+        task_id: i64,
+        from_version: i64,
+        to_version: i64,
+    ) -> Result<TaskVersionDiff, String> {
+        let before = load_version_snapshot(&self.connection, task_id, from_version)?;
+        let after = load_version_snapshot(&self.connection, task_id, to_version)?;
+        let mut changes = Vec::new();
+
+        push_field_change(&mut changes, "title", &before.title, &after.title)?;
+        push_field_change(&mut changes, "status", &before.status, &after.status)?;
+        push_field_change(&mut changes, "outcome", &before.outcome, &after.outcome)?;
+        push_field_change(&mut changes, "body", &before.body, &after.body)?;
+        push_field_change(&mut changes, "labels", &before.labels, &after.labels)?;
+        push_field_change(&mut changes, "commits", &before.commits, &after.commits)?;
+        push_field_change(
+            &mut changes,
+            "dependencies",
+            &before.dependencies,
+            &after.dependencies,
+        )?;
+        push_field_change(&mut changes, "metadata", &before.metadata, &after.metadata)?;
+
+        Ok(TaskVersionDiff {
+            task_id,
+            from_version,
+            to_version,
+            changes,
+        })
+    }
+
     pub fn get_history(&self, task_id: i64) -> Result<Vec<HistoryEntry>, String> {
         let mut statement = self
             .connection
@@ -786,6 +838,48 @@ fn validate_commits(commits: &[String]) -> Result<(), String> {
         if !seen.insert(sha) {
             return Err(format!("Duplicate Git commit reference '{sha}'"));
         }
+    }
+    Ok(())
+}
+
+fn load_version_snapshot(
+    connection: &Connection,
+    task_id: i64,
+    version_no: i64,
+) -> Result<StoredTask, String> {
+    let snapshot_json: Option<String> = connection
+        .query_row(
+            "SELECT snapshot_json FROM task_versions
+             WHERE task_id = ?1 AND version_no = ?2",
+            params![task_id, version_no],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(|error| error.to_string())?;
+    let snapshot_json = snapshot_json
+        .ok_or_else(|| format!("Version {version_no} for task #{task_id} not found"))?;
+    let snapshot: StoredTask = serde_json::from_str(&snapshot_json)
+        .map_err(|error| format!("Invalid task version snapshot: {error}"))?;
+    if snapshot.id != task_id {
+        return Err(format!(
+            "Version {version_no} snapshot task ID does not match task #{task_id}"
+        ));
+    }
+    Ok(snapshot)
+}
+
+fn push_field_change<T: Serialize + PartialEq>(
+    changes: &mut Vec<TaskFieldChange>,
+    field: &str,
+    before: &T,
+    after: &T,
+) -> Result<(), String> {
+    if before != after {
+        changes.push(TaskFieldChange {
+            field: field.to_string(),
+            before: serde_json::to_value(before).map_err(|error| error.to_string())?,
+            after: serde_json::to_value(after).map_err(|error| error.to_string())?,
+        });
     }
     Ok(())
 }
