@@ -1,6 +1,7 @@
 use super::{Store, StoreError};
 use crate::domain::ProjectId;
 use rusqlite::Connection;
+use sha2::Digest;
 use tempfile::tempdir;
 
 fn project_id() -> ProjectId {
