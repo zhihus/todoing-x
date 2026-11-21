@@ -253,6 +253,10 @@ struct EditableFrontmatter {
     labels: Vec<String>,
     #[serde(default)]
     commits: Vec<String>,
+    #[serde(default)]
+    archived_at: Option<String>,
+    #[serde(default)]
+    archived_by: Option<String>,
 }
 
 #[derive(Args)]
@@ -614,9 +618,7 @@ fn run_legacy(cli: Cli) {
         Some(Commands::Config) |
         Some(Commands::Migrate(_)) |
         Some(Commands::Verify) |
-        Some(Commands::Snapshot(_)) |
-        Some(Commands::Archive(_)) |
-        Some(Commands::Restore(_)) => fail("This command requires the SQLite store. Run 'todoing migrate --project-id <id>' first."),
+        Some(Commands::Snapshot(_)) => fail("This command requires the SQLite store. Run 'todoing migrate --project-id <id>' first."),
         None => {}
     }
 }
@@ -734,12 +736,15 @@ fn status_icon(task: &SqliteTask) -> &'static str {
 }
 
 fn format_sqlite_list(task: &SqliteTask) -> String {
-    format!("(#{}) [{}] {{{}}} {}", task.id, task.labels.join(","), status_icon(task), task.title)
+    let archived = if task.archived_at.is_some() { "[archived] " } else { "" };
+    format!("{}(#{}) [{}] {{{}}} {}", archived, task.id, task.labels.join(","), status_icon(task), task.title)
 }
 
 fn format_sqlite_see(task: &SqliteTask) -> String {
     let frontmatter = serde_json::json!({
         "added_at": task.created_at,
+        "archived_at": task.archived_at,
+        "archived_by": task.archived_by.as_ref().map(ActorId::as_str),
         "commits": task.commit_refs,
         "id": task.id.get(),
         "labels": task.labels,
