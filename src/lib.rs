@@ -1,4 +1,5 @@
 pub mod api;
+pub mod migration;
 pub mod config;
 pub mod domain;
 pub mod storage;
@@ -593,6 +594,32 @@ impl Store {
         let raw = serde_json::to_string_pretty(tasks).map_err(|e| e.to_string())?;
         atomic_write(&self.index, format!("{}\n", raw).as_bytes())
     }
+    /// Reads Markdown task files as migration source without rebuilding or mutating index.json.
+    pub fn read_tasks_for_migration(&self) -> Result<(Vec<Task>, Vec<String>), String> {
+        if !self.tasks.exists() {
+            return Ok((Vec::new(), Vec::new()));
+        }
+        let mut paths: Vec<PathBuf> = fs::read_dir(&self.tasks).map_err(|error| error.to_string())?
+            .flatten()
+            .map(|entry| entry.path())
+            .filter(|path| path.extension().and_then(|value| value.to_str()) == Some("md"))
+            .collect();
+        paths.sort_by_key(|path| {
+            path.file_stem().and_then(|value| value.to_str())
+                .and_then(parse_decimal_digits).unwrap_or(0)
+        });
+
+        let mut tasks = Vec::new();
+        let mut warnings = Vec::new();
+        for path in paths {
+            match self.parse_task_file(&path)? {
+                Some(task) => tasks.push(task),
+                None => warnings.push(format!("Skipped malformed Markdown task file: {}", path.display())),
+            }
+        }
+        Ok((tasks, warnings))
+    }
+
     pub fn rebuild_index(&self) -> Result<Vec<Task>, String> {
         self.ensure()?;
         let mut paths: Vec<PathBuf> = fs::read_dir(&self.tasks).map_err(|e| e.to_string())?

@@ -171,6 +171,13 @@ struct SnapshotArgs {
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
+struct MigrateArgs {
+    #[serde(default)]
+    dry_run: bool,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct LockOwnerArgs {
     task_id: i64,
     owner_id: String,
@@ -183,6 +190,21 @@ fn parse_args<T: DeserializeOwned>(value: Value) -> Result<T, String> {
 
 fn id(raw: i64) -> Result<TaskId, String> {
     TaskId::new(raw).map_err(|error| error.to_string())
+}
+
+fn migration_error(error: StoreError) -> ApiError {
+    let code = match &error {
+        StoreError::AlreadyExists(_) | StoreError::InvalidTask(_) => "migration_conflict",
+        StoreError::InvalidConfig(_) => "config_invalid",
+        StoreError::Io(_) => "io_error",
+        _ => return store_error(error),
+    };
+    ApiError {
+        code,
+        message: error.to_string(),
+        retryable: false,
+        details: json!({}),
+    }
 }
 
 fn store_error(error: StoreError) -> ApiError {
@@ -240,6 +262,20 @@ fn execute(request: Request, root: &Path) -> Result<Value, ApiError> {
     let project_id = ProjectId::new(request.project_id).map_err(|e| ApiError { code: "invalid_request", message: e.to_string(), retryable: false, details: json!({}) })?;
     let actor_id = ActorId::new(request.actor_id).map_err(|e| ApiError { code: "invalid_request", message: e.to_string(), retryable: false, details: json!({}) })?;
     let actor = ActorContext::new(actor_id);
+    if request.operation == "store.migrate" {
+        if request.lock_token.is_some() {
+            return Err(invalid("lock_token is not accepted by store.migrate".into()));
+        }
+        let args: MigrateArgs = parse_args(request.args.clone()).map_err(invalid)?;
+        let report = crate::migration::migrate(root, &project_id, actor.actor_id(), args.dry_run)
+            .map_err(migration_error)?;
+        return serde_json::to_value(report).map_err(|error| ApiError {
+            code: "internal_error",
+            message: format!("Cannot serialize migration report: {error}"),
+            retryable: false,
+            details: json!({}),
+        });
+    }
     let config_path = root.join(".todoing").join("config.toml");
     let config_text = fs::read_to_string(&config_path).map_err(|error| ApiError { code: "config_invalid", message: format!("Cannot read {}: {error}", config_path.display()), retryable: false, details: json!({}) })?;
     let config = ProjectConfig::from_toml(&config_text).map_err(|error| ApiError { code: "config_invalid", message: error.to_string(), retryable: false, details: json!({}) })?;
@@ -471,13 +507,7 @@ fn execute(request: Request, root: &Path) -> Result<Value, ApiError> {
             let report = store.snapshot(args.output_path, args.overwrite).map_err(store_error)?;
             Ok(json!({"snapshot_path": report.path, "size_bytes": report.size_bytes, "sha256": report.sha256}))
         }
-        "store.migrate" => Err(ApiError {
-            code: "internal_error",
-            message: "Legacy migration is not implemented yet".into(),
-            retryable: false,
-            details: json!({}),
-        }),
-        other => Err(invalid(format!("Operation '{other}' is not implemented yet"))),
+         other => Err(invalid(format!("Operation '{other}' is not implemented yet"))),
     }
 }
 
