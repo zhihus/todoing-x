@@ -50,3 +50,15 @@ The operation history MUST record rejected task-operation attempts that reach th
 - **WHEN** a task operation is rejected by a business rule or concurrency rule
 - **THEN** the operation history records the rejection outcome
 - **AND** the task's committed state and version history remain unchanged
+
+#### Scenario: Record an accepted no-op
+
+- **WHEN** a valid task operation is accepted but does not change task state
+- **THEN** the operation history records a successful no-op event
+- **AND** no new task version is created
+
+#### Scenario: Do not approve a baseline implicitly
+
+- **WHEN** an agent saves a task or creates a later version without an explicit approval operation
+- **THEN** the user-approved baseline remains unchanged
+- **AND** the operation history does not mark the new version as approved
