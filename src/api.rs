@@ -418,7 +418,17 @@ fn execute(request: Request, root: &Path) -> Result<Value, ApiError> {
         }
         "task.version.compare" => {
             let args: CompareArgs = parse_args(request.args).map_err(|error| invalid(error.to_string()))?;
-            Ok(serde_json::to_value(repository.compare_versions(id(args.task_id).map_err(|error| invalid(error.to_string()))?, args.from_version_no, args.to_version_no).map_err(store_error)?).unwrap_or_else(|_| json!({})))
+            let comparison = repository.compare_versions(
+                id(args.task_id).map_err(|error| invalid(error.to_string()))?,
+                args.from_version_no,
+                args.to_version_no,
+            ).map_err(store_error)?;
+            serde_json::to_value(comparison).map_err(|error| ApiError {
+                code: "internal_error",
+                message: format!("Cannot serialize version comparison: {error}"),
+                retryable: false,
+                details: json!({}),
+            })
         }
         "task.version.approve" => {
             let args: VersionArgs = parse_args(request.args).map_err(|error| invalid(error.to_string()))?;
@@ -661,4 +671,215 @@ mod tests {
             root.path(),
         ).is_ok());
     }
+}
+
+
+#[cfg(test)]
+mod contract_tests {
+    use super::*;
+    use std::fs;
+
+    fn setup_project() -> tempfile::TempDir {
+        let root = tempfile::tempdir().expect("temporary project");
+        let todoing_dir = root.path().join(".todoing");
+        fs::create_dir_all(&todoing_dir).expect("create project metadata");
+        let config = ProjectConfig::default();
+        fs::write(todoing_dir.join("config.toml"), config.to_toml().expect("serialize config"))
+            .expect("write config");
+        Store::initialize(root.path(), ProjectId::new("api-test-project").unwrap())
+            .expect("initialize store");
+        root
+    }
+
+    fn request(project_id: &str, operation: &str, args: Value) -> Request {
+        Request {
+            api_version: 1,
+            request_id: Some("contract-test".into()),
+            project_id: project_id.into(),
+            actor_id: "contract-test-agent".into(),
+            operation: operation.into(),
+            args,
+            lock_token: None,
+        }
+    }
+
+    #[test]
+    fn api_operations_cover_task_lifecycle_dependencies_versions_and_git_refs() {
+        let root = setup_project();
+        let info = execute(request("api-test-project", "store.info", json!({})), root.path()).unwrap();
+        assert_eq!(info["task_count"], 0);
+        let verified = execute(request("api-test-project", "store.verify", json!({})), root.path()).unwrap();
+        assert_eq!(verified["integrity_check"], "ok");
+
+        let first = execute(request("api-test-project", "task.create", json!({
+            "title": "First API task", "body": "initial body", "labels": ["backend"]
+        })), root.path()).unwrap();
+        let first_id = first["task"]["id"].as_i64().unwrap();
+        assert_eq!(first["version_no"], 1);
+        let second = execute(request("api-test-project", "task.create", json!({
+            "title": "Second API task"
+        })), root.path()).unwrap();
+        let second_id = second["task"]["id"].as_i64().unwrap();
+
+        let listed = execute(request("api-test-project", "task.list", json!({
+            "labels": ["BACKEND"], "limit": 10
+        })), root.path()).unwrap();
+        assert_eq!(listed["tasks"].as_array().unwrap().len(), 1);
+        assert_eq!(listed["tasks"][0]["id"], first_id);
+
+        let fetched = execute(request("api-test-project", "task.get", json!({"task_id": first_id})), root.path()).unwrap();
+        assert_eq!(fetched["task"]["title"], "First API task");
+        let updated = execute(request("api-test-project", "task.update", json!({
+            "task_id": first_id, "patch": {"title": "Updated API task", "body": "updated body"}
+        })), root.path()).unwrap();
+        assert_eq!(updated["task"]["body"], "updated body");
+        let status = execute(request("api-test-project", "task.status.set", json!({
+            "task_id": first_id, "status_id": "in_progress"
+        })), root.path()).unwrap();
+        assert_eq!(status["task"]["status_id"], "in_progress");
+
+        let label = execute(request("api-test-project", "task.label.add", json!({
+            "task_id": first_id, "label": "urgent"
+        })), root.path()).unwrap();
+        assert_eq!(label["no_op"], false);
+        let duplicate = execute(request("api-test-project", "task.label.add", json!({
+            "task_id": first_id, "label": "URGENT"
+        })), root.path()).unwrap();
+        assert_eq!(duplicate["no_op"], true);
+        execute(request("api-test-project", "task.label.remove", json!({
+            "task_id": first_id, "label": "urgent"
+        })), root.path()).unwrap();
+
+        execute(request("api-test-project", "task.dependency.add", json!({
+            "task_id": second_id, "depends_on_task_id": first_id
+        })), root.path()).unwrap();
+        let dependencies = execute(request("api-test-project", "task.dependency.list", json!({
+            "task_id": second_id
+        })), root.path()).unwrap();
+        assert_eq!(dependencies["dependencies"].as_array().unwrap().len(), 1);
+        let cycle = execute(request("api-test-project", "task.dependency.add", json!({
+            "task_id": first_id, "depends_on_task_id": second_id
+        })), root.path()).unwrap_err();
+        assert_eq!(cycle.code, "dependency_cycle");
+        execute(request("api-test-project", "task.dependency.remove", json!({
+            "task_id": second_id, "depends_on_task_id": first_id
+        })), root.path()).unwrap();
+
+        let version_list = execute(request("api-test-project", "task.version.list", json!({
+            "task_id": first_id
+        })), root.path()).unwrap();
+        let versions = version_list["versions"].as_array().unwrap();
+        assert!(versions.len() >= 4);
+        let latest_version = versions[0]["version_no"].as_i64().unwrap();
+        let version = execute(request("api-test-project", "task.version.get", json!({
+            "task_id": first_id, "version_no": 1
+        })), root.path()).unwrap();
+        assert_eq!(version["version"]["version_no"], 1);
+        let comparison = execute(request("api-test-project", "task.version.compare", json!({
+            "task_id": first_id, "from_version_no": 1, "to_version_no": latest_version
+        })), root.path()).unwrap();
+        assert!(comparison.is_object());
+        let baseline = execute(request("api-test-project", "task.version.approve", json!({
+            "task_id": first_id, "version_no": latest_version
+        })), root.path()).unwrap();
+        assert_eq!(baseline["baseline"]["version_no"], latest_version);
+
+        let history = execute(request("api-test-project", "task.history.list", json!({
+            "task_id": first_id, "limit": 100
+        })), root.path()).unwrap();
+        assert!(history["events"].as_array().unwrap().len() >= 5);
+
+        std::process::Command::new("git").current_dir(root.path()).args(["init", "-q"]).status().unwrap();
+        std::process::Command::new("git").current_dir(root.path()).args(["config", "user.email", "todoing-test@example.invalid"]).status().unwrap();
+        std::process::Command::new("git").current_dir(root.path()).args(["config", "user.name", "Todoing Test"]).status().unwrap();
+        fs::write(root.path().join("api-commit.txt"), "test commit").unwrap();
+        assert!(std::process::Command::new("git").current_dir(root.path()).args(["add", "api-commit.txt"]).status().unwrap().success());
+        assert!(std::process::Command::new("git").current_dir(root.path()).args(["commit", "-m", "API contract test"]).status().unwrap().success());
+        let commit = execute(request("api-test-project", "task.commit.add", json!({
+            "task_id": first_id, "revision": "HEAD"
+        })), root.path()).unwrap();
+        assert_eq!(commit["commit_sha"].as_str().unwrap().len(), 40);
+
+        let completed = execute(request("api-test-project", "task.complete", json!({
+            "task_id": first_id
+        })), root.path()).unwrap();
+        assert_eq!(completed["task"]["outcome"], "completed");
+        let reopened = execute(request("api-test-project", "task.reopen", json!({
+            "task_id": first_id
+        })), root.path()).unwrap();
+        assert!(reopened["task"]["outcome"].is_null());
+
+        let cancelled = execute(request("api-test-project", "task.cancel", json!({
+            "task_id": second_id, "reason": "obsolete"
+        })), root.path()).unwrap();
+        assert_eq!(cancelled["task"]["outcome"], "cancelled");
+        let reopened = execute(request("api-test-project", "task.reopen", json!({
+            "task_id": second_id
+        })), root.path()).unwrap();
+        assert!(reopened["task"]["outcome"].is_null());
+
+        let mismatch = execute(request("wrong-project-id", "task.list", json!({})), root.path()).unwrap_err();
+        assert_eq!(mismatch.code, "project_id_mismatch");
+        let missing = execute(request("api-test-project", "task.get", json!({"task_id": 9999})), root.path()).unwrap_err();
+        assert_eq!(missing.code, "task_not_found");
+        let bad_args = execute(request("api-test-project", "task.get", json!({
+            "task_id": first_id, "unexpected": true
+        })), root.path()).unwrap_err();
+        assert_eq!(bad_args.code, "invalid_request");
+    }
+
+    #[test]
+    fn api_lock_heartbeat_and_owner_write_enforcement_are_consistent() {
+        let root = setup_project();
+        let created = execute(request("api-test-project", "task.create", json!({
+            "title": "Locked task"
+        })), root.path()).unwrap();
+        let task_id = created["task"]["id"].as_i64().unwrap();
+        let locked = execute(request("api-test-project", "task.lock.acquire", json!({
+            "task_id": task_id
+        })), root.path()).unwrap();
+        let token = locked["lock_token"].as_str().unwrap().to_owned();
+        let owner_id = locked["owner_id"].as_str().unwrap().to_owned();
+        let generation = locked["fencing_generation"].as_i64().unwrap();
+
+        let denied = execute(request("api-test-project", "task.update", json!({
+            "task_id": task_id, "patch": {"title": "Unauthorized"}
+        })), root.path()).unwrap_err();
+        assert_eq!(denied.code, "task_locked");
+
+        let mut heartbeat = request("api-test-project", "task.lock.heartbeat", json!({
+            "task_id": task_id, "owner_id": owner_id, "fencing_generation": generation
+        }));
+        heartbeat.lock_token = Some(token.clone());
+        let renewed = execute(heartbeat, root.path()).unwrap();
+        assert!(renewed["expires_at"].as_i64().unwrap() > renewed["heartbeat_at"].as_i64().unwrap());
+
+        let mut owner_update = request("api-test-project", "task.update", json!({
+            "task_id": task_id, "patch": {"title": "Authorized"}
+        }));
+        owner_update.lock_token = Some(token.clone());
+        let updated = execute(owner_update, root.path()).unwrap();
+        assert_eq!(updated["task"]["title"], "Authorized");
+
+        let mut release = request("api-test-project", "task.lock.release", json!({
+            "task_id": task_id, "owner_id": owner_id, "fencing_generation": generation
+        }));
+        release.lock_token = Some(token);
+        execute(release, root.path()).unwrap();
+        let final_task = execute(request("api-test-project", "task.get", json!({
+            "task_id": task_id
+        })), root.path()).unwrap();
+        assert_eq!(final_task["task"]["title"], "Authorized");
+    }
+
+    #[test]
+    fn api_exit_codes_are_stable_for_documented_error_classes() {
+        assert_eq!(api_exit_code("invalid_request"), 2);
+        assert_eq!(api_exit_code("task_not_found"), 3);
+        assert_eq!(api_exit_code("task_locked"), 4);
+        assert_eq!(api_exit_code("store_busy"), 5);
+        assert_eq!(api_exit_code("migration_conflict"), 6);
+        assert_eq!(api_exit_code("internal_error"), 70);
+    }
+
 }
