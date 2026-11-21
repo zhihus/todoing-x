@@ -338,9 +338,9 @@ fn standard_hooks_can_be_installed_selectively_and_status_is_machine_readable() 
     assert!(openspec_hook.is_file());
     let status = run(dir.path(), &["hooks", "status", "--json"]);
     let value: Value = serde_json::from_slice(&status.stdout).unwrap();
-    assert_eq!(value["hooks"][0]["installed"], true);
-    assert_eq!(value["hooks"][1]["installed"], true);
-    assert_eq!(value["agent_action"], "none");
+    assert_eq!(value["data"]["hooks"][0]["installed"], true);
+    assert_eq!(value["data"]["hooks"][1]["installed"], true);
+    assert_eq!(value["data"]["agent_action"], "none");
 }
 
 #[cfg(unix)]
@@ -863,7 +863,7 @@ fn legacy_cli_preserves_missing_task_errors_and_version_output() {
     assert!(!delete.status.success());
     assert!(String::from_utf8_lossy(&delete.stderr).contains("Physical deletion is disabled"));
 
-    let version = run(dir.path(), &["version"]);
+    let version = run(dir.path(), &["version", "--json"]);
     assert!(version.status.success());
     let version: Value = serde_json::from_slice(&version.stdout).unwrap();
     assert_eq!(version["api_version"], 1);
