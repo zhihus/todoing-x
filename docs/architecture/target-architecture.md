@@ -87,11 +87,11 @@ Use one embedded SQLite database per project, accessed through rusqlite with the
 
 The cross-platform proof of concept passed on ubuntu-latest and windows-latest. It verified the rollback-journal lock-acquisition barrier, non-owner read rejection, concurrent ID allocation, rollback after abrupt process termination, and fencing-token rejection.
 
-**Recommended starting settings for the production prototype:**
+**Selected MVP settings:**
 - Rollback-journal mode (DELETE), not WAL.
 - FULL synchronous mode until durability tests justify a change.
 - Foreign-key enforcement enabled and verified on every connection.
-- A bounded busy timeout and explicit retry/error mapping.
+- A 10-second busy timeout and explicit storage-busy error mapping.
 - A short EXCLUSIVE transaction for task-lock acquisition.
 
 The journal-mode recommendation is tied to the lock requirement: the tested EXCLUSIVE transaction waits for existing readers in rollback-journal mode. WAL has different reader behavior and does not provide that same barrier. Do not switch to WAL without a replacement mechanism and equivalent cross-platform tests.
@@ -116,21 +116,19 @@ A store metadata record contains the schema version and a stable project identif
 
 ### 3.3 Logical relational entities
 
-The following entities are required by the selected SQLite architecture. This is a logical model, not the final SQL schema.
+The following database entities are required by the selected SQLite architecture. This is a logical model, not the final SQL schema.
 
 | Entity | Responsibility |
 |---|---|
 | store_metadata | Schema version, project ID, store metadata. |
 | tasks | Stable task ID and current task fields. |
-| statuses | Configured status identifiers, labels, enabled state, terminal outcome mapping. |
-| status_transitions | Allowed transitions between configured statuses. |
 | task_dependencies | Directed dependency edges with foreign keys and uniqueness. |
 | task_versions | Immutable snapshots for each successful task save. |
 | task_baselines | The user-approved baseline version for each task. |
 | operation_history | Append-only successful and rejected operation records. |
 | task_locks | Current owner, token hash, lease, heartbeat, and fencing generation. |
-| task_labels | Labels, if normalized separately. |
-| task_commit_refs | Git commit references, if normalized separately. |
+| task_labels | Ordered labels with normalized lookup keys. |
+| task_commit_refs | Ordered full Git commit SHAs. |
 
 Preserve the existing task fields: numeric ID, title, creation timestamp, status, labels, body, and Git commit references. Existing numeric IDs should be imported without change. Priorities are not part of the model.
 
@@ -197,11 +195,11 @@ For the SQLite rollback-journal candidate:
 5. Append the lock-acquired operation event.
 6. Commit; this commit is the lock-acquisition linearization point.
 
-The EXCLUSIVE transaction briefly blocks database readers globally, not just readers of the selected task. It is held only for lock acquisition. The process-level prototype demonstrated the barrier on Windows and Linux.
+The EXCLUSIVE transaction briefly blocks database readers globally, not just readers of the selected task. It is held only for lock acquisition. The process-level prototype demonstrated the barrier on Windows and Linux. The selected defaults are a 300-second lease, 60-second heartbeat, and 60-second recovery grace.
 
 ### 5.3 Reads and mutations
 
-Every task read must check the lock record and ownership in the same read transaction as the task query. Every mutation must check ownership and fencing generation in the same write transaction as the mutation.
+Every task read must check the lock record and ownership in the same read transaction as the task query. Every mutation must check ownership and fencing generation in the same write transaction as the mutation. List/search operations omit tasks locked by another client; direct reads return a lock conflict without task content.
 
 - No active lock: normal client access is permitted.
 - Active lock owned by this client: access is permitted with the valid token.
@@ -297,15 +295,7 @@ Version 1 error envelope, defined normatively in implementation-contract.md:
 }
 ```
 
-The final API must define:
-- Version negotiation/identification.
-- Stable error-code catalogue.
-- Predictable process exit-code mapping.
-- Input validation and unknown-field policy.
-- Lock-token transport without leaking secrets into logs or process listings.
-- JSON schema tests for every supported operation.
-
-The request envelope, response envelope, initial operation namespace, error codes, and exit-code mapping are defined in implementation-contract.md. Per-operation argument and response schemas remain implementation work.
+The API v1 request/response envelope, operation namespace, error codes, and exit-code mapping are defined in implementation-contract.md. Per-operation argument and response schemas and their automated validation remain implementation work.
 
 ## 8. Migration from the current store
 
@@ -329,9 +319,9 @@ The exact activation/rename procedure must account for Windows file replacement 
 
 ## 9. Backup and recovery boundary
 
-Manifest/the consuming project owns backup destination, retention, and off-device replication. Todoing should expose a database-aware snapshot/export operation if SQLite is selected.
+Manifest/the consuming project owns backup destination, retention, and off-device replication. Todoing exposes a database-aware snapshot operation.
 
-For SQLite, use the Online Backup API or another supported consistent-snapshot mechanism. Do not copy a live database file blindly. A produced backup must be reopened and integrity-checked before being reported as valid.
+Use SQLite's Online Backup API. Do not copy a live database file blindly. A produced backup must be reopened and integrity-checked before being reported as valid.
 
 Git history is not a backup mechanism. Archive/restore and full task import/export remain post-MVP capabilities.
 
