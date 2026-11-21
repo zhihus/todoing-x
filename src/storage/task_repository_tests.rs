@@ -91,7 +91,7 @@ fn update_of_missing_task_returns_task_not_found() {
     let mut task = repository.create(new_task("existing"), &actor()).unwrap();
     task.id = missing;
 
-    assert!(repository.update(&task).is_err());
+    assert!(repository.update(&task, &actor()).is_err());
     assert_eq!(repository.list().unwrap().len(), 1);
 }
 
