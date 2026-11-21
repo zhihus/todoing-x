@@ -298,7 +298,9 @@ fn version_comparison_includes_dependency_changes() {
     let dependent = store.create_task(new_task("dependent")).unwrap();
     let prerequisite = store.create_task(new_task("prerequisite")).unwrap();
 
-    store.add_dependency(dependent.id, prerequisite.id, "test").unwrap();
+    store
+        .add_dependency(dependent.id, prerequisite.id, "test")
+        .unwrap();
 
     let diff = store.compare_versions(dependent.id, 1, 2).unwrap();
 
