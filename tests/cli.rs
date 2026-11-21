@@ -1012,3 +1012,113 @@ fn explicit_migration_switches_human_cli_to_sqlite_lifecycle() {
     assert_eq!(snapshot["data"]["size_bytes"].as_u64().unwrap() > 0, true);
     assert!(dir.path().join("cli-backup.db").is_file());
 }
+
+
+#[test]
+fn json_api_transport_covers_migration_snapshot_response_and_exit_contract() {
+    let dir = tempdir().unwrap();
+    assert!(run(dir.path(), &["add", "legacy API task"]).status.success());
+
+    let dry_run_request = serde_json::json!({
+        "api_version": 1,
+        "request_id": "migration-dry-run",
+        "project_id": "api-transport-project",
+        "actor_id": "integration-test",
+        "operation": "store.migrate",
+        "args": {"dry_run": true}
+    });
+    let dry_run = run_with_input(
+        dir.path(),
+        &["api"],
+        &serde_json::to_string(&dry_run_request).unwrap(),
+    );
+    assert!(dry_run.status.success(), "{}", String::from_utf8_lossy(&dry_run.stderr));
+    let dry_run_lines: Vec<_> = String::from_utf8_lossy(&dry_run.stdout).lines().collect();
+    assert_eq!(dry_run_lines.len(), 1);
+    let dry_run_response: Value = serde_json::from_str(dry_run_lines[0]).unwrap();
+    assert_eq!(dry_run_response["request_id"], "migration-dry-run");
+    assert_eq!(dry_run_response["ok"], true);
+    assert_eq!(dry_run_response["data"]["dry_run"], true);
+    assert_eq!(dry_run_response["data"]["activated"], false);
+    assert!(!dir.path().join(".todoing/todoing.db").exists());
+
+    let migrate_request = serde_json::json!({
+        "api_version": 1,
+        "request_id": "migration-activate",
+        "project_id": "api-transport-project",
+        "actor_id": "integration-test",
+        "operation": "store.migrate",
+        "args": {}
+    });
+    let migrated = run_with_input(
+        dir.path(),
+        &["api"],
+        &serde_json::to_string(&migrate_request).unwrap(),
+    );
+    assert!(migrated.status.success(), "{}", String::from_utf8_lossy(&migrated.stderr));
+    let migrated_response: Value = serde_json::from_slice(&migrated.stdout).unwrap();
+    assert_eq!(migrated_response["data"]["activated"], true);
+    assert_eq!(migrated_response["data"]["task_count"], 1);
+
+    let snapshot_request = serde_json::json!({
+        "api_version": 1,
+        "request_id": "snapshot",
+        "project_id": "api-transport-project",
+        "actor_id": "integration-test",
+        "operation": "store.snapshot",
+        "args": {"output_path": "api-backup.db"}
+    });
+    let snapshot = run_with_input(
+        dir.path(),
+        &["api"],
+        &serde_json::to_string(&snapshot_request).unwrap(),
+    );
+    assert!(snapshot.status.success(), "{}", String::from_utf8_lossy(&snapshot.stderr));
+    let snapshot_response: Value = serde_json::from_slice(&snapshot.stdout).unwrap();
+    assert_eq!(snapshot_response["ok"], true);
+    assert_eq!(snapshot_response["data"]["sha256"].as_str().unwrap().len(), 64);
+    assert!(dir.path().join("api-backup.db").is_file());
+
+    let info_request = serde_json::json!({
+        "api_version": 1,
+        "request_id": "info",
+        "project_id": "api-transport-project",
+        "actor_id": "integration-test",
+        "operation": "store.info",
+        "args": {}
+    });
+    let info = run_with_input(
+        dir.path(),
+        &["api"],
+        &serde_json::to_string(&info_request).unwrap(),
+    );
+    assert!(info.status.success());
+    let info_lines: Vec<_> = String::from_utf8_lossy(&info.stdout).lines().collect();
+    assert_eq!(info_lines.len(), 1);
+    let info_response: Value = serde_json::from_str(info_lines[0]).unwrap();
+    assert_eq!(info_response["request_id"], "info");
+    assert_eq!(info_response["data"]["task_count"], 1);
+    assert!(info.stderr.is_empty());
+
+    let unsupported = serde_json::json!({
+        "api_version": 99,
+        "request_id": "unsupported",
+        "project_id": "api-transport-project",
+        "actor_id": "integration-test",
+        "operation": "store.info",
+        "args": {}
+    });
+    let rejected = run_with_input(
+        dir.path(),
+        &["api"],
+        &serde_json::to_string(&unsupported).unwrap(),
+    );
+    assert_eq!(rejected.status.code(), Some(2));
+    let rejected_lines: Vec<_> = String::from_utf8_lossy(&rejected.stdout).lines().collect();
+    assert_eq!(rejected_lines.len(), 1);
+    let rejected_response: Value = serde_json::from_str(rejected_lines[0]).unwrap();
+    assert_eq!(rejected_response["request_id"], "unsupported");
+    assert_eq!(rejected_response["ok"], false);
+    assert_eq!(rejected_response["error"]["code"], "unsupported_api_version");
+    assert!(!rejected.stderr.is_empty());
+}
