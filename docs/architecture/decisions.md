@@ -14,7 +14,7 @@
 | Integration | Manifest is an external consumer. It uses Todoing's public CLI/JSON interface and owns integration policy and cross-component checks. |
 | Project scope | Each project has its own task store. No central multi-project task database in the MVP. |
 | Statuses | User-configurable; Manifest may provide a recommended configuration but does not impose or automatically synchronize it. |
-| Configuration | Status definitions and permitted transitions are stored in TOML at `.todoing/config.toml`. Exact schema/defaults remain architecture details. |
+| Configuration | Status definitions and permitted transitions are stored in TOML at `.todoing/config.toml`; schema version 1 and the default four-status workflow are defined in the architecture design. |
 | Dependencies | Task dependencies are required; cycles must be detected. |
 | History | Full append-only operation history; entries are immutable. |
 | Versions | Every successful save creates a version; an approved baseline version is identifiable; versions can be compared. |
@@ -29,6 +29,7 @@
 | Portability | Import/export must eventually preserve tasks, versions, history, dependencies, references, and metadata, with integrity validation. |
 | UI | A shared multi-project UI is deferred; if introduced, it is read-only. |
 | Agent concurrency | Manifest currently requires sequential agent execution; Todoing still protects against concurrent clients as an independent tool. |
+| Completion/cancellation outcomes | Each configured status maps to no outcome, `completed`, or `cancelled`; the task stores outcome separately. Entering an outcome status sets it, leaving for a non-outcome status clears it, and history retains prior changes. |
 | Primary storage | SQLite via rusqlite with the bundled SQLite library is selected. Use WAL mode on a local project filesystem; network filesystems are unsupported. |
 | Rust file-lock API | Use the standard-library shared/exclusive file-lock API (stable since Rust 1.89); declare Rust 1.89 as the minimum supported version. |
 
@@ -39,7 +40,7 @@
 - Manifest checks consistency among Todoing tasks, OpenSpec artifacts, Git branches/commits, and their relationships.
 - Project identity is required at the integration boundary to prevent accidental access to another project's task store. The binding mechanism is not yet selected.
 - Manifest's recommended workflow statuses are Backlog, Ready, In Progress, In Review, Reviewed, and Done. Projects may localize display labels.
-- Completion and cancellation outcomes must remain distinguishable. Their exact representation alongside configurable workflow statuses needs an explicit integration decision.
+- Completion and cancellation outcomes remain distinct; the mapping is defined by each project's status configuration and stored separately from the workflow status.
 - Todoing hooks are optional; Manifest may use them but must not depend on their presence for core correctness.
 
 ## 3. Preliminary decisions
@@ -52,18 +53,15 @@
 
 ## 4. Open architecture questions
 
-1. Exact status configuration schema, defaults, validation, ordering, disabled statuses, and transition rules.
-2. Exact task schema and representation of structured attachments/application-specific payloads.
-3. Stable CLI command set and compatibility policy for existing commands.
-4. JSON API versioning, envelopes, error schema, and exit-code mapping.
-5. Event names, payload schema, ordering, delivery guarantees, retries, and handler failure semantics.
-6. Lock owner identity versus secret credential, credential delivery to later CLI calls, lease duration, heartbeat interval, expiry/recovery behavior, and list/filter behavior for locked tasks.
-7. Version snapshot format, diff semantics, approval marker, and actor identity.
-8. Archive/restore data model and optional retention/limit policies.
-9. Migration from Markdown/YAML plus JSON index, including preservation of IDs, Git references, unknown fields, conflict policy, and rerun behavior.
-10. Manifest project identity binding and enforcement at the integration boundary.
-11. Exact mapping of workflow statuses to completion/cancellation outcomes.
-12. Backup/restore procedure and integrity verification for the SQLite store.
+1. Exact task schema fields for structured metadata and future attachment support.
+2. Stable CLI command compatibility policy and per-command JSON data schemas.
+3. Event names, payload schema, ordering, delivery guarantees, retries, and handler failure semantics.
+4. Lock owner identity versus secret credential, credential delivery to later CLI calls, lease duration, heartbeat interval, expiry/recovery behavior, and list/filter behavior for locked tasks.
+5. Version comparison semantics, approval history representation, and actor identity details.
+6. Archive/restore data model and optional retention/limit policies.
+7. Migration conflict policy, rerun behavior, and handling of unknown frontmatter.
+8. Manifest project identity binding and enforcement at the integration boundary.
+9. Backup/restore procedure and integrity verification for the SQLite store.
 
 These questions must be resolved through technical design and OpenSpec changes. They must not be silently decided during implementation.
 
