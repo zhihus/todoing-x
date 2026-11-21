@@ -151,7 +151,7 @@ The architecture spike must test:
 
 OS file locks may help with process-level coordination and are released by the OS after a crash, but they do not by themselves provide a durable, cross-command agent-session lease.
 
-## 6. Relational data model candidate
+## 6. Selected relational data model
 
 A normalized relational schema is selected for SQLite. The following are logical entities; the implementation contract defines the required table set, while physical DDL and indexes remain implementation work:
 
