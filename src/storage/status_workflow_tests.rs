@@ -87,7 +87,7 @@ fn terminal_task_cannot_use_normal_status_transition_or_update() {
     ));
 
     let mut edited = repository.get(task.id).unwrap();
-    edited.title = "attempted edit".into();
+    edited.status_id = StatusId::new("in_progress").unwrap();
     assert!(matches!(
         repository.update(&edited, &actor()),
         Err(StoreError::TaskTerminal)
