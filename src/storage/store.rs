@@ -44,6 +44,7 @@ impl Store {
         let temporary_path = temporary_file.into_temp_path();
 
         let connection = Connection::open(&temporary_path)?;
+        set_journal_mode_delete(&connection)?;
         configure_connection(&connection)?;
         connection.execute_batch("BEGIN IMMEDIATE;")?;
         connection.execute_batch(INITIAL_SCHEMA)?;
@@ -185,12 +186,21 @@ fn connect(path: &Path) -> Result<Connection, StoreError> {
     Ok(connection)
 }
 
+fn set_journal_mode_delete(connection: &Connection) -> Result<(), StoreError> {
+    let journal_mode: String =
+        connection.query_row("PRAGMA journal_mode = DELETE", [], |row| row.get(0))?;
+    if !journal_mode.eq_ignore_ascii_case("delete") {
+        return Err(StoreError::InvalidMetadata("journal_mode".into()));
+    }
+    Ok(())
+}
+
 fn configure_connection(connection: &Connection) -> Result<(), StoreError> {
     connection.busy_timeout(BUSY_TIMEOUT)?;
     connection.execute_batch("PRAGMA foreign_keys = ON; PRAGMA synchronous = FULL;")?;
 
     let journal_mode: String =
-        connection.query_row("PRAGMA journal_mode = DELETE", [], |row| row.get(0))?;
+        connection.query_row("PRAGMA journal_mode", [], |row| row.get(0))?;
     if !journal_mode.eq_ignore_ascii_case("delete") {
         return Err(StoreError::InvalidMetadata("journal_mode".into()));
     }
