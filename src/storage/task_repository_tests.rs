@@ -1,6 +1,10 @@
 use super::{NewTask, Store, TaskRepository};
-use crate::domain::{ProjectId, StatusId, TaskId, TaskOutcome};
+use crate::domain::{ActorContext, ActorId, ProjectId, StatusId, TaskId, TaskOutcome};
 use tempfile::tempdir;
+
+fn actor() -> ActorContext {
+    ActorContext::new(ActorId::new("agent:repository-tests").unwrap())
+}
 
 fn repository() -> (tempfile::TempDir, TaskRepository) {
     let root = tempdir().unwrap();
@@ -24,8 +28,8 @@ fn new_task(title: &str) -> NewTask {
 fn create_persists_task_and_allocates_stable_monotonic_ids() {
     let (_root, repository) = repository();
 
-    let first = repository.create(new_task("first")).unwrap();
-    let second = repository.create(new_task("second")).unwrap();
+    let first = repository.create(new_task("first"), &actor()).unwrap();
+    let second = repository.create(new_task("second"), &actor()).unwrap();
 
     assert_eq!(first.id.get(), 1);
     assert_eq!(second.id.get(), 2);
@@ -36,7 +40,7 @@ fn create_persists_task_and_allocates_stable_monotonic_ids() {
 #[test]
 fn update_replaces_mutable_fields_without_changing_task_identity() {
     let (_root, repository) = repository();
-    let mut task = repository.create(new_task("before")).unwrap();
+    let mut task = repository.create(new_task("before"), &actor()).unwrap();
     let original_id = task.id;
 
     task.title = "after".into();
@@ -45,7 +49,7 @@ fn update_replaces_mutable_fields_without_changing_task_identity() {
     task.labels = vec!["reviewed".into()];
     task.commit_refs.clear();
 
-    let updated = repository.update(&task).unwrap();
+    let updated = repository.update(&task, &actor()).unwrap();
 
     assert_eq!(updated.id, original_id);
     assert_eq!(updated.title, "after");
@@ -62,7 +66,7 @@ fn invalid_task_input_is_rejected_without_partial_persistence() {
     let mut invalid = new_task("invalid");
     invalid.commit_refs = vec!["not-a-git-sha".into()];
 
-    assert!(repository.create(invalid).is_err());
+    assert!(repository.create(invalid, &actor()).is_err());
     assert!(repository.list().unwrap().is_empty());
 }
 
@@ -71,11 +75,11 @@ fn blank_titles_and_duplicate_normalized_labels_are_rejected() {
     let (_root, repository) = repository();
     let mut blank_title = new_task("valid");
     blank_title.title = "  ".into();
-    assert!(repository.create(blank_title).is_err());
+    assert!(repository.create(blank_title, &actor()).is_err());
 
     let mut duplicate_labels = new_task("valid");
     duplicate_labels.labels = vec!["Rust".into(), " rust ".into()];
-    assert!(repository.create(duplicate_labels).is_err());
+    assert!(repository.create(duplicate_labels, &actor()).is_err());
 
     assert!(repository.list().unwrap().is_empty());
 }
@@ -84,10 +88,10 @@ fn blank_titles_and_duplicate_normalized_labels_are_rejected() {
 fn update_of_missing_task_returns_task_not_found() {
     let (_root, repository) = repository();
     let missing = TaskId::new(42).unwrap();
-    let mut task = repository.create(new_task("existing")).unwrap();
+    let mut task = repository.create(new_task("existing"), &actor()).unwrap();
     task.id = missing;
 
-    assert!(repository.update(&task).is_err());
+    assert!(repository.update(&task, &actor()).is_err());
     assert_eq!(repository.list().unwrap().len(), 1);
 }
 
@@ -95,9 +99,9 @@ fn update_of_missing_task_returns_task_not_found() {
 fn list_returns_tasks_in_stable_id_order() {
     let (_root, repository) = repository();
 
-    let first = repository.create(new_task("first")).unwrap();
-    let second = repository.create(new_task("second")).unwrap();
-    let third = repository.create(new_task("third")).unwrap();
+    let first = repository.create(new_task("first"), &actor()).unwrap();
+    let second = repository.create(new_task("second"), &actor()).unwrap();
+    let third = repository.create(new_task("third"), &actor()).unwrap();
 
     assert_eq!(
         repository.list().unwrap().iter().map(|task| task.id).collect::<Vec<_>>(),
@@ -111,7 +115,7 @@ fn terminal_outcome_is_persisted_and_restored() {
     let mut task = new_task("finished");
     task.outcome = Some(TaskOutcome::Completed);
 
-    let created = repository.create(task).unwrap();
+    let created = repository.create(task, &actor()).unwrap();
     let loaded = repository.get(created.id).unwrap();
 
     assert_eq!(loaded.outcome, Some(TaskOutcome::Completed));
