@@ -723,25 +723,35 @@ fn insert_history(
 }
 
 fn map_version(row: &rusqlite::Row<'_>) -> rusqlite::Result<TaskVersion> {
+    let version_id = row.get(0)?;
     let raw_task_id: i64 = row.get(1)?;
-    let actor_id: String = row.get(5)?;
-    TaskId::new(raw_task_id)
-        .and_then(|task_id| {
-            ActorId::new(actor_id).map(|actor_id| (task_id, actor_id))
-        })
-        .map(|(task_id, actor_id)| TaskVersion {
-            version_id: row.get(0).unwrap_or_default(),
-            task_id,
-            version_no: row.get(2).unwrap_or_default(),
-            snapshot_json: row.get(3).unwrap_or_default(),
-            created_at: row.get(4).unwrap_or_default(),
-            actor_id,
-        })
-        .map_err(|error| rusqlite::Error::FromSqlConversionFailure(
+    let version_no = row.get(2)?;
+    let snapshot_json = row.get(3)?;
+    let created_at = row.get(4)?;
+    let actor_raw: String = row.get(5)?;
+    let task_id = TaskId::new(raw_task_id).map_err(|error| {
+        rusqlite::Error::FromSqlConversionFailure(
             1,
             rusqlite::types::Type::Integer,
             Box::new(error),
-        ))
+        )
+    })?;
+    let actor_id = ActorId::new(actor_raw).map_err(|error| {
+        rusqlite::Error::FromSqlConversionFailure(
+            5,
+            rusqlite::types::Type::Text,
+            Box::new(error),
+        )
+    })?;
+
+    Ok(TaskVersion {
+        version_id,
+        task_id,
+        version_no,
+        snapshot_json,
+        created_at,
+        actor_id,
+    })
 }
 
 fn map_history(row: &rusqlite::Row<'_>) -> rusqlite::Result<HistoryEntry> {
