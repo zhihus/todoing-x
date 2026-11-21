@@ -564,8 +564,9 @@ pub fn run() {
         Ok(data) => println!("{}", serde_json::to_string(&Success { api_version: 1, request_id, ok: true, data }).expect("response serialization")),
         Err(error) => {
             eprintln!("todoing api: {}", error.message);
+            let exit_code = api_exit_code(error.code);
             println!("{}", serde_json::to_string(&Failure { api_version: 1, request_id, ok: false, error }).expect("error serialization"));
-            std::process::exit(api_exit_code(error.code));
+            std::process::exit(exit_code);
         }
     }
 }
