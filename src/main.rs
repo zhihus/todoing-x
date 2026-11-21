@@ -54,6 +54,8 @@ enum Commands {
     Hooks(HooksArgs),
     #[command(name="__hook", hide=true)]
     InternalHook(InternalHookArgs),
+    #[command(about="Process one JSON API v1 request from stdin.")]
+    Api,
 }
 
 #[derive(Args)]
@@ -504,6 +506,7 @@ fn run() {
             HooksCommands::Install { hook } => install_hooks(hook, json),
         },
         Some(Commands::InternalHook(args)) => run_internal_hook(&args.name).unwrap_or_else(|e| fail(e)),
+        Some(Commands::Api) => todoing::api::run(),
         None => {}
     }
 }
