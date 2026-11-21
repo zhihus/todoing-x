@@ -105,17 +105,29 @@ fn existing_invalid_configuration_is_not_replaced_by_defaults() {
 }
 
 #[test]
-fn rejects_unknown_configuration_fields() {
+fn rejects_unknown_configuration_fields_at_every_level() {
     let dir = tempdir().unwrap();
     let path = ProjectConfig::config_path(dir.path());
     std::fs::create_dir_all(dir.path()).unwrap();
 
-    let mut content = toml::to_string_pretty(&ProjectConfig::default()).unwrap();
-    content.insert_str(0, "unknown_option = true\n");
-    std::fs::write(&path, &content).unwrap();
+    let valid = toml::to_string_pretty(&ProjectConfig::default()).unwrap();
+    let invalid_cases = [
+        format!("unknown_option = true\n{valid}"),
+        valid.replace(
+            "label = \"To do\"",
+            "label = \"To do\"\nunknown_status_option = true",
+        ),
+        valid.replace(
+            "from = \"todo\"",
+            "from = \"todo\"\nunknown_transition_option = true",
+        ),
+    ];
 
-    assert!(ProjectConfig::load_or_create(dir.path()).is_err());
-    assert_eq!(std::fs::read_to_string(path).unwrap(), content);
+    for content in invalid_cases {
+        std::fs::write(&path, &content).unwrap();
+        assert!(ProjectConfig::load_or_create(dir.path()).is_err());
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), content);
+    }
 }
 
 #[test]
