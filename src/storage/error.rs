@@ -4,6 +4,8 @@ use std::{error::Error, fmt, io, path::PathBuf};
 pub enum StoreError {
     AlreadyExists(PathBuf),
     NotInitialized,
+    TaskNotFound(i64),
+    InvalidTask(String),
     ProjectIdMismatch { expected: String, actual: String },
     UnsupportedSchemaVersion(u32),
     MigrationChecksumMismatch { version: u32 },
@@ -20,6 +22,8 @@ impl fmt::Display for StoreError {
         match self {
             Self::AlreadyExists(path) => write!(formatter, "Todoing store already exists: {}", path.display()),
             Self::NotInitialized => formatter.write_str("Todoing store is not initialized"),
+            Self::TaskNotFound(id) => write!(formatter, "Task #{id} was not found"),
+            Self::InvalidTask(message) => write!(formatter, "Invalid task: {message}"),
             Self::ProjectIdMismatch { expected, actual } => {
                 write!(formatter, "Project ID mismatch: expected {expected}, found {actual}")
             }
