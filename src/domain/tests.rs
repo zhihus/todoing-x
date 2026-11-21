@@ -79,3 +79,10 @@ fn project_ids_are_non_empty_bounded_and_json_safe() {
     assert!(ProjectId::new(" project ").is_err());
     assert!(ProjectId::new("x".repeat(129)).is_err());
 }
+
+#[test]
+fn actor_context_preserves_operation_attribution() {
+    let actor = ActorId::new("agent:executor").unwrap();
+    let context = super::ActorContext::new(actor.clone());
+    assert_eq!(context.actor_id(), &actor);
+}
