@@ -65,7 +65,7 @@
       "type": "object"
     },
     "lock_token": {
-      "type": "string",
+      "type": ["string", "null"],
       "minLength": 1,
       "maxLength": 256
     }
