@@ -161,3 +161,33 @@ fn open_rejects_uninitialized_project() {
     let root = tempdir().unwrap();
     assert!(matches!(Store::open(root.path(), None), Err(StoreError::NotInitialized)));
 }
+
+#[test]
+fn open_rejects_unknown_schema_versions() {
+    let root = tempdir().unwrap();
+    let store = Store::initialize(root.path(), project_id()).unwrap();
+    store.connection().unwrap().execute(
+        "UPDATE store_metadata SET value = '2' WHERE key = 'schema_version'",
+        [],
+    ).unwrap();
+
+    assert!(matches!(
+        Store::open(root.path(), None),
+        Err(StoreError::UnsupportedSchemaVersion(2))
+    ));
+}
+
+#[test]
+fn verify_rejects_migration_checksum_drift() {
+    let root = tempdir().unwrap();
+    let store = Store::initialize(root.path(), project_id()).unwrap();
+    store.connection().unwrap().execute(
+        "UPDATE schema_migrations SET checksum = 'invalid' WHERE version = 1",
+        [],
+    ).unwrap();
+
+    assert!(matches!(
+        store.verify(),
+        Err(StoreError::MigrationChecksumMismatch { version: 1 })
+    ));
+}
