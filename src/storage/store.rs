@@ -12,9 +12,10 @@ use std::{
 };
 use tempfile::NamedTempFile;
 
-const SCHEMA_VERSION: u32 = 1;
+const SCHEMA_VERSION: u32 = 2;
 const BUSY_TIMEOUT: Duration = Duration::from_secs(10);
 const INITIAL_SCHEMA: &str = include_str!("../../migrations/0001_initial.sql");
+const ARCHIVE_SCHEMA: &str = include_str!("../../migrations/0002_task_archive.sql");
 const REQUIRED_SCHEMA_OBJECTS: &[(&str, &str)] = &[
     ("table", "schema_migrations"),
     ("table", "store_metadata"),
@@ -35,12 +36,15 @@ const REQUIRED_SCHEMA_OBJECTS: &[(&str, &str)] = &[
     ("index", "idx_history_task_event"),
     ("index", "idx_dependencies_reverse"),
     ("index", "idx_locks_state_expiry"),
+    ("index", "idx_tasks_archive"),
     ("trigger", "tasks_no_delete"),
     ("trigger", "task_versions_no_update"),
     ("trigger", "task_versions_no_delete"),
     ("trigger", "operation_history_no_update"),
     ("trigger", "operation_history_no_delete"),
     ("trigger", "task_locks_no_delete"),
+    ("trigger", "tasks_archive_metadata_insert"),
+    ("trigger", "tasks_archive_metadata_update"),
 ];
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -87,8 +91,8 @@ impl Store {
 
         let created_at = Utc::now().to_rfc3339_opts(SecondsFormat::Micros, true);
         connection.execute(
-            "INSERT INTO store_metadata(key, value) VALUES ('schema_version', ?1)",
-            params![SCHEMA_VERSION.to_string()],
+            "INSERT INTO store_metadata(key, value) VALUES ('schema_version', '1')",
+            [],
         )?;
         connection.execute(
             "INSERT INTO store_metadata(key, value) VALUES ('project_id', ?1)",
@@ -99,8 +103,17 @@ impl Store {
             params![created_at],
         )?;
         connection.execute(
-            "INSERT INTO schema_migrations(version, checksum, applied_at) VALUES (?1, ?2, ?3)",
-            params![SCHEMA_VERSION, schema_checksum(), created_at],
+            "INSERT INTO schema_migrations(version, checksum, applied_at) VALUES (1, ?1, ?2)",
+            params![initial_schema_checksum(), created_at],
+        )?;
+        connection.execute_batch(ARCHIVE_SCHEMA)?;
+        connection.execute(
+            "UPDATE store_metadata SET value = ?1 WHERE key = 'schema_version'",
+            params![SCHEMA_VERSION.to_string()],
+        )?;
+        connection.execute(
+            "INSERT INTO schema_migrations(version, checksum, applied_at) VALUES (2, ?1, ?2)",
+            params![archive_schema_checksum(), created_at],
         )?;
         connection.execute_batch("COMMIT;")?;
         drop(connection);
@@ -134,7 +147,8 @@ impl Store {
             return Err(StoreError::NotInitialized);
         }
 
-        let connection = connect(&database_path)?;
+        let mut connection = connect(&database_path)?;
+        migrate_schema(&mut connection)?;
         let project_id_raw = metadata_value(&connection, "project_id")?;
         let project_id = ProjectId::new(project_id_raw.clone())
             .map_err(|_| StoreError::InvalidMetadata("project_id".into()))?;
@@ -403,6 +417,58 @@ fn metadata_value(connection: &Connection, key: &str) -> Result<String, StoreErr
         .ok_or_else(|| StoreError::MissingMetadata(key.to_owned()))
 }
 
+fn migrate_schema(connection: &mut Connection) -> Result<(), StoreError> {
+    let version_raw = metadata_value(connection, "schema_version")?;
+    let version = version_raw
+        .parse::<u32>()
+        .map_err(|_| StoreError::InvalidMetadata("schema_version".into()))?;
+    if version > SCHEMA_VERSION {
+        return Err(StoreError::UnsupportedSchemaVersion(version));
+    }
+
+    if version == 1 {
+        let transaction = connection.transaction_with_behavior(TransactionBehavior::Exclusive)?;
+        let locked_version = metadata_value(&transaction, "schema_version")?
+            .parse::<u32>()
+            .map_err(|_| StoreError::InvalidMetadata("schema_version".into()))?;
+        if locked_version == 1 {
+            verify_migration_checksum(&transaction, 1, initial_schema_checksum())?;
+            transaction.execute_batch(ARCHIVE_SCHEMA)?;
+            transaction.execute(
+                "UPDATE store_metadata SET value = '2' WHERE key = 'schema_version'",
+                [],
+            )?;
+            transaction.execute(
+                "INSERT INTO schema_migrations(version, checksum, applied_at) VALUES (2, ?1, ?2)",
+                params![archive_schema_checksum(), Utc::now().to_rfc3339_opts(SecondsFormat::Micros, true)],
+            )?;
+        } else if locked_version > SCHEMA_VERSION {
+            return Err(StoreError::UnsupportedSchemaVersion(locked_version));
+        }
+        transaction.commit()?;
+    }
+
+    validate_schema(connection)
+}
+
+fn verify_migration_checksum(
+    connection: &Connection,
+    version: u32,
+    expected: String,
+) -> Result<(), StoreError> {
+    let checksum: Option<String> = connection
+        .query_row(
+            "SELECT checksum FROM schema_migrations WHERE version = ?1",
+            params![version],
+            |row| row.get(0),
+        )
+        .optional()?;
+    if checksum.as_deref() != Some(expected.as_str()) {
+        return Err(StoreError::MigrationChecksumMismatch { version });
+    }
+    Ok(())
+}
+
 fn validate_schema(connection: &Connection) -> Result<(), StoreError> {
     for (object_type, object_name) in REQUIRED_SCHEMA_OBJECTS {
         let exists: i64 = connection.query_row(
@@ -424,23 +490,15 @@ fn validate_schema(connection: &Connection) -> Result<(), StoreError> {
     if version != SCHEMA_VERSION {
         return Err(StoreError::UnsupportedSchemaVersion(version));
     }
-
-    let checksum: Option<String> = connection
-        .query_row(
-            "SELECT checksum FROM schema_migrations WHERE version = ?1",
-            params![SCHEMA_VERSION],
-            |row| row.get(0),
-        )
-        .optional()?;
-    if checksum.as_deref() != Some(schema_checksum().as_str()) {
-        return Err(StoreError::MigrationChecksumMismatch {
-            version: SCHEMA_VERSION,
-        });
-    }
-
+    verify_migration_checksum(connection, 1, initial_schema_checksum())?;
+    verify_migration_checksum(connection, 2, archive_schema_checksum())?;
     Ok(())
 }
 
-fn schema_checksum() -> String {
+fn initial_schema_checksum() -> String {
     hex::encode(Sha256::digest(INITIAL_SCHEMA.as_bytes()))
+}
+
+fn archive_schema_checksum() -> String {
+    hex::encode(Sha256::digest(ARCHIVE_SCHEMA.as_bytes()))
 }
