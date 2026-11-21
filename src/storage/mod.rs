@@ -9,8 +9,6 @@ mod task_history_tests;
 #[cfg(test)]
 mod status_workflow_tests;
 #[cfg(test)]
-mod status_workflow_tests;
-#[cfg(test)]
 mod tests;
 
 pub use error::StoreError;
