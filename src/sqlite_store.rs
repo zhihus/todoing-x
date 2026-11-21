@@ -67,7 +67,7 @@ pub struct StoreCounts {
 pub struct SqliteStore {
     connection: Connection,
     db_path: PathBuf,
-    config: Option<ProjectConfig>,
+    config: ProjectConfig,
 }
 
 impl SqliteStore {
@@ -120,7 +120,7 @@ impl SqliteStore {
         Ok(Self {
             connection,
             db_path,
-            config: None,
+            config,
         })
     }
 
@@ -128,8 +128,8 @@ impl SqliteStore {
         &self.db_path
     }
 
-    pub fn config(&self) -> Option<&ProjectConfig> {
-        self.config.as_ref()
+    pub fn config(&self) -> &ProjectConfig {
+        &self.config
     }
 
     fn initialize_schema(connection: &mut Connection) -> Result<(), String> {
@@ -284,13 +284,10 @@ impl SqliteStore {
 
     pub fn create_task(&mut self, new_task: NewTask) -> Result<StoredTask, String> {
         validate_new_task(&new_task)?;
-        if let Some(config) = &self.config {
-            config.validate_new_status(&new_task.status)?;
-        }
+        self.config.validate_new_status(&new_task.status)?;
         let outcome = self
             .config
-            .as_ref()
-            .and_then(|config| config.outcome_for(&new_task.status))
+            .outcome_for(&new_task.status)
             .map(|outcome| outcome.as_str().to_string());
         let transaction = self
             .connection
@@ -376,12 +373,12 @@ impl SqliteStore {
         candidate.updated_at = before.updated_at.clone();
         candidate.dependencies = before.dependencies.clone();
         if candidate.status != before.status {
-            if let Some(config) = &self.config {
-                config.validate_transition(&before.status, &candidate.status)?;
-                candidate.outcome = config
-                    .outcome_for(&candidate.status)
-                    .map(|outcome| outcome.as_str().to_string());
-            }
+            self.config
+                .validate_transition(&before.status, &candidate.status)?;
+            candidate.outcome = self
+                .config
+                .outcome_for(&candidate.status)
+                .map(|outcome| outcome.as_str().to_string());
         } else {
             candidate.outcome = before.outcome.clone();
         }
