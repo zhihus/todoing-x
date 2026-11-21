@@ -102,7 +102,7 @@ This is an example configuration, not a mandatory Todoing workflow. A project ma
 - enabled defaults to true.
 - outcome is omitted for ordinary workflow states; supported values are completed and cancelled.
 - A status with an outcome sets that outcome when a task enters the status. This is useful for completion statuses such as Done; a cancelled outcome can also be set by the explicit cancellation operation without changing the workflow status.
-- Moving a task to a status without an outcome clears its current outcome only through an explicit reopen operation; a task with a non-null outcome cannot be status-transitioned until reopened.
+- A task with a non-null outcome cannot undergo a normal status transition until explicitly reopened.
 - Transition endpoints MUST refer to configured statuses.
 - A disabled status cannot be a transition target. A task already in a disabled status remains readable and may transition out if that transition is explicitly configured.
 - The loader validates the complete file once per CLI/API invocation. All operations in that invocation use the same immutable configuration snapshot.
@@ -139,7 +139,7 @@ Use SQLite INTEGER PRIMARY KEY AUTOINCREMENT for new IDs. Imported legacy IDs ar
 
 ### Task outcome
 
-Workflow status is configurable; outcome is semantic. A task can be in any configured status, while outcome records whether it ended as completed or cancelled. The outcome is set from the target status configuration when a task enters a mapped status. An explicit task.cancel operation sets cancelled without changing the workflow status and accepts an optional reason. task.complete sets completed when no configured status transition is used. task.reopen clears the outcome; status can then be changed through the normal transition rules. The operation history preserves every previous outcome and cancellation reason.
+Workflow status is configurable; outcome is semantic. A task can be in any configured status, while outcome records whether it ended as completed or cancelled. The outcome is set from the target status configuration when a task enters a mapped status. An explicit task.cancel operation sets cancelled without changing the workflow status and accepts an optional reason. task.complete sets completed without changing the workflow status. task.reopen clears the outcome; status can then be changed through the normal transition rules. The operation history preserves every previous outcome and cancellation reason.
 
 ### Dependencies
 
