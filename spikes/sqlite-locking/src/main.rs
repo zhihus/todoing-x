@@ -1,4 +1,5 @@
 use rusqlite::{Connection, OptionalExtension, params};
+use sha2::{Digest, Sha256};
 use std::{
     env,
     error::Error,
@@ -16,6 +17,10 @@ fn open(path: &str) -> Result<Connection> {
     connection.busy_timeout(Duration::from_secs(10))?;
     connection.execute_batch("PRAGMA foreign_keys=ON;")?;
     Ok(connection)
+}
+
+fn token_hash(token: &str) -> Vec<u8> {
+    Sha256::digest(token.as_bytes()).to_vec()
 }
 
 fn unix_time() -> Result<i64> {
@@ -44,6 +49,7 @@ fn init(path: &str) -> Result<()> {
          CREATE TABLE task_locks (
              task_id INTEGER PRIMARY KEY REFERENCES tasks(id),
              owner TEXT NOT NULL,
+             token_hash BLOB NOT NULL CHECK(length(token_hash) = 32),
              expires_at INTEGER NOT NULL,
              fencing_token INTEGER NOT NULL
          );
@@ -63,28 +69,28 @@ fn hold_read(path: &str, ready: &str, millis: u64) -> Result<()> {
     Ok(())
 }
 
-fn acquire(path: &str, owner: &str) -> Result<()> {
+fn acquire(path: &str, owner: &str, token: &str) -> Result<()> {
     let mut connection = open(path)?;
     let transaction = connection.transaction_with_behavior(rusqlite::TransactionBehavior::Exclusive)?;
     let expiry = unix_time()? + 3600;
     transaction.execute(
-        "INSERT INTO task_locks(task_id, owner, expires_at, fencing_token)
-         VALUES (1, ?1, ?2, 1)",
-        params![owner, expiry],
+        "INSERT INTO task_locks(task_id, owner, token_hash, expires_at, fencing_token)
+         VALUES (1, ?1, ?2, ?3, 1)",
+        params![owner, token_hash(token), expiry],
     )?;
     transaction.commit()?;
     Ok(())
 }
 
-fn recover(path: &str, owner: &str) -> Result<()> {
+fn recover(path: &str, owner: &str, token: &str) -> Result<()> {
     let mut connection = open(path)?;
     let transaction = connection.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
     let expiry = unix_time()? + 3600;
     let changed = transaction.execute(
         "UPDATE task_locks
-         SET owner = ?1, expires_at = ?2, fencing_token = fencing_token + 1
-         WHERE task_id = 1 AND expires_at <= ?3",
-        params![owner, expiry, unix_time()?],
+         SET owner = ?1, token_hash = ?2, expires_at = ?3, fencing_token = fencing_token + 1
+         WHERE task_id = 1 AND expires_at <= ?4",
+        params![owner, token_hash(token), expiry, unix_time()?],
     )?;
     if changed != 1 {
         return Err("task lock is not expired or does not exist".into());
@@ -99,18 +105,18 @@ fn expire(path: &str) -> Result<()> {
     Ok(())
 }
 
-fn check_read(path: &str, owner: &str) -> Result<()> {
+fn check_read(path: &str, owner: &str, token: &str) -> Result<()> {
     let mut connection = open(path)?;
     let transaction = connection.transaction()?;
-    let lock: Option<(String, i64)> = transaction
+    let lock: Option<(String, Vec<u8>, i64)> = transaction
         .query_row(
-            "SELECT owner, expires_at FROM task_locks WHERE task_id = 1",
+            "SELECT owner, token_hash, expires_at FROM task_locks WHERE task_id = 1",
             [],
-            |row| Ok((row.get(0)?, row.get(1)?)),
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
         )
         .optional()?;
-    if let Some((lock_owner, expires_at)) = lock {
-        if lock_owner != owner || expires_at <= unix_time()? {
+    if let Some((lock_owner, stored_hash, expires_at)) = lock {
+        if lock_owner != owner || stored_hash != token_hash(token) || expires_at <= unix_time()? {
             transaction.rollback()?;
             process::exit(20);
         }
@@ -151,19 +157,19 @@ fn check_absent(path: &str) -> Result<()> {
     Ok(())
 }
 
-fn mutate(path: &str, owner: &str, token: i64) -> Result<()> {
+fn mutate(path: &str, owner: &str, token: &str, generation: i64) -> Result<()> {
     let mut connection = open(path)?;
     let transaction = connection.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
-    let lock: Option<(String, i64, i64)> = transaction
+    let lock: Option<(String, Vec<u8>, i64, i64)> = transaction
         .query_row(
-            "SELECT owner, fencing_token, expires_at FROM task_locks WHERE task_id = 1",
+            "SELECT owner, token_hash, fencing_token, expires_at FROM task_locks WHERE task_id = 1",
             [],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
         )
         .optional()?;
     match lock {
-        Some((lock_owner, generation, expires_at))
-            if lock_owner == owner && generation == token && expires_at > unix_time()? => {}
+        Some((lock_owner, stored_hash, current_generation, expires_at))
+            if lock_owner == owner && stored_hash == token_hash(token) && current_generation == generation && expires_at > unix_time()? => {}
         _ => {
             transaction.rollback()?;
             process::exit(21);
@@ -180,14 +186,14 @@ fn run() -> Result<()> {
     match command {
         "init" => init(&args[2])?,
         "hold-read" => hold_read(&args[2], &args[3], args[4].parse()?)?,
-        "acquire" => acquire(&args[2], &args[3])?,
-        "recover" => recover(&args[2], &args[3])?,
+        "acquire" => acquire(&args[2], &args[3], &args[4])?,
+        "recover" => recover(&args[2], &args[3], &args[4])?,
         "expire" => expire(&args[2])?,
-        "read" => check_read(&args[2], &args[3])?,
+        "read" => check_read(&args[2], &args[3], &args[4])?,
         "create" => println!("{}", create(&args[2], &args[3])?),
         "crash-write" => crash_write(&args[2], &args[3])?,
         "check-absent" => check_absent(&args[2])?,
-        "mutate" => mutate(&args[2], &args[3], args[4].parse()?)?,
+        "mutate" => mutate(&args[2], &args[3], &args[4], args[5].parse()?)?,
         _ => return Err(format!("unknown or incomplete command: {command}").into()),
     }
     Ok(())
