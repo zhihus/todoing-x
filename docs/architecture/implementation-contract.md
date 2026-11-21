@@ -360,6 +360,7 @@ The request and response envelopes are specified in docs/api/v1/request.schema.j
 | project_id_mismatch | Request project ID differs from store metadata. |
 | config_invalid | Status configuration is invalid. |
 | task_not_found | Task ID does not exist. |
+| task_terminal | Task already has a completed/cancelled outcome and must be reopened first. |
 | task_locked | Task is locked by another client. |
 | lock_expired | Lock lease expired. |
 | stale_lock | Owner/token/fencing generation is no longer valid. |
