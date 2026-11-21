@@ -32,7 +32,7 @@ Disabling a status MUST prevent its use for new transitions without invalidating
 
 ### Requirement: Distinguish completion and cancellation outcomes
 
-The task model MUST represent completion and cancellation as distinct outcomes. The relationship between these outcomes and configurable workflow statuses MUST be explicitly defined by the product and architecture before implementation.
+The task model MUST represent completion and cancellation as distinct nullable outcomes independently from the configurable workflow status. A configured status MAY map to a terminal outcome. The explicit cancellation operation MUST set the cancelled outcome without requiring a dedicated workflow status and MUST accept an optional reason. Reopening MUST clear the terminal outcome.
 
 #### Scenario: Preserve distinct terminal outcomes
 
