@@ -5,7 +5,7 @@ use crate::{
 };
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::{Value, json};
-use std::{fs, io::{self, Read}, path::Path};
+use std::{fs, io::{self, Read}, path::Path, process::Command};
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -124,6 +124,34 @@ struct DependencyArgs { task_id: i64, depends_on_task_id: i64 }
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct VersionArgs { task_id: i64, version_no: i64 }
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct VersionListArgs {
+    task_id: i64,
+    #[serde(default)]
+    before_version_no: Option<i64>,
+    #[serde(default)]
+    limit: Option<usize>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct HistoryArgs {
+    task_id: i64,
+    #[serde(default)]
+    before_event_id: Option<i64>,
+    #[serde(default)]
+    limit: Option<usize>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct LabelArgs { task_id: i64, label: String }
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CommitArgs { task_id: i64, revision: String }
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -310,12 +338,22 @@ fn execute(request: Request, root: &Path) -> Result<Value, ApiError> {
             Ok(json!({"dependencies": repository.list_dependencies(id(args.task_id).map_err(invalid)?).map_err(store_error)?}))
         }
         "task.history.list" => {
-            let args: TaskIdArgs = parse_args(request.args).map_err(invalid)?;
-            Ok(json!({"events": repository.get_history(id(args.task_id).map_err(invalid)?).map_err(store_error)?}))
+            let args: HistoryArgs = parse_args(request.args).map_err(invalid)?;
+            if args.limit == Some(0) { return Err(invalid("limit must be a positive integer".into())); }
+            let mut events = repository.get_history(id(args.task_id).map_err(invalid)?).map_err(store_error)?;
+            events.reverse();
+            if let Some(cursor) = args.before_event_id { events.retain(|event| event.event_id < cursor); }
+            if let Some(limit) = args.limit { events.truncate(limit); }
+            Ok(json!({"events": events}))
         }
         "task.version.list" => {
-            let args: TaskIdArgs = parse_args(request.args).map_err(invalid)?;
-            Ok(json!({"versions": repository.list_versions(id(args.task_id).map_err(invalid)?).map_err(store_error)?}))
+            let args: VersionListArgs = parse_args(request.args).map_err(invalid)?;
+            if args.limit == Some(0) { return Err(invalid("limit must be a positive integer".into())); }
+            let mut versions = repository.list_versions(id(args.task_id).map_err(invalid)?).map_err(store_error)?;
+            versions.reverse();
+            if let Some(cursor) = args.before_version_no { versions.retain(|version| version.version_no < cursor); }
+            if let Some(limit) = args.limit { versions.truncate(limit); }
+            Ok(json!({"versions": versions}))
         }
         "task.version.get" => {
             let args: VersionArgs = parse_args(request.args).map_err(invalid)?;
@@ -328,6 +366,45 @@ fn execute(request: Request, root: &Path) -> Result<Value, ApiError> {
         "task.version.approve" => {
             let args: VersionArgs = parse_args(request.args).map_err(invalid)?;
             Ok(json!({"baseline": repository.approve_baseline(id(args.task_id).map_err(invalid)?, args.version_no, &actor).map_err(store_error)?}))
+        }
+        "task.label.add" | "task.label.remove" => {
+            let args: LabelArgs = parse_args(request.args).map_err(invalid)?;
+            if args.label.trim().is_empty() { return Err(invalid("label must not be empty".into())); }
+            let task_id = id(args.task_id).map_err(invalid)?;
+            let mut task = repository.get(task_id).map_err(store_error)?;
+            if request.operation == "task.label.add" {
+                if !task.labels.iter().any(|label| label.eq_ignore_ascii_case(&args.label)) {
+                    task.labels.push(args.label);
+                }
+            } else {
+                task.labels.retain(|label| !label.eq_ignore_ascii_case(&args.label));
+            }
+            let updated = repository.update(&task, &actor).map_err(store_error)?;
+            Ok(json!({"task": updated, "no_op": updated.labels == task.labels}))
+        }
+        "task.commit.add" => {
+            let args: CommitArgs = parse_args(request.args).map_err(invalid)?;
+            if args.revision.trim().is_empty() { return Err(invalid("revision must not be empty".into())); }
+            let output = Command::new("git")
+                .current_dir(root)
+                .args(["rev-parse", "--verify", "--end-of-options"])
+                .arg(format!("{}^{{commit}}", args.revision))
+                .output()
+                .map_err(|error| ApiError { code: "io_error", message: format!("Cannot run git: {error}"), retryable: false, details: json!({}) })?;
+            if !output.status.success() {
+                return Err(invalid(format!("Git revision '{}' does not resolve to a commit", args.revision)));
+            }
+            let sha = String::from_utf8_lossy(&output.stdout).trim().to_owned();
+            if !((sha.len() == 40 || sha.len() == 64) && sha.bytes().all(|byte| byte.is_ascii_hexdigit())) {
+                return Err(invalid("Git returned an invalid commit object ID".into()));
+            }
+            let task_id = id(args.task_id).map_err(invalid)?;
+            let mut task = repository.get(task_id).map_err(store_error)?;
+            if !task.commit_refs.iter().any(|reference| reference.eq_ignore_ascii_case(&sha)) {
+                task.commit_refs.push(sha.clone());
+            }
+            let updated = repository.update(&task, &actor).map_err(store_error)?;
+            Ok(json!({"task": updated, "commit_sha": sha, "no_op": updated.commit_refs == task.commit_refs}))
         }
         "task.lock.acquire" => {
             let args: LockArgs = parse_args(request.args).map_err(invalid)?;
