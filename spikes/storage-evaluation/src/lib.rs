@@ -175,7 +175,7 @@ impl RedbStore {
             let next_id = meta
                 .get("next_task_id")
                 .map_err(|e| e.to_string())?
-                .map(|value| *value.value())
+                .map(|value| value.value())
                 .unwrap_or(1);
             meta.insert("next_task_id", &(next_id + 1))
                 .map_err(|e| e.to_string())?;
