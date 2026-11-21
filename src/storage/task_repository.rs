@@ -257,6 +257,7 @@ impl TaskRepository {
     pub fn get(&self, id: TaskId) -> Result<Task, StoreError> {
         let mut connection = self.store.connection()?;
         let transaction = connection.transaction()?;
+        self.check_lock(&transaction, id)?;
         let task = load_task(&transaction, id)?;
         transaction.commit()?;
         Ok(task)
@@ -276,7 +277,11 @@ impl TaskRepository {
         for raw_id in ids {
             let id = TaskId::new(raw_id)
                 .map_err(|error| StoreError::InvalidTask(error.to_string()))?;
-            tasks.push(load_task(&transaction, id)?);
+            match self.check_lock(&transaction, id) {
+                Ok(_) => tasks.push(load_task(&transaction, id)?),
+                Err(StoreError::TaskLocked | StoreError::LockExpired | StoreError::StaleLock) => {}
+                Err(error) => return Err(error),
+            }
         }
         transaction.commit()?;
         Ok(tasks)
@@ -766,13 +771,19 @@ impl TaskRepository {
     }
 
     pub fn list_versions(&self, task_id: TaskId) -> Result<Vec<TaskVersion>, StoreError> {
-        let connection = self.store.connection()?;
-        let mut statement = connection.prepare(
-            "SELECT version_id, task_id, version_no, snapshot_json, created_at, actor_id
-             FROM task_versions WHERE task_id = ?1 ORDER BY version_no ASC",
-        )?;
-        let rows = statement.query_map(params![task_id.get()], map_version)?;
-        rows.collect::<Result<Vec<_>, _>>().map_err(StoreError::from)
+        let mut connection = self.store.connection()?;
+        let transaction = connection.transaction()?;
+        self.check_lock(&transaction, task_id)?;
+        let versions = {
+            let mut statement = transaction.prepare(
+                "SELECT version_id, task_id, version_no, snapshot_json, created_at, actor_id
+                 FROM task_versions WHERE task_id = ?1 ORDER BY version_no ASC",
+            )?;
+            let rows = statement.query_map(params![task_id.get()], map_version)?;
+            rows.collect::<Result<Vec<_>, _>>()?
+        };
+        transaction.commit()?;
+        Ok(versions)
     }
 
     pub fn get_version(
@@ -780,8 +791,10 @@ impl TaskRepository {
         task_id: TaskId,
         version_no: i64,
     ) -> Result<TaskVersion, StoreError> {
-        let connection = self.store.connection()?;
-        connection
+        let mut connection = self.store.connection()?;
+        let transaction = connection.transaction()?;
+        self.check_lock(&transaction, task_id)?;
+        let version = transaction
             .query_row(
                 "SELECT version_id, task_id, version_no, snapshot_json, created_at, actor_id
                  FROM task_versions WHERE task_id = ?1 AND version_no = ?2",
@@ -792,31 +805,56 @@ impl TaskRepository {
             .ok_or(StoreError::VersionNotFound {
                 task_id: task_id.get(),
                 version_no,
-            })
+            })?;
+        transaction.commit()?;
+        Ok(version)
     }
 
     pub fn get_history(&self, task_id: TaskId) -> Result<Vec<HistoryEntry>, StoreError> {
-        let connection = self.store.connection()?;
-        let mut statement = connection.prepare(
-            "SELECT event_id, task_id, actor_id, occurred_at, operation,
-                    previous_json, requested_json, outcome, error_code,
-                    details_json, config_revision, fencing_generation
-             FROM operation_history WHERE task_id = ?1 ORDER BY event_id ASC",
-        )?;
-        let rows = statement.query_map(params![task_id.get()], map_history)?;
-        rows.collect::<Result<Vec<_>, _>>().map_err(StoreError::from)
+        let mut connection = self.store.connection()?;
+        let transaction = connection.transaction()?;
+        self.check_lock(&transaction, task_id)?;
+        let history = {
+            let mut statement = transaction.prepare(
+                "SELECT event_id, task_id, actor_id, occurred_at, operation,
+                        previous_json, requested_json, outcome, error_code,
+                        details_json, config_revision, fencing_generation
+                 FROM operation_history WHERE task_id = ?1 ORDER BY event_id ASC",
+            )?;
+            let rows = statement.query_map(params![task_id.get()], map_history)?;
+            rows.collect::<Result<Vec<_>, _>>()?
+        };
+        transaction.commit()?;
+        Ok(history)
     }
 
     pub fn get_store_history(&self) -> Result<Vec<HistoryEntry>, StoreError> {
-        let connection = self.store.connection()?;
-        let mut statement = connection.prepare(
-            "SELECT event_id, task_id, actor_id, occurred_at, operation,
-                    previous_json, requested_json, outcome, error_code,
-                    details_json, config_revision, fencing_generation
-             FROM operation_history ORDER BY event_id ASC",
-        )?;
-        let rows = statement.query_map([], map_history)?;
-        rows.collect::<Result<Vec<_>, _>>().map_err(StoreError::from)
+        let mut connection = self.store.connection()?;
+        let transaction = connection.transaction()?;
+        let entries = {
+            let mut statement = transaction.prepare(
+                "SELECT event_id, task_id, actor_id, occurred_at, operation,
+                        previous_json, requested_json, outcome, error_code,
+                        details_json, config_revision, fencing_generation
+                 FROM operation_history ORDER BY event_id ASC",
+            )?;
+            let rows = statement.query_map([], map_history)?;
+            rows.collect::<Result<Vec<_>, _>>()?
+        };
+
+        let mut visible = Vec::with_capacity(entries.len());
+        for entry in entries {
+            match entry.task_id {
+                None => visible.push(entry),
+                Some(task_id) => match self.check_lock(&transaction, task_id) {
+                    Ok(_) => visible.push(entry),
+                    Err(StoreError::TaskLocked | StoreError::LockExpired | StoreError::StaleLock) => {}
+                    Err(error) => return Err(error),
+                },
+            }
+        }
+        transaction.commit()?;
+        Ok(visible)
     }
 
     pub fn approve_baseline(
@@ -890,8 +928,10 @@ impl TaskRepository {
     }
 
     pub fn get_baseline(&self, task_id: TaskId) -> Result<Option<TaskBaseline>, StoreError> {
-        let connection = self.store.connection()?;
-        connection
+        let mut connection = self.store.connection()?;
+        let transaction = connection.transaction()?;
+        self.check_lock(&transaction, task_id)?;
+        let baseline = transaction
             .query_row(
                 "SELECT b.task_id, b.version_id, v.version_no, b.approved_at, b.approved_by
                  FROM task_baselines b
@@ -917,7 +957,9 @@ impl TaskRepository {
                         .map_err(|error| StoreError::InvalidTask(error.to_string()))?,
                 })
             })
-            .transpose()
+            .transpose()?;
+        transaction.commit()?;
+        Ok(baseline)
     }
 
     pub fn compare_versions(
