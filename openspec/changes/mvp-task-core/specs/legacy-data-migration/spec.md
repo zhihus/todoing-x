@@ -6,13 +6,14 @@
 
 The system MUST provide a safe migration path from the current Markdown task files with YAML frontmatter and the JSON index.
 
-Migration MUST preserve existing task identifiers and all supported task data, including titles, creation timestamps, statuses, labels, description bodies, and Git commit references.
+Migration MUST preserve existing task identifiers and all supported task data, including titles, creation timestamps, statuses, labels, description bodies, Git commit references, and recoverable metadata. Unknown YAML frontmatter fields MUST be preserved as legacy metadata or explicitly reported; they MUST NOT be silently discarded.
 
 #### Scenario: Migrate a valid existing task store
 
 - **WHEN** the user migrates a valid current-format task store
 - **THEN** each task is represented in the new store with its original identifier and supported data
 - **AND** task relationships or metadata that cannot be represented are reported rather than silently discarded
+- **AND** each imported task receives an initial version and a migration history entry
 
 ### Requirement: Validate migration input and result
 

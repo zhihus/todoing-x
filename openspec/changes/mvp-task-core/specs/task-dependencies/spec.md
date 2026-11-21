@@ -39,10 +39,16 @@ The system MUST detect and reject dependency changes that would create a cycle.
 
 The system MUST expose a task's dependencies and the state of those dependencies through the public interface.
 
-The exact derived-state fields and rules for determining whether a dependency blocks work are architecture decisions.
+Dependency state MUST be exposed as open, completed, cancelled, or unavailable when the dependency is locked by another owner. Dependency state is informational and MUST NOT automatically block task operations.
 
 #### Scenario: Inspect dependencies
 
 - **WHEN** a client requests task details
 - **THEN** the response includes the task's dependency relationships
 - **AND** provides enough information to determine the current state of each dependency
+
+#### Scenario: Inspect a dependency on a locked task
+
+- **WHEN** a client inspects a task whose dependency is locked by another owner
+- **THEN** the dependency is reported as unavailable
+- **AND** the locked task's content and state are not exposed

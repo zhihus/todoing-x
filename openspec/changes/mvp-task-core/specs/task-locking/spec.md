@@ -19,6 +19,24 @@ While a task is locked by one owner, other clients MUST be prevented from perfor
 - **WHEN** a different client attempts to read or mutate a locked task
 - **THEN** the operation is rejected with a predictable lock-conflict result
 
+### Requirement: Protect list and dependency reads
+
+List and filter operations MUST NOT expose the contents or task state of tasks locked by another owner. Such tasks MUST be omitted from ordinary result sets.
+
+When a task depends on a task locked by another owner, the public interface MUST report that dependency as unavailable without exposing the locked task's content or state.
+
+#### Scenario: List tasks while another task is locked
+
+- **WHEN** a client lists or filters tasks while one or more tasks are locked by another owner
+- **THEN** the locked tasks are omitted from the returned task records
+- **AND** no locked task content or state is exposed
+
+#### Scenario: Inspect dependency on a locked task
+
+- **WHEN** a client inspects an unlocked task that depends on a task locked by another owner
+- **THEN** the dependency is reported as unavailable
+- **AND** the locked task's content and state are not exposed
+
 ### Requirement: Identify and renew lock ownership
 
 A lock MUST identify its owner and support heartbeat or lease renewal while work continues.
