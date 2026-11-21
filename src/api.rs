@@ -476,7 +476,7 @@ fn execute(request: Request, root: &Path) -> Result<Value, ApiError> {
             message: "Legacy migration is not implemented yet".into(),
             retryable: false,
             details: json!({}),
-        })
+        }),
         other => Err(invalid(format!("Operation '{other}' is not implemented yet"))),
     }
 }
