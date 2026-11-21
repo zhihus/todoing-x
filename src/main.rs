@@ -7,7 +7,13 @@ use std::{
     process::{Command, Stdio},
 };
 use tempfile::NamedTempFile;
-use todoing::{Store, Task, TaskStatus, VERSION};
+use todoing::{
+    config::ProjectConfig,
+    domain::{ActorContext, ActorId, ProjectId, StatusId, TaskId, TaskOutcome},
+    storage::{LockGrant, NewTask, Store as SqliteStore, StoreError, Task, TaskRepository},
+    migration,
+    Store, TaskStatus, VERSION,
+};
 
 const GIT_HOOK_UNIX: &str = include_str!("../hooks/before-done-git");
 const OPENSPEC_HOOK_UNIX: &str = include_str!("../hooks/before-done-openspec");
@@ -19,6 +25,8 @@ const OPENSPEC_HOOK_WINDOWS: &str = include_str!("../hooks/before-done-openspec.
 struct Cli {
     #[arg(long, global=true, help="Emit machine-readable JSON")]
     json: bool,
+    #[arg(long, global=true, help="Actor identity recorded in task history (or TODOING_ACTOR_ID)")]
+    actor: Option<String>,
     #[command(subcommand)]
     command: Option<Commands>,
 }
@@ -48,8 +56,28 @@ enum Commands {
     Delete(DeleteArgs),
     #[command(about="Rebuild index.json from all task .md files.")]
     Reindex,
-    #[command(about="Show the installed todoing version.")]
-    Version,
+    #[command(about="Show the installed todoing version or task versions.")]
+    Version(VersionArgs),
+    #[command(about="Mark a task completed.")]
+    Complete(TaskIdArgs),
+    #[command(about="Cancel a task without deleting it.")]
+    Cancel(CancelArgs),
+    #[command(about="Reopen a completed or cancelled task.")]
+    Reopen(ReopenArgs),
+    #[command(about="Manage task dependencies.")]
+    Depends(DependsArgs),
+    #[command(about="Show task operation history.")]
+    History(HistoryArgs),
+    #[command(about="Manage exclusive task locks.")]
+    Lock(LockArgs),
+    #[command(about="Show project configuration.")]
+    Config,
+    #[command(about="Migrate legacy Markdown tasks to SQLite.")]
+    Migrate(MigrateArgs),
+    #[command(about="Verify the SQLite task store.")]
+    Verify,
+    #[command(about="Create a verified SQLite snapshot.")]
+    Snapshot(SnapshotArgs),
     #[command(about="Manage optional standard hooks.")]
     Hooks(HooksArgs),
     #[command(name="__hook", hide=true)]
@@ -134,6 +162,90 @@ struct DeleteArgs {
     id: String,
     #[arg(short='f', long="force", help="Skip confirmation")]
     force: bool,
+}
+
+#[derive(Args)]
+struct TaskIdArgs { id: String }
+
+#[derive(Args)]
+struct VersionArgs {
+    id: Option<String>,
+    version_no: Option<i64>,
+}
+
+#[derive(Args)]
+struct CancelArgs {
+    id: String,
+    #[arg(long)]
+    reason: Option<String>,
+}
+
+#[derive(Args)]
+struct ReopenArgs {
+    id: String,
+    #[arg(long)]
+    status: Option<String>,
+}
+
+#[derive(Args)]
+struct DependsArgs {
+    #[command(subcommand)]
+    command: DependsCommands,
+}
+
+#[derive(Subcommand)]
+enum DependsCommands {
+    Add { id: String, depends_on: String },
+    Remove { id: String, depends_on: String },
+    List { id: String },
+}
+
+#[derive(Args)]
+struct HistoryArgs {
+    id: String,
+    #[arg(long, default_value_t=100)]
+    limit: usize,
+}
+
+#[derive(Args)]
+struct LockArgs {
+    #[command(subcommand)]
+    command: LockCommands,
+}
+
+#[derive(Subcommand)]
+enum LockCommands {
+    Acquire { id: String },
+    Recover { id: String },
+    Heartbeat { id: String, owner_id: String, fencing_generation: i64 },
+    Release { id: String, owner_id: String, fencing_generation: i64 },
+}
+
+#[derive(Args)]
+struct MigrateArgs {
+    #[arg(long)]
+    project_id: String,
+    #[arg(long)]
+    dry_run: bool,
+}
+
+#[derive(Args)]
+struct SnapshotArgs {
+    path: PathBuf,
+    #[arg(long)]
+    overwrite: bool,
+}
+
+#[derive(Deserialize)]
+struct EditableFrontmatter {
+    id: i64,
+    added_at: String,
+    status: String,
+    title: String,
+    #[serde(default)]
+    labels: Vec<String>,
+    #[serde(default)]
+    commits: Vec<String>,
 }
 
 #[derive(Args)]
