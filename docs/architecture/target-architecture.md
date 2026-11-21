@@ -83,7 +83,7 @@ This is a logical layout; files can be grouped more compactly while the implemen
 
 ### 3.1 Preferred candidate
 
-Use one embedded database per project. The preferred candidate is SQLite accessed through rusqlite with the bundled feature.
+Use one embedded SQLite database per project, accessed through rusqlite with the bundled feature. This is the selected MVP storage baseline.
 
 The cross-platform proof of concept passed on ubuntu-latest and windows-latest. It verified the rollback-journal lock-acquisition barrier, non-owner read rejection, concurrent ID allocation, rollback after abrupt process termination, and fencing-token rejection.
 
@@ -96,7 +96,7 @@ The cross-platform proof of concept passed on ubuntu-latest and windows-latest. 
 
 The journal-mode recommendation is tied to the lock requirement: the tested EXCLUSIVE transaction waits for existing readers in rollback-journal mode. WAL has different reader behavior and does not provide that same barrier. Do not switch to WAL without a replacement mechanism and equivalent cross-platform tests.
 
-Final database selection remains a decision gate. redb 5.x remains the fallback if SQLite's filesystem-locking or transaction behavior fails a production requirement.
+SQLite is selected. redb 5.x remains a contingency alternative only if production verification exposes a requirement SQLite cannot satisfy.
 
 ### 3.2 Project store layout
 
@@ -112,11 +112,11 @@ Proposed layout:
 
 The legacy .todoing/tasks/ Markdown files and index.json remain untouched during migration and are retained as read-only recovery material after a successful cutover. They are not a second writable source of truth.
 
-A store metadata record contains the schema version and a stable project identifier. Human CLI invocations resolve the store from the project root. Manifest must supply/verify its expected project identifier at the integration boundary; the exact argument or environment transport remains open.
+A store metadata record contains the schema version and a stable project identifier. Human CLI invocations resolve the store from the project root. Manifest-facing JSON API requests supply the expected project identifier, which Todoing verifies against store metadata.
 
 ### 3.3 Logical relational entities
 
-The following entities are required if SQLite is selected. This is a logical model, not a final SQL schema.
+The following entities are required by the selected SQLite architecture. This is a logical model, not the final SQL schema.
 
 | Entity | Responsibility |
 |---|---|
@@ -225,9 +225,9 @@ Lease duration, heartbeat cadence, clock-change policy, and exact recovery thres
 
 ### 6.1 Configuration source
 
-TOML is the preferred candidate for the user-edited project status configuration. JSON remains the machine-interface format. YAML should not be carried forward merely because the legacy task files use YAML frontmatter.
+TOML is selected for the user-edited project status configuration. JSON is used for the machine interface. YAML is retained only as a legacy migration format.
 
-Proposed config location: .todoing/config.toml.
+Configuration location: .todoing/config.toml. Format version 1 and the default lock settings are defined in implementation-contract.md.
 
 The loader parses and validates the complete configuration once per CLI invocation. All operations in that invocation use the same immutable configuration snapshot. The configuration revision/fingerprint should be included in relevant history metadata so that a transition can be traced to the rules that permitted it.
 
@@ -273,7 +273,7 @@ The exact command tree and aliases are to be specified before implementation.
 
 All machine-readable responses must identify the API version, return deterministic JSON, and keep diagnostics on stderr.
 
-Proposed envelope, illustrative only:
+Version 1 envelope, defined normatively in implementation-contract.md:
 
 ```json
 {
@@ -283,7 +283,7 @@ Proposed envelope, illustrative only:
 }
 ```
 
-Proposed error envelope, illustrative only:
+Version 1 error envelope, defined normatively in implementation-contract.md:
 
 ```json
 {
@@ -305,7 +305,7 @@ The final API must define:
 - Lock-token transport without leaking secrets into logs or process listings.
 - JSON schema tests for every supported operation.
 
-The exact envelope and command/API mapping remain open; these examples are not an approved contract.
+The request envelope, response envelope, initial operation namespace, error codes, and exit-code mapping are defined in implementation-contract.md. Per-operation argument and response schemas remain implementation work.
 
 ## 8. Migration from the current store
 
