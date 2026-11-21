@@ -216,6 +216,19 @@ fn execute(request: Request, root: &Path) -> Result<Value, ApiError> {
     if request.request_id.as_ref().is_some_and(|value| value.is_empty() || value.len() > 128) {
         return Err(ApiError { code: "invalid_request", message: "request_id must contain 1 to 128 characters".into(), retryable: false, details: json!({}) });
     }
+    const OPERATIONS: &[&str] = &[
+        "store.info", "store.verify", "store.migrate", "store.snapshot",
+        "task.create", "task.list", "task.get", "task.update", "task.status.set",
+        "task.complete", "task.cancel", "task.reopen", "task.label.add",
+        "task.label.remove", "task.commit.add", "task.dependency.add",
+        "task.dependency.remove", "task.dependency.list", "task.history.list",
+        "task.version.list", "task.version.get", "task.version.compare",
+        "task.version.approve", "task.lock.acquire", "task.lock.heartbeat",
+        "task.lock.release", "task.lock.recover",
+    ];
+    if !OPERATIONS.contains(&request.operation.as_str()) {
+        return Err(invalid(format!("Unknown operation '{}'", request.operation)));
+    }
     let project_id = ProjectId::new(request.project_id).map_err(|e| ApiError { code: "invalid_request", message: e.to_string(), retryable: false, details: json!({}) })?;
     let actor_id = ActorId::new(request.actor_id).map_err(|e| ApiError { code: "invalid_request", message: e.to_string(), retryable: false, details: json!({}) })?;
     let actor = ActorContext::new(actor_id);
@@ -343,7 +356,7 @@ fn execute(request: Request, root: &Path) -> Result<Value, ApiError> {
             let mut events = repository.get_history(id(args.task_id).map_err(invalid)?).map_err(store_error)?;
             events.reverse();
             if let Some(cursor) = args.before_event_id { events.retain(|event| event.event_id < cursor); }
-            if let Some(limit) = args.limit { events.truncate(limit); }
+            events.truncate(args.limit.unwrap_or(100));
             Ok(json!({"events": events}))
         }
         "task.version.list" => {
@@ -352,7 +365,7 @@ fn execute(request: Request, root: &Path) -> Result<Value, ApiError> {
             let mut versions = repository.list_versions(id(args.task_id).map_err(invalid)?).map_err(store_error)?;
             versions.reverse();
             if let Some(cursor) = args.before_version_no { versions.retain(|version| version.version_no < cursor); }
-            if let Some(limit) = args.limit { versions.truncate(limit); }
+            versions.truncate(args.limit.unwrap_or(100));
             Ok(json!({"versions": versions}))
         }
         "task.version.get" => {
@@ -445,7 +458,7 @@ fn execute(request: Request, root: &Path) -> Result<Value, ApiError> {
         "store.migrate" | "store.snapshot" | "task.label.add" | "task.label.remove" | "task.commit.add" => {
             Err(invalid("This operation is specified but not implemented yet".into()))
         }
-        other => Err(invalid(format!("Unknown operation '{other}'"))),
+        other => Err(invalid(format!("Operation '{other}' is not implemented yet"))),
     }
 }
 
