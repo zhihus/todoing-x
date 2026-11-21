@@ -1,6 +1,5 @@
 use super::{Store, StoreError};
 use crate::domain::ProjectId;
-use rusqlite::params;
 use tempfile::tempdir;
 
 fn project_id() -> ProjectId {
@@ -137,7 +136,7 @@ fn database_constraints_protect_versions_history_and_lock_generations() {
 
     let generation: i64 = connection.query_row(
         "SELECT fencing_generation FROM task_locks WHERE task_id = 1",
-        params![],
+        [],
         |row| row.get(0),
     ).unwrap();
     assert_eq!(generation, 1);
