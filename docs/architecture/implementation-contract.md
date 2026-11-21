@@ -2,7 +2,7 @@
 
 **Status:** Selected technical baseline for implementation.
 **Date:** 2026-11-21
-**Authority:** Product decisions plus the delegated continuation instruction and completed technical research.
+**Basis:** Accepted product decisions, candidate evaluation, and cross-platform prototype evidence.
 **Scope:** Core MVP. This document resolves the implementation choices left open in target-architecture.md.
 
 ## 1. Selected technology
