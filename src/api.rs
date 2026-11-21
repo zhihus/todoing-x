@@ -39,7 +39,7 @@ struct Failure {
     error: ApiError,
 }
 
-#[derive(Serialize)]
+#[derive(Debug, Serialize)]
 struct ApiError {
     code: &'static str,
     message: String,
@@ -459,7 +459,7 @@ fn execute(request: Request, root: &Path) -> Result<Value, ApiError> {
                 Ok(json!({"released": true, "fencing_generation": grant.fencing_generation}))
             }
         }
-        "store.migrate" | "store.snapshot" | "task.label.add" | "task.label.remove" | "task.commit.add" => {
+        "store.migrate" | "store.snapshot" => {
             Err(invalid("This operation is specified but not implemented yet".into()))
         }
         other => Err(invalid(format!("Operation '{other}' is not implemented yet"))),
