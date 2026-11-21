@@ -46,7 +46,7 @@ Manifest may consume Todoing through its public CLI/JSON contract and apply its 
 ## 4. Task lifecycle and status configuration
 
 - Statuses are configurable by the user; Todoing must not hard-code a single workflow.
-- The status configuration is stored in a simple, user-editable project configuration file. Its exact syntax and schema remain an architecture decision.
+- The status configuration is stored in the user-editable TOML file `.todoing/config.toml`. The exact field schema, defaults, and validation rules are defined by the architecture specification.
 - Users control the available statuses and their ordering. Permitted transitions must be representable and validated.
 - Disabling a status prevents its use for new transitions but must not erase historical records that used it.
 - Manifest may publish a recommended status configuration. Todoing remains workflow-agnostic and does not automatically synchronize or impose Manifest statuses.
@@ -111,7 +111,9 @@ Manifest may consume Todoing through its public CLI/JSON contract and apply its 
 
 ## 11. Storage
 
-The storage engine has not been finally selected. SQLite is the preliminary candidate, not an approved final decision. A technical comparison must evaluate transaction semantics, concurrent access, locking, history/version growth, portability, backup/restore, performance, and operational complexity.
+SQLite via rusqlite with the bundled SQLite library is the selected MVP storage engine. The implementation uses WAL mode on a local project filesystem. Network filesystems are not a supported database location. redb was evaluated as an alternative; both candidates passed the scoped transaction and multi-process tests, but SQLite's relational model better fits tasks, dependencies, versions, history, statuses, and locks while reducing custom indexing and consistency code.
+
+The selection is based on transaction behavior, Windows/Linux process tests, data-model fit, and maintainability. It is not based on a completed performance benchmark. Revisit only if realistic workload measurements identify a material limitation.
 
 The storage choice must support the atomicity and concurrency requirements in this document. Markdown/YAML may remain useful as an import/export or human-readable interchange format even if it is not the primary transactional store.
 
