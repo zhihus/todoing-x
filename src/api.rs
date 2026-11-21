@@ -1,0 +1,357 @@
+use crate::{
+    config::ProjectConfig,
+    domain::{ActorContext, ActorId, ProjectId, StatusId, TaskId},
+    storage::{NewTask, Store, StoreError, TaskRepository},
+};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
+use serde_json::{Value, json};
+use std::{fs, io::{self, Read}, path::Path};
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Request {
+    api_version: u32,
+    #[serde(default)]
+    request_id: Option<String>,
+    project_id: String,
+    actor_id: String,
+    operation: String,
+    args: Value,
+    #[serde(default)]
+    lock_token: Option<String>,
+}
+
+#[derive(Serialize)]
+struct Success {
+    api_version: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    request_id: Option<String>,
+    ok: bool,
+    data: Value,
+}
+
+#[derive(Serialize)]
+struct Failure {
+    api_version: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    request_id: Option<String>,
+    ok: bool,
+    error: ApiError,
+}
+
+#[derive(Serialize)]
+struct ApiError {
+    code: &'static str,
+    message: String,
+    retryable: bool,
+    details: Value,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct EmptyArgs {}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CreateArgs {
+    title: String,
+    #[serde(default)]
+    status_id: Option<String>,
+    #[serde(default)]
+    body: String,
+    #[serde(default)]
+    labels: Vec<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct TaskIdArgs { task_id: i64 }
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ListArgs {
+    #[serde(default)]
+    status_id: Option<String>,
+    #[serde(default)]
+    outcome: Option<String>,
+    #[serde(default)]
+    labels: Vec<String>,
+    #[serde(default)]
+    query: Option<String>,
+    #[serde(default)]
+    limit: Option<usize>,
+    #[serde(default)]
+    reverse: bool,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct UpdateArgs { task_id: i64, patch: UpdatePatch }
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct UpdatePatch {
+    #[serde(default)]
+    title: Option<String>,
+    #[serde(default)]
+    body: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct StatusArgs { task_id: i64, status_id: String }
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CancelArgs {
+    task_id: i64,
+    #[serde(default)]
+    reason: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ReopenArgs {
+    task_id: i64,
+    #[serde(default)]
+    target_status_id: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct DependencyArgs { task_id: i64, depends_on_task_id: i64 }
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct VersionArgs { task_id: i64, version_no: i64 }
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CompareArgs { task_id: i64, from_version_no: i64, to_version_no: i64 }
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct LockArgs { task_id: i64 }
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct LockOwnerArgs {
+    task_id: i64,
+    owner_id: String,
+    fencing_generation: i64,
+}
+
+fn parse_args<T: DeserializeOwned>(value: Value) -> Result<T, String> {
+    serde_json::from_value(value).map_err(|error| format!("Invalid operation arguments: {error}"))
+}
+
+fn id(raw: i64) -> Result<TaskId, String> {
+    TaskId::new(raw).map_err(|error| error.to_string())
+}
+
+fn store_error(error: StoreError) -> ApiError {
+    let (code, retryable) = match &error {
+        StoreError::TaskNotFound(_) => ("task_not_found", false),
+        StoreError::TaskTerminal => ("task_terminal", false),
+        StoreError::TaskLocked => ("task_locked", true),
+        StoreError::LockExpired => ("lock_expired", false),
+        StoreError::StaleLock => ("stale_lock", false),
+        StoreError::InvalidStatusTransition(_) => ("invalid_status_transition", false),
+        StoreError::DependencyNotFound(_) => ("dependency_not_found", false),
+        StoreError::DependencyCycle => ("dependency_cycle", false),
+        StoreError::VersionNotFound { .. } => ("version_not_found", false),
+        StoreError::ProjectIdMismatch { .. } => ("project_id_mismatch", false),
+        StoreError::InvalidConfig(_) => ("config_invalid", false),
+        StoreError::HistoryRecordFailed(_) => ("history_record_failed", false),
+        StoreError::AlreadyExists(_) => ("migration_conflict", false),
+        StoreError::IntegrityCheckFailed(_) | StoreError::ForeignKeyViolations(_) |
+        StoreError::MigrationChecksumMismatch { .. } | StoreError::InvalidMetadata(_) |
+        StoreError::MissingMetadata(_) | StoreError::UnsupportedSchemaVersion(_) => ("store_corrupt", false),
+        StoreError::Sqlite(rusqlite::Error::SqliteFailure(code, _))
+            if code.code == rusqlite::ErrorCode::DatabaseBusy ||
+               code.code == rusqlite::ErrorCode::DatabaseLocked => ("store_busy", true),
+        StoreError::Io(_) => ("io_error", false),
+        _ => ("invalid_request", false),
+    };
+    ApiError { code, message: error.to_string(), retryable, details: json!({}) }
+}
+
+fn execute(request: Request, root: &Path) -> Result<Value, ApiError> {
+    if request.api_version != 1 {
+        return Err(ApiError {
+            code: "unsupported_api_version",
+            message: format!("Unsupported API version: {}", request.api_version),
+            retryable: false,
+            details: json!({"supported": [1]}),
+        });
+    }
+    if request.request_id.as_ref().is_some_and(|value| value.is_empty() || value.len() > 128) {
+        return Err(ApiError { code: "invalid_request", message: "request_id must contain 1 to 128 characters".into(), retryable: false, details: json!({}) });
+    }
+    let project_id = ProjectId::new(request.project_id).map_err(|e| ApiError { code: "invalid_request", message: e.to_string(), retryable: false, details: json!({}) })?;
+    let actor_id = ActorId::new(request.actor_id).map_err(|e| ApiError { code: "invalid_request", message: e.to_string(), retryable: false, details: json!({}) })?;
+    let actor = ActorContext::new(actor_id);
+    let config_path = root.join(".todoing").join("config.toml");
+    let config_text = fs::read_to_string(&config_path).map_err(|error| ApiError { code: "config_invalid", message: format!("Cannot read {}: {error}", config_path.display()), retryable: false, details: json!({}) })?;
+    let config = ProjectConfig::from_toml(&config_text).map_err(|error| ApiError { code: "config_invalid", message: error.to_string(), retryable: false, details: json!({}) })?;
+    let store = Store::open(root, Some(&project_id)).map_err(store_error)?;
+    let repository = TaskRepository::new(store.clone(), config.clone()).map_err(store_error)?;
+
+    match request.operation.as_str() {
+        "store.info" => {
+            parse_args::<EmptyArgs>(request.args).map_err(invalid)?;
+            let tasks = repository.list().map_err(store_error)?;
+            Ok(json!({"project_id": store.project_id(), "schema_version": 1, "api_version": 1, "task_count": tasks.len()}))
+        }
+        "store.verify" => {
+            #[derive(Deserialize)]
+            #[serde(deny_unknown_fields)]
+            struct Args { #[serde(default = "default_true")] deep: bool }
+            fn default_true() -> bool { true }
+            let args: Args = parse_args(request.args).map_err(invalid)?;
+            if args.deep {
+                Ok(serde_json::to_value(store.verify().map_err(store_error)?).unwrap_or_else(|_| json!({})))
+            } else {
+                Ok(json!({"integrity_check": "skipped", "foreign_key_violations": 0, "schema_version": 1}))
+            }
+        }
+        "task.create" => {
+            let args: CreateArgs = parse_args(request.args).map_err(invalid)?;
+            let status = match args.status_id {
+                Some(value) => StatusId::new(value).map_err(invalid)?,
+                None => StatusId::new(config.first_enabled_status().ok_or_else(|| invalid("No enabled statuses".into()))?.id.clone()).map_err(invalid)?,
+            };
+            let task = repository.create(NewTask { title: args.title, status_id: status, outcome: None, body: args.body, labels: args.labels, commit_refs: vec![] }, &actor).map_err(store_error)?;
+            Ok(json!({"task": task, "version_no": 1}))
+        }
+        "task.list" => {
+            let args: ListArgs = parse_args(request.args).map_err(invalid)?;
+            if args.limit == Some(0) { return Err(invalid("limit must be a positive integer".into())); }
+            let mut tasks = repository.list().map_err(store_error)?;
+            if let Some(status) = args.status_id { tasks.retain(|task| task.status_id.as_str() == status); }
+            if let Some(outcome) = args.outcome {
+                tasks.retain(|task| match outcome.as_str() {
+                    "active" => task.outcome.is_none(),
+                    "completed" => task.outcome.is_some_and(|value| value == crate::domain::TaskOutcome::Completed),
+                    "cancelled" => task.outcome.is_some_and(|value| value == crate::domain::TaskOutcome::Cancelled),
+                    _ => false,
+                });
+            }
+            for label in args.labels { tasks.retain(|task| task.labels.iter().any(|item| item.eq_ignore_ascii_case(&label))); }
+            if let Some(query) = args.query {
+                let query = query.to_lowercase();
+                tasks.retain(|task| task.title.to_lowercase().contains(&query) || task.body.to_lowercase().contains(&query) || task.labels.iter().any(|label| label.to_lowercase().contains(&query)) || task.status_id.as_str() == query);
+            }
+            tasks.sort_by_key(|task| task.id);
+            if !args.reverse { tasks.reverse(); }
+            if let Some(limit) = args.limit { tasks.truncate(limit); }
+            Ok(json!({"tasks": tasks}))
+        }
+        "task.get" => {
+            let args: TaskIdArgs = parse_args(request.args).map_err(invalid)?;
+            let task = repository.get(id(args.task_id).map_err(invalid)?).map_err(store_error)?;
+            let version_no = repository.list_versions(task.id).map_err(store_error)?.last().map(|version| version.version_no).unwrap_or(0);
+            let baseline = repository.get_baseline(task.id).map_err(store_error)?;
+            Ok(json!({"task": task, "version_no": version_no, "baseline_version_no": baseline.map(|value| value.version_no)}))
+        }
+        "task.update" => {
+            let args: UpdateArgs = parse_args(request.args).map_err(invalid)?;
+            if args.patch.title.is_none() && args.patch.body.is_none() { return Err(invalid("patch must contain title and/or body".into())); }
+            let task_id = id(args.task_id).map_err(invalid)?;
+            let mut task = repository.get(task_id).map_err(store_error)?;
+            if let Some(title) = args.patch.title { task.title = title; }
+            if let Some(body) = args.patch.body { task.body = body; }
+            let updated = repository.update(&task, &actor).map_err(store_error)?;
+            Ok(json!({"task": updated}))
+        }
+        "task.status.set" => {
+            let args: StatusArgs = parse_args(request.args).map_err(invalid)?;
+            let status = StatusId::new(args.status_id).map_err(invalid)?;
+            let task = repository.set_status(id(args.task_id).map_err(invalid)?, status, &actor).map_err(store_error)?;
+            Ok(json!({"task": task}))
+        }
+        "task.complete" => {
+            let args: TaskIdArgs = parse_args(request.args).map_err(invalid)?;
+            Ok(json!({"task": repository.complete(id(args.task_id).map_err(invalid)?, &actor).map_err(store_error)?}))
+        }
+        "task.cancel" => {
+            let args: CancelArgs = parse_args(request.args).map_err(invalid)?;
+            Ok(json!({"task": repository.cancel(id(args.task_id).map_err(invalid)?, args.reason.as_deref(), &actor).map_err(store_error)?}))
+        }
+        "task.reopen" => {
+            let args: ReopenArgs = parse_args(request.args).map_err(invalid)?;
+            let target = args.target_status_id.map(StatusId::new).transpose().map_err(invalid)?;
+            Ok(json!({"task": repository.reopen(id(args.task_id).map_err(invalid)?, target, &actor).map_err(store_error)?}))
+        }
+        "task.dependency.add" => {
+            let args: DependencyArgs = parse_args(request.args).map_err(invalid)?;
+            let task_id = id(args.task_id).map_err(invalid)?;
+            repository.add_dependency(task_id, id(args.depends_on_task_id).map_err(invalid)?, &actor).map_err(store_error)?;
+            Ok(json!({"task": repository.get(task_id).map_err(store_error)?}))
+        }
+        "task.dependency.remove" => {
+            let args: DependencyArgs = parse_args(request.args).map_err(invalid)?;
+            let task_id = id(args.task_id).map_err(invalid)?;
+            repository.remove_dependency(task_id, id(args.depends_on_task_id).map_err(invalid)?, &actor).map_err(store_error)?;
+            Ok(json!({"task": repository.get(task_id).map_err(store_error)?}))
+        }
+        "task.dependency.list" => {
+            let args: TaskIdArgs = parse_args(request.args).map_err(invalid)?;
+            Ok(json!({"dependencies": repository.list_dependencies(id(args.task_id).map_err(invalid)?).map_err(store_error)?}))
+        }
+        "task.history.list" => {
+            let args: TaskIdArgs = parse_args(request.args).map_err(invalid)?;
+            Ok(json!({"events": repository.get_history(id(args.task_id).map_err(invalid)?).map_err(store_error)?}))
+        }
+        "task.version.list" => {
+            let args: TaskIdArgs = parse_args(request.args).map_err(invalid)?;
+            Ok(json!({"versions": repository.list_versions(id(args.task_id).map_err(invalid)?).map_err(store_error)?}))
+        }
+        "task.version.get" => {
+            let args: VersionArgs = parse_args(request.args).map_err(invalid)?;
+            Ok(json!({"version": repository.get_version(id(args.task_id).map_err(invalid)?, args.version_no).map_err(store_error)?}))
+        }
+        "task.version.compare" => {
+            let args: CompareArgs = parse_args(request.args).map_err(invalid)?;
+            Ok(serde_json::to_value(repository.compare_versions(id(args.task_id).map_err(invalid)?, args.from_version_no, args.to_version_no).map_err(store_error)?).unwrap_or_else(|_| json!({})))
+        }
+        "task.version.approve" => {
+            let args: VersionArgs = parse_args(request.args).map_err(invalid)?;
+            Ok(json!({"baseline": repository.approve_baseline(id(args.task_id).map_err(invalid)?, args.version_no, &actor).map_err(store_error)?}))
+        }
+        "task.lock.acquire" | "task.lock.recover" | "task.lock.heartbeat" | "task.lock.release" => {
+            Err(invalid("Lock operations are not yet enabled in this API slice".into()))
+        }
+        "store.migrate" | "store.snapshot" | "task.label.add" | "task.label.remove" | "task.commit.add" => {
+            Err(invalid("This operation is specified but not implemented yet".into()))
+        }
+        other => Err(invalid(format!("Unknown operation '{other}'"))),
+    }
+}
+
+fn invalid(message: String) -> ApiError {
+    ApiError { code: "invalid_request", message, retryable: false, details: json!({}) }
+}
+
+pub fn run() {
+    let mut input = String::new();
+    let result = io::stdin().read_to_string(&mut input)
+        .map_err(|error| invalid(format!("Cannot read request: {error}")))
+        .and_then(|_| serde_json::from_str::<Request>(&input).map_err(|error| invalid(format!("Invalid JSON request: {error}"))));
+    let (request_id, response) = match result {
+        Ok(request) => {
+            let request_id = request.request_id.clone();
+            let response = execute(request, Path::new("."));
+            (request_id, response)
+        }
+        Err(error) => (None, Err(error)),
+    };
+    match response {
+        Ok(data) => println!("{}", serde_json::to_string(&Success { api_version: 1, request_id, ok: true, data }).expect("response serialization")),
+        Err(error) => {
+            eprintln!("todoing api: {}", error.message);
+            println!("{}", serde_json::to_string(&Failure { api_version: 1, request_id, ok: false, error }).expect("error serialization"));
+            std::process::exit(2);
+        }
+    }
+}
