@@ -1,5 +1,6 @@
 use super::{Store, StoreError};
 use crate::domain::ProjectId;
+use rusqlite::Connection;
 use tempfile::tempdir;
 
 fn project_id() -> ProjectId {
@@ -211,5 +212,25 @@ fn verify_rejects_project_identity_drift() {
     assert!(matches!(
         store.verify(),
         Err(StoreError::ProjectIdMismatch { .. })
+    ));
+}
+
+#[test]
+fn verify_detects_foreign_key_violations_created_by_external_writer() {
+    let root = tempdir().unwrap();
+    let store = Store::initialize(root.path(), project_id()).unwrap();
+
+    let external = Connection::open(store.database_path()).unwrap();
+    external.execute_batch("PRAGMA foreign_keys = OFF;").unwrap();
+    external.execute(
+        "INSERT INTO task_labels(task_id, position, label, label_key)
+         VALUES (999, 0, 'orphan', 'orphan')",
+        [],
+    ).unwrap();
+    drop(external);
+
+    assert!(matches!(
+        store.verify(),
+        Err(StoreError::ForeignKeyViolations(1))
     ));
 }
