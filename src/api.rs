@@ -509,3 +509,95 @@ pub fn run() {
         }
     }
 }
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+
+    fn setup_project() -> tempfile::TempDir {
+        let root = tempfile::tempdir().expect("temporary project");
+        let todoing_dir = root.path().join(".todoing");
+        fs::create_dir_all(&todoing_dir).expect("create project metadata");
+        let config = ProjectConfig::default();
+        fs::write(todoing_dir.join("config.toml"), config.to_toml().expect("serialize config"))
+            .expect("write config");
+        Store::initialize(root.path(), ProjectId::new("api-test-project").unwrap())
+            .expect("initialize store");
+        root
+    }
+
+    fn request(project_id: &str, operation: &str, args: Value) -> Request {
+        Request {
+            api_version: 1,
+            request_id: Some("test-request".into()),
+            project_id: project_id.into(),
+            actor_id: "api-test-agent".into(),
+            operation: operation.into(),
+            args,
+            lock_token: None,
+        }
+    }
+
+    #[test]
+    fn request_envelope_rejects_unknown_properties() {
+        let parsed = serde_json::from_value::<Request>(json!({
+            "api_version": 1,
+            "project_id": "project",
+            "actor_id": "agent",
+            "operation": "task.list",
+            "args": {},
+            "unexpected": true
+        }));
+        assert!(parsed.is_err());
+    }
+
+    #[test]
+    fn task_create_lock_and_owner_read_round_trip() {
+        let root = setup_project();
+        let created = execute(
+            request("api-test-project", "task.create", json!({
+                "title": "API-created task",
+                "body": "created through JSON"
+            })),
+            root.path(),
+        ).expect("create task");
+        let task_id = created["task"]["id"].as_i64().expect("task ID");
+
+        let locked = execute(
+            request("api-test-project", "task.lock.acquire", json!({"task_id": task_id})),
+            root.path(),
+        ).expect("acquire lock");
+        let token = locked["lock_token"].as_str().expect("lock token").to_owned();
+        let owner_id = locked["owner_id"].as_str().expect("owner ID");
+        let generation = locked["fencing_generation"].as_i64().expect("generation");
+
+        let mut owner_read = request("api-test-project", "task.get", json!({"task_id": task_id}));
+        owner_read.lock_token = Some(token.clone());
+        assert!(execute(owner_read, root.path()).is_ok());
+
+        let non_owner_read = execute(
+            request("api-test-project", "task.get", json!({"task_id": task_id})),
+            root.path(),
+        );
+        assert_eq!(non_owner_read.unwrap_err().code, "task_locked");
+
+        let mut release = request(
+            "api-test-project",
+            "task.lock.release",
+            json!({
+                "task_id": task_id,
+                "owner_id": owner_id,
+                "fencing_generation": generation
+            }),
+        );
+        release.lock_token = Some(token);
+        execute(release, root.path()).expect("release lock");
+
+        assert!(execute(
+            request("api-test-project", "task.get", json!({"task_id": task_id})),
+            root.path(),
+        ).is_ok());
+    }
+}
