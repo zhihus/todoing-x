@@ -28,3 +28,14 @@ The system MUST expose stable machine-readable error codes and predictable proce
 - **WHEN** a CLI operation is rejected because of invalid input, a missing task, a lock conflict, or a storage failure
 - **THEN** the process returns the documented exit code
 - **AND** the machine-readable error identifies a stable error code
+
+### Requirement: Expose task outcome operations
+
+The versioned JSON interface MUST provide operations to complete, cancel, and reopen a task. Cancellation MUST accept an optional reason and MUST NOT require a dedicated workflow status.
+
+#### Scenario: Cancel a task through the JSON interface
+
+- **WHEN** a client submits a valid cancellation request for a task
+- **THEN** the task outcome becomes cancelled
+- **AND** the current workflow status remains unchanged
+- **AND** the operation history records the actor, outcome, and optional reason
