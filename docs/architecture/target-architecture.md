@@ -163,7 +163,7 @@ The storage adapter is responsible for:
 - Consistent backup/snapshot creation.
 - Integrity checks and recovery diagnostics.
 
-**Current recommendation:** prototype SQLite via `rusqlite` first and compare it with redb. This is not a final engine decision. See [Storage Engine Research](storage-research.md). The merged OpenSpec design also records that rejected task-operation attempts reaching the task-operation layer belong in operation history and must not create task versions.
+The merged OpenSpec design also requires rejected task-operation attempts that reach the task-operation layer to be recorded without creating a task version.
 
 No final table schema, database filename, journal mode, connection pool, or Rust storage crate dependency is approved by this document.
 
