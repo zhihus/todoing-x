@@ -297,7 +297,7 @@ Version 1 error envelope, defined normatively in implementation-contract.md:
 }
 ```
 
-The API v1 request/response envelope, operation namespace, error codes, and exit-code mapping are defined in implementation-contract.md. Per-operation argument and response schemas and their automated validation remain implementation work.
+The API v1 request/response envelope is defined in implementation-contract.md and docs/api/v1/request.schema.json / docs/api/v1/response.schema.json. Per-operation argument and response schemas and their automated validation remain implementation work.
 
 ## 8. Migration from the current store
 
@@ -321,9 +321,7 @@ The exact activation/rename procedure must account for Windows file replacement 
 
 ## 9. Backup and recovery boundary
 
-Manifest/the consuming project owns backup destination, retention, and off-device replication. Todoing exposes a database-aware snapshot operation.
-
-Use SQLite's Online Backup API. Do not copy a live database file blindly. A produced backup must be reopened and integrity-checked before being reported as valid.
+Manifest/the consuming project owns backup destination, retention, and off-device replication. Todoing exposes a database-aware snapshot operation using SQLite's Online Backup API through rusqlite. Do not copy a live database file blindly. A produced backup must be reopened and integrity-checked before being reported as valid.
 
 Git history is not a backup mechanism. Archive/restore and full task import/export remain post-MVP capabilities.
 
