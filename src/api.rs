@@ -674,6 +674,35 @@ mod tests {
 }
 
 
+#[cfg(test)]
+mod contract_tests {
+    use super::*;
+    use std::fs;
+
+    fn setup_project() -> tempfile::TempDir {
+        let root = tempfile::tempdir().expect("temporary project");
+        let todoing_dir = root.path().join(".todoing");
+        fs::create_dir_all(&todoing_dir).expect("create project metadata");
+        let config = ProjectConfig::default();
+        fs::write(todoing_dir.join("config.toml"), config.to_toml().expect("serialize config"))
+            .expect("write config");
+        Store::initialize(root.path(), ProjectId::new("api-test-project").unwrap())
+            .expect("initialize store");
+        root
+    }
+
+    fn request(project_id: &str, operation: &str, args: Value) -> Request {
+        Request {
+            api_version: 1,
+            request_id: Some("contract-test".into()),
+            project_id: project_id.into(),
+            actor_id: "contract-test-agent".into(),
+            operation: operation.into(),
+            args,
+            lock_token: None,
+        }
+    }
+
     #[test]
     fn api_operations_cover_task_lifecycle_dependencies_versions_and_git_refs() {
         let root = setup_project();
@@ -852,3 +881,5 @@ mod tests {
         assert_eq!(api_exit_code("migration_conflict"), 6);
         assert_eq!(api_exit_code("internal_error"), 70);
     }
+
+}
