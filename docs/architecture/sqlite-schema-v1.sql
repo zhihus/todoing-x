@@ -161,3 +161,10 @@ END;
 -- Initial metadata values are inserted by the store initializer:
 -- schema_version = "1"
 -- project_id = stable project identifier
+
+-- Lock rows retain the last fencing generation after release.
+CREATE TRIGGER task_locks_no_delete
+BEFORE DELETE ON task_locks
+BEGIN
+    SELECT RAISE(ABORT, 'task lock generations must be retained');
+END;
