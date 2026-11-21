@@ -1208,6 +1208,8 @@ impl TaskRepository {
         push_change(&mut changes, "labels", &before.labels, &after.labels)?;
         push_change(&mut changes, "commit_refs", &before.commit_refs, &after.commit_refs)?;
         push_change(&mut changes, "dependencies", &before.dependencies, &after.dependencies)?;
+        push_change(&mut changes, "archived_at", &before.archived_at, &after.archived_at)?;
+        push_change(&mut changes, "archived_by", &before.archived_by, &after.archived_by)?;
 
         Ok(TaskVersionDiff {
             task_id,
