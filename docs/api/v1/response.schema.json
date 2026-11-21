@@ -52,6 +52,7 @@
                 "config_invalid",
                 "task_not_found",
                 "task_terminal",
+                "task_archived",
                 "task_locked",
                 "lock_expired",
                 "stale_lock",
