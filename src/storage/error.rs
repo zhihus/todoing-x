@@ -5,7 +5,9 @@ pub enum StoreError {
     AlreadyExists(PathBuf),
     NotInitialized,
     TaskNotFound(i64),
+    VersionNotFound { task_id: i64, version_no: i64 },
     InvalidTask(String),
+    HistoryRecordFailed(String),
     ProjectIdMismatch { expected: String, actual: String },
     UnsupportedSchemaVersion(u32),
     MigrationChecksumMismatch { version: u32 },
@@ -23,7 +25,9 @@ impl fmt::Display for StoreError {
             Self::AlreadyExists(path) => write!(formatter, "Todoing store already exists: {}", path.display()),
             Self::NotInitialized => formatter.write_str("Todoing store is not initialized"),
             Self::TaskNotFound(id) => write!(formatter, "Task #{id} was not found"),
+            Self::VersionNotFound { task_id, version_no } => write!(formatter, "Version {version_no} for task #{task_id} was not found"),
             Self::InvalidTask(message) => write!(formatter, "Invalid task: {message}"),
+            Self::HistoryRecordFailed(message) => write!(formatter, "Could not record rejected operation: {message}"),
             Self::ProjectIdMismatch { expected, actual } => {
                 write!(formatter, "Project ID mismatch: expected {expected}, found {actual}")
             }
