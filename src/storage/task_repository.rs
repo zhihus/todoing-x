@@ -803,6 +803,69 @@ impl TaskRepository {
     }
 }
 
+fn persist_task_change(
+    transaction: &Transaction<'_>,
+    previous: &Task,
+    mut updated: Task,
+    actor: &ActorContext,
+    operation: &str,
+    details_json: Option<&str>,
+    config_revision: Option<&str>,
+) -> Result<Task, StoreError> {
+    let now = now_string();
+    updated.updated_at = now.clone();
+    transaction.execute(
+        "UPDATE tasks
+         SET title = ?1, status_id = ?2, outcome = ?3, body = ?4, updated_at = ?5
+         WHERE task_id = ?6",
+        params![
+            updated.title.trim(),
+            updated.status_id.as_str(),
+            outcome_as_str(updated.outcome),
+            updated.body,
+            now,
+            updated.id.get()
+        ],
+    )?;
+    transaction.execute(
+        "DELETE FROM task_labels WHERE task_id = ?1",
+        params![updated.id.get()],
+    )?;
+    transaction.execute(
+        "DELETE FROM task_commit_refs WHERE task_id = ?1",
+        params![updated.id.get()],
+    )?;
+    insert_labels(transaction, updated.id, &updated.labels)?;
+    insert_commit_refs(transaction, updated.id, &updated.commit_refs)?;
+
+    let persisted = load_task(transaction, updated.id)?;
+    let previous_snapshot = snapshot_json(transaction, previous)?;
+    let requested_snapshot = snapshot_json(transaction, &persisted)?;
+    let version_no = next_version_no(transaction, persisted.id)?;
+    insert_version(
+        transaction,
+        persisted.id,
+        version_no,
+        &requested_snapshot,
+        &now,
+        actor.actor_id().as_str(),
+    )?;
+    insert_history(
+        transaction,
+        Some(persisted.id),
+        actor.actor_id().as_str(),
+        &now,
+        operation,
+        Some(&previous_snapshot),
+        Some(&requested_snapshot),
+        HistoryOutcome::Succeeded,
+        None,
+        details_json,
+        config_revision,
+    )?;
+    Ok(persisted)
+}
+
 fn same_task_state(current: &Task, requested: &Task) -> bool {
     current.title == requested.title.trim()
         && current.status_id == requested.status_id
