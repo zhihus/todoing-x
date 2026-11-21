@@ -935,3 +935,80 @@ fn add_done_cmd_runs_on_create_after_optional_completion_hooks() {
     assert!(created.status.success(), "{}", String::from_utf8_lossy(&created.stderr));
     assert!(marker.exists());
 }
+
+
+#[test]
+fn explicit_migration_switches_human_cli_to_sqlite_lifecycle() {
+    let dir = tempdir().unwrap();
+    assert!(run(dir.path(), &["add", "legacy task"]).status.success());
+
+    let migrated = run(dir.path(), &["migrate", "--project-id", "cli-integration", "--json"]);
+    assert!(migrated.status.success(), "{}", String::from_utf8_lossy(&migrated.stderr));
+    let report: Value = serde_json::from_slice(&migrated.stdout).unwrap();
+    assert_eq!(report["api_version"], 1);
+    assert_eq!(report["data"]["activated"], true);
+    assert_eq!(report["data"]["task_count"], 1);
+    assert!(dir.path().join(".todoing/todoing.db").is_file());
+
+    let listed = run(dir.path(), &["ls", "--json"]);
+    assert!(listed.status.success(), "{}", String::from_utf8_lossy(&listed.stderr));
+    let listed: Value = serde_json::from_slice(&listed.stdout).unwrap();
+    assert_eq!(listed["api_version"], 1);
+    assert_eq!(listed["data"][0]["id"], 1);
+    assert_eq!(listed["data"][0]["title"], "legacy task");
+
+    let added = run(dir.path(), &["add", "SQLite task", "--json"]);
+    assert!(added.status.success(), "{}", String::from_utf8_lossy(&added.stderr));
+    let added: Value = serde_json::from_slice(&added.stdout).unwrap();
+    assert_eq!(added["data"]["id"], 2);
+
+    let body = run(dir.path(), &["body", "2", "updated body", "--json"]);
+    assert!(body.status.success(), "{}", String::from_utf8_lossy(&body.stderr));
+    let body: Value = serde_json::from_slice(&body.stdout).unwrap();
+    assert_eq!(body["data"]["body"], "updated body");
+
+    let dependency = run(dir.path(), &["depends", "add", "2", "1", "--json"]);
+    assert!(dependency.status.success(), "{}", String::from_utf8_lossy(&dependency.stderr));
+
+    let completed = run(dir.path(), &["complete", "1", "--json"]);
+    assert!(completed.status.success(), "{}", String::from_utf8_lossy(&completed.stderr));
+    let completed: Value = serde_json::from_slice(&completed.stdout).unwrap();
+    assert_eq!(completed["data"]["outcome"], "completed");
+
+    let reopened = run(dir.path(), &["reopen", "1", "--json"]);
+    assert!(reopened.status.success(), "{}", String::from_utf8_lossy(&reopened.stderr));
+    let reopened: Value = serde_json::from_slice(&reopened.stdout).unwrap();
+    assert_eq!(reopened["data"]["outcome"], Value::Null);
+
+    let cancelled = run(dir.path(), &["cancel", "2", "--reason", "obsolete", "--json"]);
+    assert!(cancelled.status.success(), "{}", String::from_utf8_lossy(&cancelled.stderr));
+    let cancelled: Value = serde_json::from_slice(&cancelled.stdout).unwrap();
+    assert_eq!(cancelled["data"]["outcome"], "cancelled");
+
+    let deleted = run(dir.path(), &["delete", "2", "--json"]);
+    assert!(!deleted.status.success());
+    let deleted: Value = serde_json::from_slice(&deleted.stdout).unwrap();
+    assert_eq!(deleted["ok"], false);
+    assert_eq!(deleted["error"]["code"], "invalid_request");
+
+    let history = run(dir.path(), &["history", "1", "--json"]);
+    assert!(history.status.success(), "{}", String::from_utf8_lossy(&history.stderr));
+    let history: Value = serde_json::from_slice(&history.stdout).unwrap();
+    assert!(history["data"].as_array().unwrap().len() >= 3);
+
+    let versions = run(dir.path(), &["version", "1", "--json"]);
+    assert!(versions.status.success(), "{}", String::from_utf8_lossy(&versions.stderr));
+    let versions: Value = serde_json::from_slice(&versions.stdout).unwrap();
+    assert!(versions["data"].as_array().unwrap().len() >= 2);
+
+    let verified = run(dir.path(), &["verify", "--json"]);
+    assert!(verified.status.success(), "{}", String::from_utf8_lossy(&verified.stderr));
+    let verified: Value = serde_json::from_slice(&verified.stdout).unwrap();
+    assert_eq!(verified["data"]["integrity_check"], "ok");
+
+    let snapshot = run(dir.path(), &["snapshot", "cli-backup.db", "--json"]);
+    assert!(snapshot.status.success(), "{}", String::from_utf8_lossy(&snapshot.stderr));
+    let snapshot: Value = serde_json::from_slice(&snapshot.stdout).unwrap();
+    assert_eq!(snapshot["data"]["size_bytes"].as_u64().unwrap() > 0, true);
+    assert!(dir.path().join("cli-backup.db").is_file());
+}
