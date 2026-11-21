@@ -1,3 +1,4 @@
+use crate::config::ProjectConfig;
 use super::{NewTask, Store, TaskRepository};
 use crate::domain::{ActorContext, ActorId, ProjectId, StatusId, TaskId, TaskOutcome};
 use tempfile::tempdir;
@@ -9,7 +10,7 @@ fn actor() -> ActorContext {
 fn repository() -> (tempfile::TempDir, TaskRepository) {
     let root = tempdir().unwrap();
     let store = Store::initialize(root.path(), ProjectId::new("task-repository-tests").unwrap()).unwrap();
-    let repository = TaskRepository::new(store);
+    let repository = TaskRepository::new(store, ProjectConfig::default()).unwrap();
     (root, repository)
 }
 
@@ -112,11 +113,10 @@ fn list_returns_tasks_in_stable_id_order() {
 #[test]
 fn terminal_outcome_is_persisted_and_restored() {
     let (_root, repository) = repository();
-    let mut task = new_task("finished");
-    task.outcome = Some(TaskOutcome::Completed);
-
-    let created = repository.create(task, &actor()).unwrap();
+    let created = repository.create(new_task("finished"), &actor()).unwrap();
+    let completed = repository.complete(created.id, &actor()).unwrap();
     let loaded = repository.get(created.id).unwrap();
 
+    assert_eq!(completed.outcome, Some(TaskOutcome::Completed));
     assert_eq!(loaded.outcome, Some(TaskOutcome::Completed));
 }

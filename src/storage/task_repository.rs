@@ -1,4 +1,6 @@
 use super::{Store, StoreError};
+use crate::config::ProjectConfig;
+use sha2::{Digest, Sha256};
 use crate::domain::{ActorContext, ActorId, StatusId, TaskId, TaskOutcome};
 use chrono::{SecondsFormat, Utc};
 use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior, params};
@@ -108,6 +110,7 @@ pub struct TaskVersionDiff {
 #[derive(Clone, Debug)]
 pub struct TaskRepository {
     store: Store,
+    config: ProjectConfig,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -125,35 +128,63 @@ struct TaskSnapshot {
 }
 
 impl TaskRepository {
-    pub fn new(store: Store) -> Self {
-        Self { store }
+    pub fn new(store: Store, config: ProjectConfig) -> Result<Self, StoreError> {
+        config
+            .validate()
+            .map_err(|error| StoreError::InvalidConfig(error.to_string()))?;
+        Ok(Self { store, config })
     }
 
     pub fn open(
         root: impl AsRef<Path>,
         expected_project_id: Option<&crate::domain::ProjectId>,
+        config: ProjectConfig,
     ) -> Result<Self, StoreError> {
-        Ok(Self::new(Store::open(root, expected_project_id)?))
+        Self::new(Store::open(root, expected_project_id)?, config)
+    }
+
+    pub fn config(&self) -> &ProjectConfig {
+        &self.config
     }
 
     pub fn create(
         &self,
-        new_task: NewTask,
+        mut new_task: NewTask,
         actor: &ActorContext,
     ) -> Result<Task, StoreError> {
         if let Err(error) =
             validate_task_input(&new_task.title, &new_task.labels, &new_task.commit_refs)
         {
-            let requested = serde_json::to_string(&new_task).ok();
-            self.record_rejection(
-                None,
-                actor,
-                "task.create",
-                "invalid_request",
-                requested.as_deref(),
-            )?;
-            return Err(error);
+            return self.reject_operation(
+                None, actor, "task.create", "invalid_request",
+                serde_json::to_string(&new_task).ok(), error,
+            );
         }
+
+        if !self.config.statuses.iter().any(|status| {
+            status.id == new_task.status_id.as_str() && status.enabled
+        }) {
+            return self.reject_operation(
+                None, actor, "task.create", "invalid_status_transition",
+                serde_json::to_string(&new_task).ok(),
+                StoreError::InvalidStatusTransition(format!(
+                    "Status '{}' is missing or disabled",
+                    new_task.status_id
+                )),
+            );
+        }
+
+        let mapped_outcome = self.config.outcome_for_status(new_task.status_id.as_str());
+        if new_task.outcome.is_some() && new_task.outcome != mapped_outcome {
+            return self.reject_operation(
+                None, actor, "task.create", "invalid_request",
+                serde_json::to_string(&new_task).ok(),
+                StoreError::InvalidTask(
+                    "Task outcome is determined by its configured status or explicit completion/cancellation operation".into(),
+                ),
+            );
+        }
+        new_task.outcome = mapped_outcome;
 
         let mut connection = self.store.connection()?;
         let transaction =
@@ -231,15 +262,10 @@ impl TaskRepository {
         actor: &ActorContext,
     ) -> Result<Task, StoreError> {
         if let Err(error) = validate_task_input(&task.title, &task.labels, &task.commit_refs) {
-            let requested = serde_json::to_string(task).ok();
-            self.record_rejection(
-                Some(task.id),
-                actor,
-                "task.update",
-                "invalid_request",
-                requested.as_deref(),
-            )?;
-            return Err(error);
+            return self.reject_operation(
+                Some(task.id), actor, "task.update", "invalid_request",
+                serde_json::to_string(task).ok(), error,
+            );
         }
 
         let mut connection = self.store.connection()?;
@@ -249,77 +275,299 @@ impl TaskRepository {
             Ok(previous) => previous,
             Err(error @ StoreError::TaskNotFound(_)) => {
                 drop(transaction);
-                let requested = serde_json::to_string(task).ok();
-                self.record_rejection(
-                    Some(task.id),
-                    actor,
-                    "task.update",
-                    "task_not_found",
-                    requested.as_deref(),
-                )?;
-                return Err(error);
+                return self.reject_operation(
+                    Some(task.id), actor, "task.update", "task_not_found",
+                    serde_json::to_string(task).ok(), error,
+                );
             }
             Err(error) => return Err(error),
         };
 
-        if same_task_state(&previous, task) {
+        let status_changed = previous.status_id != task.status_id;
+        if status_changed && previous.outcome.is_some() {
+            drop(transaction);
+            return self.reject_operation(
+                Some(task.id), actor, "task.update", "task_terminal",
+                serde_json::to_string(task).ok(), StoreError::TaskTerminal,
+            );
+        }
+        if task.outcome != previous.outcome {
+            drop(transaction);
+            return self.reject_operation(
+                Some(task.id), actor, "task.update", "invalid_request",
+                serde_json::to_string(task).ok(),
+                StoreError::InvalidTask(
+                    "Use complete, cancel, or reopen to change task outcome".into(),
+                ),
+            );
+        }
+
+        let mut updated = task.clone();
+        updated.created_at = previous.created_at.clone();
+        updated.updated_at = previous.updated_at.clone();
+        if status_changed {
+            if !self.config.is_transition_allowed(
+                previous.status_id.as_str(),
+                task.status_id.as_str(),
+            ) {
+                drop(transaction);
+                return self.reject_operation(
+                    Some(task.id), actor, "task.update", "invalid_status_transition",
+                    serde_json::to_string(task).ok(),
+                    StoreError::InvalidStatusTransition(format!(
+                        "{} -> {}",
+                        previous.status_id, task.status_id
+                    )),
+                );
+            }
+            updated.outcome = self.config.outcome_for_status(task.status_id.as_str());
+        }
+
+        if same_task_state(&previous, &updated) {
             drop(transaction);
             return Ok(previous);
         }
 
-        let now = now_string();
-        transaction.execute(
-            "UPDATE tasks
-             SET title = ?1, status_id = ?2, outcome = ?3, body = ?4, updated_at = ?5
-             WHERE task_id = ?6",
-            params![
-                task.title.trim(),
-                task.status_id.as_str(),
-                outcome_as_str(task.outcome),
-                task.body,
-                now,
-                task.id.get()
-            ],
-        )?;
-        transaction.execute(
-            "DELETE FROM task_labels WHERE task_id = ?1",
-            params![task.id.get()],
-        )?;
-        transaction.execute(
-            "DELETE FROM task_commit_refs WHERE task_id = ?1",
-            params![task.id.get()],
-        )?;
-        insert_labels(&transaction, task.id, &task.labels)?;
-        insert_commit_refs(&transaction, task.id, &task.commit_refs)?;
-
-        let updated = load_task(&transaction, task.id)?;
-        let previous_snapshot = snapshot_json(&transaction, &previous)?;
-        let updated_snapshot = snapshot_json(&transaction, &updated)?;
-        let version_no = next_version_no(&transaction, task.id)?;
-        insert_version(
+        let revision = if status_changed {
+            Some(self.config_revision()?)
+        } else {
+            None
+        };
+        let result = persist_task_change(
             &transaction,
-            task.id,
-            version_no,
-            &updated_snapshot,
-            &now,
-            actor.actor_id().as_str(),
-        )?;
-        insert_history(
-            &transaction,
-            Some(task.id),
-            actor.actor_id().as_str(),
-            &now,
+            &previous,
+            updated,
+            actor,
             "task.update",
-            Some(&previous_snapshot),
-            Some(&updated_snapshot),
-            HistoryOutcome::Succeeded,
             None,
-            None,
-            None,
+            revision.as_deref(),
         )?;
         transaction.commit()?;
+        Ok(result)
+    }
 
-        Ok(updated)
+    pub fn set_status(
+        &self,
+        task_id: TaskId,
+        target: StatusId,
+        actor: &ActorContext,
+    ) -> Result<Task, StoreError> {
+        let mut connection = self.store.connection()?;
+        let transaction =
+            connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let previous = match load_task(&transaction, task_id) {
+            Ok(task) => task,
+            Err(error @ StoreError::TaskNotFound(_)) => {
+                drop(transaction);
+                return self.reject_operation(
+                    Some(task_id), actor, "task.status.set", "task_not_found",
+                    Some(serde_json::json!({"status_id": target}).to_string()), error,
+                );
+            }
+            Err(error) => return Err(error),
+        };
+
+        if previous.outcome.is_some() {
+            drop(transaction);
+            return self.reject_operation(
+                Some(task_id), actor, "task.status.set", "task_terminal",
+                Some(serde_json::json!({"status_id": target}).to_string()),
+                StoreError::TaskTerminal,
+            );
+        }
+        if !self.config.is_transition_allowed(previous.status_id.as_str(), target.as_str()) {
+            drop(transaction);
+            return self.reject_operation(
+                Some(task_id), actor, "task.status.set", "invalid_status_transition",
+                Some(serde_json::json!({"status_id": target}).to_string()),
+                StoreError::InvalidStatusTransition(format!(
+                    "{} -> {}",
+                    previous.status_id, target
+                )),
+            );
+        }
+
+        let mut updated = previous.clone();
+        updated.status_id = target;
+        updated.outcome = self.config.outcome_for_status(updated.status_id.as_str());
+        let revision = self.config_revision()?;
+        let result = persist_task_change(
+            &transaction, &previous, updated, actor, "task.status.set",
+            None, Some(&revision),
+        )?;
+        transaction.commit()?;
+        Ok(result)
+    }
+
+    pub fn complete(
+        &self,
+        task_id: TaskId,
+        actor: &ActorContext,
+    ) -> Result<Task, StoreError> {
+        self.set_terminal_outcome(task_id, TaskOutcome::Completed, None, actor)
+    }
+
+    pub fn cancel(
+        &self,
+        task_id: TaskId,
+        reason: Option<&str>,
+        actor: &ActorContext,
+    ) -> Result<Task, StoreError> {
+        if reason.is_some_and(|value| value.trim().is_empty()) {
+            return self.reject_operation(
+                Some(task_id), actor, "task.cancel", "invalid_request",
+                None,
+                StoreError::InvalidTask("Cancellation reason cannot be empty".into()),
+            );
+        }
+        let details = reason.map(|reason| serde_json::json!({"reason": reason}).to_string());
+        self.set_terminal_outcome(task_id, TaskOutcome::Cancelled, details.as_deref(), actor)
+    }
+
+    pub fn reopen(
+        &self,
+        task_id: TaskId,
+        target_status: Option<StatusId>,
+        actor: &ActorContext,
+    ) -> Result<Task, StoreError> {
+        let mut connection = self.store.connection()?;
+        let transaction =
+            connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let previous = match load_task(&transaction, task_id) {
+            Ok(task) => task,
+            Err(error @ StoreError::TaskNotFound(_)) => {
+                drop(transaction);
+                return self.reject_operation(
+                    Some(task_id), actor, "task.reopen", "task_not_found",
+                    None, error,
+                );
+            }
+            Err(error) => return Err(error),
+        };
+
+        if previous.outcome.is_none() {
+            drop(transaction);
+            return self.reject_operation(
+                Some(task_id), actor, "task.reopen", "invalid_request",
+                None,
+                StoreError::InvalidTask("Task is not terminal".into()),
+            );
+        }
+
+        let current_status_is_terminal =
+            self.config.outcome_for_status(previous.status_id.as_str()).is_some();
+        let target = match target_status {
+            Some(target) => target,
+            None if current_status_is_terminal => {
+                drop(transaction);
+                return self.reject_operation(
+                    Some(task_id), actor, "task.reopen", "invalid_status_transition",
+                    None,
+                    StoreError::InvalidStatusTransition(
+                        "Reopening a terminal status requires a nonterminal target status".into(),
+                    ),
+                );
+            }
+            None => previous.status_id.clone(),
+        };
+
+        if target != previous.status_id {
+            if !self.config.is_transition_allowed(previous.status_id.as_str(), target.as_str()) {
+                drop(transaction);
+                return self.reject_operation(
+                    Some(task_id), actor, "task.reopen", "invalid_status_transition",
+                    Some(serde_json::json!({"status_id": target}).to_string()),
+                    StoreError::InvalidStatusTransition(format!(
+                        "{} -> {}",
+                        previous.status_id, target
+                    )),
+                );
+            }
+        }
+        if self.config.outcome_for_status(target.as_str()).is_some() {
+            drop(transaction);
+            return self.reject_operation(
+                Some(task_id), actor, "task.reopen", "invalid_status_transition",
+                Some(serde_json::json!({"status_id": target}).to_string()),
+                StoreError::InvalidStatusTransition(
+                    "Reopen target must not have a terminal outcome".into(),
+                ),
+            );
+        }
+
+        let mut updated = previous.clone();
+        updated.status_id = target;
+        updated.outcome = None;
+        let revision = self.config_revision()?;
+        let result = persist_task_change(
+            &transaction, &previous, updated, actor, "task.reopen",
+            None, Some(&revision),
+        )?;
+        transaction.commit()?;
+        Ok(result)
+    }
+
+    fn set_terminal_outcome(
+        &self,
+        task_id: TaskId,
+        outcome: TaskOutcome,
+        details_json: Option<&str>,
+        actor: &ActorContext,
+    ) -> Result<Task, StoreError> {
+        let operation = match outcome {
+            TaskOutcome::Completed => "task.complete",
+            TaskOutcome::Cancelled => "task.cancel",
+        };
+        let mut connection = self.store.connection()?;
+        let transaction =
+            connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let previous = match load_task(&transaction, task_id) {
+            Ok(task) => task,
+            Err(error @ StoreError::TaskNotFound(_)) => {
+                drop(transaction);
+                return self.reject_operation(
+                    Some(task_id), actor, operation, "task_not_found", details_json.map(str::to_owned), error,
+                );
+            }
+            Err(error) => return Err(error),
+        };
+        if previous.outcome.is_some() {
+            drop(transaction);
+            return self.reject_operation(
+                Some(task_id), actor, operation, "task_terminal", details_json.map(str::to_owned),
+                StoreError::TaskTerminal,
+            );
+        }
+
+        let mut updated = previous.clone();
+        updated.outcome = Some(outcome);
+        let result = persist_task_change(
+            &transaction, &previous, updated, actor, operation,
+            details_json, None,
+        )?;
+        transaction.commit()?;
+        Ok(result)
+    }
+
+    fn reject_operation<T>(
+        &self,
+        task_id: Option<TaskId>,
+        actor: &ActorContext,
+        operation: &str,
+        error_code: &str,
+        requested_json: Option<String>,
+        error: StoreError,
+    ) -> Result<T, StoreError> {
+        self.record_rejection(
+            task_id, actor, operation, error_code, requested_json.as_deref(),
+        )?;
+        Err(error)
+    }
+
+    fn config_revision(&self) -> Result<String, StoreError> {
+        let serialized = self.config.to_toml()
+            .map_err(|error| StoreError::InvalidConfig(error.to_string()))?;
+        Ok(hex::encode(Sha256::digest(serialized.as_bytes())))
     }
 
     pub fn list_versions(&self, task_id: TaskId) -> Result<Vec<TaskVersion>, StoreError> {
@@ -553,6 +801,69 @@ impl TaskRepository {
         }
         Ok(snapshot)
     }
+}
+
+fn persist_task_change(
+    transaction: &Transaction<'_>,
+    previous: &Task,
+    mut updated: Task,
+    actor: &ActorContext,
+    operation: &str,
+    details_json: Option<&str>,
+    config_revision: Option<&str>,
+) -> Result<Task, StoreError> {
+    let now = now_string();
+    updated.updated_at = now.clone();
+    transaction.execute(
+        "UPDATE tasks
+         SET title = ?1, status_id = ?2, outcome = ?3, body = ?4, updated_at = ?5
+         WHERE task_id = ?6",
+        params![
+            updated.title.trim(),
+            updated.status_id.as_str(),
+            outcome_as_str(updated.outcome),
+            updated.body,
+            now,
+            updated.id.get()
+        ],
+    )?;
+    transaction.execute(
+        "DELETE FROM task_labels WHERE task_id = ?1",
+        params![updated.id.get()],
+    )?;
+    transaction.execute(
+        "DELETE FROM task_commit_refs WHERE task_id = ?1",
+        params![updated.id.get()],
+    )?;
+    insert_labels(transaction, updated.id, &updated.labels)?;
+    insert_commit_refs(transaction, updated.id, &updated.commit_refs)?;
+
+    let persisted = load_task(transaction, updated.id)?;
+    let previous_snapshot = snapshot_json(transaction, previous)?;
+    let requested_snapshot = snapshot_json(transaction, &persisted)?;
+    let version_no = next_version_no(transaction, persisted.id)?;
+    insert_version(
+        transaction,
+        persisted.id,
+        version_no,
+        &requested_snapshot,
+        &now,
+        actor.actor_id().as_str(),
+    )?;
+    insert_history(
+        transaction,
+        Some(persisted.id),
+        actor.actor_id().as_str(),
+        &now,
+        operation,
+        Some(&previous_snapshot),
+        Some(&requested_snapshot),
+        HistoryOutcome::Succeeded,
+        None,
+        details_json,
+        config_revision,
+    )?;
+    Ok(persisted)
 }
 
 fn same_task_state(current: &Task, requested: &Task) -> bool {

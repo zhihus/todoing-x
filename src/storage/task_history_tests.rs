@@ -1,5 +1,6 @@
+use crate::config::ProjectConfig;
 use super::{HistoryOutcome, NewTask, Store, TaskRepository};
-use crate::domain::{ActorContext, ActorId, ProjectId, StatusId, TaskOutcome};
+use crate::domain::{ActorContext, ActorId, ProjectId, StatusId};
 use tempfile::tempdir;
 
 fn actor() -> ActorContext {
@@ -9,7 +10,7 @@ fn actor() -> ActorContext {
 fn repository() -> (tempfile::TempDir, TaskRepository) {
     let root = tempdir().unwrap();
     let store = Store::initialize(root.path(), ProjectId::new("task-history-tests").unwrap()).unwrap();
-    (root, TaskRepository::new(store))
+    (root, TaskRepository::new(store, ProjectConfig::default()).unwrap())
 }
 
 fn new_task(title: &str) -> NewTask {
@@ -146,11 +147,9 @@ fn version_and_history_rows_are_immutable_at_database_level() {
 #[test]
 fn snapshots_preserve_terminal_outcomes() {
     let (_root, repository) = repository();
-    let mut task = new_task("completed");
-    task.outcome = Some(TaskOutcome::Completed);
-
-    let created = repository.create(task, &actor()).unwrap();
-    let version = repository.get_version(created.id, 1).unwrap();
+    let created = repository.create(new_task("completed"), &actor()).unwrap();
+    repository.complete(created.id, &actor()).unwrap();
+    let version = repository.get_version(created.id, 2).unwrap();
 
     assert!(version.snapshot_json.contains("\"outcome\":\"completed\""));
 }
