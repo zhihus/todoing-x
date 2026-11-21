@@ -705,6 +705,7 @@ fn validate_new_task(task: &NewTask) -> Result<(), String> {
         return Err("Task status cannot be empty".into());
     }
     validate_outcome(task.outcome.as_deref())?;
+    validate_actor(&task.actor)?;
     validate_labels(&task.labels)?;
     validate_commits(&task.commits)?;
     Ok(())
@@ -718,6 +719,7 @@ fn validate_task(task: &StoredTask) -> Result<(), String> {
         return Err("Task status cannot be empty".into());
     }
     validate_outcome(task.outcome.as_deref())?;
+    validate_actor(actor)?;
     validate_labels(&task.labels)?;
     validate_commits(&task.commits)?;
     Ok(())
@@ -728,6 +730,13 @@ fn validate_outcome(outcome: Option<&str>) -> Result<(), String> {
         None | Some("completed") | Some("cancelled") => Ok(()),
         Some(value) => Err(format!("Invalid task outcome '{value}'")),
     }
+}
+
+fn validate_actor(actor: &str) -> Result<(), String> {
+    if actor.trim().is_empty() {
+        return Err("Actor identifier cannot be empty".into());
+    }
+    Ok(())
 }
 
 fn validate_labels(labels: &[String]) -> Result<(), String> {
@@ -746,8 +755,12 @@ fn validate_labels(labels: &[String]) -> Result<(), String> {
 fn validate_commits(commits: &[String]) -> Result<(), String> {
     let mut seen = std::collections::HashSet::new();
     for sha in commits {
-        if sha.trim().is_empty() {
-            return Err("Git commit reference cannot be empty".into());
+        if !(sha.len() == 40 || sha.len() == 64)
+            || !sha.bytes().all(|byte| byte.is_ascii_hexdigit())
+        {
+            return Err(format!(
+                "Git commit reference must be a full 40- or 64-character hexadecimal SHA: '{sha}'"
+            ));
         }
         if !seen.insert(sha) {
             return Err(format!("Duplicate Git commit reference '{sha}'"));
