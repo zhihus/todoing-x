@@ -11,6 +11,8 @@ pub enum StoreError {
     InvalidConfig(String),
     InvalidStatusTransition(String),
     TaskTerminal,
+    DependencyNotFound(i64),
+    DependencyCycle,
     ProjectIdMismatch { expected: String, actual: String },
     UnsupportedSchemaVersion(u32),
     MigrationChecksumMismatch { version: u32 },
@@ -34,6 +36,8 @@ impl fmt::Display for StoreError {
             Self::InvalidConfig(message) => write!(formatter, "Invalid project configuration: {message}"),
             Self::InvalidStatusTransition(message) => write!(formatter, "Invalid status transition: {message}"),
             Self::TaskTerminal => formatter.write_str("Task has a terminal outcome and must be reopened first"),
+            Self::DependencyNotFound(id) => write!(formatter, "Dependency task #{id} was not found"),
+            Self::DependencyCycle => formatter.write_str("Dependency would create a cycle"),
             Self::ProjectIdMismatch { expected, actual } => {
                 write!(formatter, "Project ID mismatch: expected {expected}, found {actual}")
             }
