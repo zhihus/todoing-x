@@ -1,4 +1,4 @@
-use clap::{Args, Parser, Subcommand};
+use clap::{Args, Parser, Subcommand, ValueEnum};
 use serde::Serialize;
 use std::{
     fs,
@@ -134,6 +134,34 @@ struct DeleteArgs {
     force: bool,
 }
 
+#[derive(Args)]
+struct HooksArgs {
+    #[command(subcommand)]
+    command: HooksCommands,
+}
+
+#[derive(Subcommand)]
+enum HooksCommands {
+    Status,
+    Install {
+        #[arg(value_enum, help="Standard hook set to install")]
+        hook: HookSelection,
+    },
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
+enum HookSelection {
+    Git,
+    Openspec,
+    All,
+}
+
+#[derive(Args)]
+struct InternalHookArgs {
+    #[arg(help="Internal hook name")]
+    name: String,
+}
+
 fn fail(message: impl AsRef<str>) -> ! {
     eprintln!("Error: {}", message.as_ref());
     std::process::exit(1)
@@ -171,12 +199,15 @@ fn run_hook(name: &str, task: &Task) -> Result<(), String> {
     let mut child = command.stdin(Stdio::piped()).stdout(Stdio::inherit()).stderr(Stdio::inherit())
         .spawn().map_err(|e| format!("Cannot start {} hook: {}", name, e))?;
     let payload = serde_json::to_vec(task).map_err(|e| e.to_string())?;
-    child.stdin.take().ok_or_else(|| "Hook stdin unavailable".to_string())?
-        .write_all(&payload).map_err(|e| e.to_string())?;
+    let write_result = {
+        let mut stdin = child.stdin.take().ok_or_else(|| "Hook stdin unavailable".to_string())?;
+        stdin.write_all(&payload)
+    };
     let status = child.wait().map_err(|e| e.to_string())?;
     if !status.success() {
         return Err(format!("{} hook rejected the operation (exit code {}).", name, status.code().unwrap_or(1)));
     }
+    write_result.map_err(|e| format!("Cannot write task data to {} hook: {}", name, e))?;
     Ok(())
 }
 
