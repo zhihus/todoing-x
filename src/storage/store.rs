@@ -13,6 +13,33 @@ use tempfile::NamedTempFile;
 const SCHEMA_VERSION: u32 = 1;
 const BUSY_TIMEOUT: Duration = Duration::from_secs(10);
 const INITIAL_SCHEMA: &str = include_str!("../../migrations/0001_initial.sql");
+const REQUIRED_SCHEMA_OBJECTS: &[(&str, &str)] = &[
+    ("table", "schema_migrations"),
+    ("table", "store_metadata"),
+    ("table", "tasks"),
+    ("table", "task_labels"),
+    ("table", "task_commit_refs"),
+    ("table", "task_dependencies"),
+    ("table", "task_versions"),
+    ("table", "task_baselines"),
+    ("table", "operation_history"),
+    ("table", "task_locks"),
+    ("index", "idx_tasks_status"),
+    ("index", "idx_task_labels_key"),
+    ("index", "idx_task_commit_refs_sha"),
+    ("index", "idx_tasks_outcome"),
+    ("index", "idx_tasks_updated"),
+    ("index", "idx_versions_task_no"),
+    ("index", "idx_history_task_event"),
+    ("index", "idx_dependencies_reverse"),
+    ("index", "idx_locks_state_expiry"),
+    ("trigger", "tasks_no_delete"),
+    ("trigger", "task_versions_no_update"),
+    ("trigger", "task_versions_no_delete"),
+    ("trigger", "operation_history_no_update"),
+    ("trigger", "operation_history_no_delete"),
+    ("trigger", "task_locks_no_delete"),
+];
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct IntegrityReport {
@@ -238,6 +265,19 @@ fn metadata_value(connection: &Connection, key: &str) -> Result<String, StoreErr
 }
 
 fn validate_schema(connection: &Connection) -> Result<(), StoreError> {
+    for (object_type, object_name) in REQUIRED_SCHEMA_OBJECTS {
+        let exists: i64 = connection.query_row(
+            "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = ?1 AND name = ?2)",
+            params![object_type, object_name],
+            |row| row.get(0),
+        )?;
+        if exists != 1 {
+            return Err(StoreError::InvalidMetadata(format!(
+                "schema object {object_type}:{object_name}"
+            )));
+        }
+    }
+
     let version_raw = metadata_value(connection, "schema_version")?;
     let version = version_raw
         .parse::<u32>()
