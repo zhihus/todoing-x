@@ -534,7 +534,7 @@ impl TaskRepository {
         if previous.outcome.is_some() {
             drop(transaction);
             return self.reject_operation(
-                Some(task_id), actor, operation, "task_terminal", details_json,
+                Some(task_id), actor, operation, "task_terminal", details_json.map(str::to_owned),
                 StoreError::TaskTerminal,
             );
         }
