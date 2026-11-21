@@ -1,12 +1,12 @@
 # Technical Research: Storage, Concurrency, and Configuration
 
-**Status:** Research findings and recommendations; no final architecture decisions recorded.
+**Status:** Research findings and evidence supporting the selected implementation baseline in implementation-contract.md.
 **Date:** 2026-11-21
 **Scope:** Core Todoing MVP defined by PRODUCT.md and the OpenSpec change core-task-capabilities.
 
 ## 1. Executive summary
 
-The leading storage candidate is **SQLite through rusqlite with the bundled feature**. It is the best current fit for Todoing's relational task model, multi-record atomic transactions, dependency graph, append-only history, versions, and local multi-process access. It avoids introducing a database server and has a mature Rust integration. This is a recommendation for the next architecture stage, **not a final storage decision**.
+The leading storage candidate is **SQLite through rusqlite with the bundled feature**. It is the best current fit for Todoing's relational task model, multi-record atomic transactions, dependency graph, append-only history, versions, and local multi-process access. It avoids introducing a database server and has a mature Rust integration. This recommendation was selected for the MVP implementation baseline after the cross-platform prototype passed.
 
 **redb 5.x** is the strongest alternative. It offers ACID transactions, MVCC, crash safety, and documented multi-process modes including Windows. It is less attractive for this product because Todoing would need to implement and maintain relational indexing, constraints, joins, and graph traversal itself. Its 5.0 release also changes multi-process locking modes and compatibility requirements, so the exact pinned version and upgrade policy would need deliberate handling.
 
@@ -80,7 +80,7 @@ sled documents ACID transactions across items and trees, but the reviewed publis
 
 ## 4. Preliminary storage recommendation
 
-Proceed to an architecture spike with:
+Use the following selected implementation baseline:
 
 - **Candidate:** SQLite.
 - **Rust access layer:** rusqlite, bundled feature.
@@ -193,12 +193,12 @@ Backup destination and retention remain the responsibility of Manifest/the consu
 
 | Decision area | Research position | Status |
 |---|---|---|
-| Primary database | SQLite is the preferred candidate; redb is the runner-up. | Prototype passed on Windows/Linux; final selection remains open pending approval. |
-| Rust binding | rusqlite with bundled. | Cross-platform prototype passed; production integration remains to be validated. |
-| Journal mode | Rollback-journal mode (DELETE) with a short EXCLUSIVE lock-acquisition barrier. | Preferred based on passing Windows/Linux prototype; final selection remains open. |
+| Primary database | SQLite + rusqlite bundled. | Selected after candidate evaluation and passing Windows/Linux prototype; production verification continues. |
+| Rust binding | rusqlite with bundled. | Selected; production repository integration remains to be validated. |
+| Journal mode | Rollback-journal mode (DELETE) with a short EXCLUSIVE lock-acquisition barrier. | Selected for MVP; WAL is excluded unless a replacement read-exclusion mechanism is proven. |
 | Logical task locks | Durable database-backed lease + owner capability + fencing generation. | Recommended design direction; details open. |
 | Lock barrier | Rollback-journal EXCLUSIVE transaction serializes acquisition against in-flight reads; later non-owner reads are rejected. | Validated in the Windows/Linux prototype; production integration tests remain. |
-| Status config format | TOML is preferred; JSON is the alternative. | Preliminary. |
+| Status config format | TOML for project configuration; JSON for API v1. | Selected. |
 | Schema | Relational entities listed above. | Conceptual only; physical schema open. |
 | Migration | Validated, non-destructive migration with source retained until verification. | Requirement accepted; procedure open. |
 | Backup | Database-aware snapshot; Manifest owns destination/retention. | Requirement accepted; integration contract open. |
