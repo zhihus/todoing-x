@@ -51,6 +51,7 @@
                 "project_id_mismatch",
                 "config_invalid",
                 "task_not_found",
+                "task_terminal",
                 "task_locked",
                 "lock_expired",
                 "stale_lock",
