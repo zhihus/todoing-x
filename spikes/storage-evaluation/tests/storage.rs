@@ -1,4 +1,10 @@
-use std::{path::Path, process::Command};
+use std::{
+    fs::OpenOptions,
+    io::{BufRead, BufReader},
+    path::Path,
+    process::{Command, Stdio},
+    time::{Duration, Instant},
+};
 use tempfile::tempdir;
 use todoing_storage_evaluation::{Counts, Fault, RedbStore, SqliteStore};
 
@@ -157,4 +163,42 @@ fn sqlite_recovers_after_process_exit_before_commit() {
 fn redb_recovers_after_process_exit_before_commit() {
     let dir = tempdir().unwrap();
     assert_process_exit_recovery("redb", &dir.path().join("todoing.redb"));
+}
+
+#[test]
+fn shared_file_access_guard_blocks_exclusive_lock_until_operation_finishes() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("task-1.lock");
+
+    let mut child = Command::new(worker())
+        .arg("guard")
+        .arg("file")
+        .arg(&path)
+        .arg("700")
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+
+    let stdout = child.stdout.take().unwrap();
+    let mut reader = BufReader::new(stdout);
+    let mut ready = String::new();
+    reader.read_line(&mut ready).unwrap();
+    assert_eq!(ready.trim(), "ready");
+
+    let file = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(&path)
+        .unwrap();
+    let started = Instant::now();
+    file.lock().unwrap();
+    let elapsed = started.elapsed();
+    drop(file);
+
+    let status = child.wait().unwrap();
+    assert!(status.success());
+    assert!(
+        elapsed >= Duration::from_millis(400),
+        "exclusive lock did not wait for the active shared operation: {elapsed:?}"
+    );
 }
