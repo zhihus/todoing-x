@@ -27,7 +27,7 @@ rules:
     - Identify data migration, backward compatibility, and failure-recovery implications.
     - Do not select SQLite or another storage engine without the required technical evaluation and an explicit decision.
   tasks:
-    - Apply TEST FIRST: define or update automated tests before implementation tasks.
+    - "Apply TEST FIRST: define or update automated tests before implementation tasks."
     - Keep tasks independently verifiable and mark them complete only after execution evidence.
     - Include cargo test and relevant cross-platform CI verification for code changes.
 
