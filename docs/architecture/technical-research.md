@@ -6,11 +6,11 @@
 
 ## 1. Executive summary
 
-The leading storage candidate is **SQLite through rusqlite with the bundled feature**. It is the best current fit for Todoing's relational task model, multi-record atomic transactions, dependency graph, append-only history, versions, and local multi-process access. It avoids introducing a database server and has a mature Rust integration. This recommendation was selected for the MVP implementation baseline after the cross-platform prototype passed.
+**SQLite through rusqlite with the bundled feature is selected for the MVP.** It is the best fit for Todoing's relational task model, multi-record atomic transactions, dependency graph, append-only history, versions, and local multi-process access. It avoids introducing a database server and has a mature Rust integration. The rollback-journal mode was selected after the cross-platform acquisition-barrier prototype passed.
 
 **redb 5.x** is the strongest alternative. It offers ACID transactions, MVCC, crash safety, and documented multi-process modes including Windows. It is less attractive for this product because Todoing would need to implement and maintain relational indexing, constraints, joins, and graph traversal itself. Its 5.0 release also changes multi-process locking modes and compatibility requirements, so the exact pinned version and upgrade policy would need deliberate handling.
 
-The most important unresolved issue is not raw database performance. It is the semantics of **exclusive task locks that also exclude reads by other clients for an entire agent work session**. Database transaction locks do not automatically provide this application-level guarantee. The selected storage engine and lock protocol must be tested together with multiple OS processes.
+The remaining high-risk issue is production integration of **exclusive task locks that also exclude reads by other clients for an entire agent work session**. Database transaction locks do not automatically provide this application-level guarantee. The prototype validated the rollback-journal acquisition barrier; the full lease, heartbeat, recovery, and clock behavior still require production tests.
 
 ## 2. Requirements that drive the choice
 
@@ -78,7 +78,7 @@ fjall is a promising pure-Rust LSM option with snapshots and optional single-wri
 
 sled documents ACID transactions across items and trees, but the reviewed published crate line is 0.34.7. The available material did not establish a sufficiently clear multi-process contract for this project, so it should not be selected without additional due diligence.
 
-## 4. Preliminary storage recommendation
+## 4. Selected storage baseline
 
 Use the following selected implementation baseline:
 
@@ -153,7 +153,7 @@ OS file locks may help with process-level coordination and are released by the O
 
 ## 6. Relational data model candidate
 
-A normalized relational schema is a natural fit if SQLite is selected. The following are logical entities only, not an approved physical schema:
+A normalized relational schema is selected for SQLite. The following are logical entities; the implementation contract defines the required table set, while physical DDL and indexes remain implementation work:
 
 | Entity | Responsibility |
 |---|---|
@@ -173,7 +173,7 @@ Dependency-cycle detection can use a recursive query or an application graph tra
 
 ## 7. Project configuration format
 
-Status configuration is human-maintained project configuration, not the machine API. The candidates are:
+Status configuration is human-maintained project configuration, not the machine API. TOML is selected for project configuration and JSON for the machine API:
 
 | Format | Advantages | Risks / costs | Assessment |
 |---|---|---|---|
@@ -181,11 +181,11 @@ Status configuration is human-maintained project configuration, not the machine 
 | JSON | Strict and widely supported; easy to exchange with agents and tools. | No comments; less convenient for users editing workflow definitions. | Strong alternative if a single format for config and API data is prioritized. |
 | YAML | Familiar from current task frontmatter and supports comments. | Implicit typing and parser-dialect differences; the current Rust port already contains compatibility code for Python/PyYAML behavior. | Do not carry YAML forward by inertia. |
 
-Preliminary recommendation: TOML for project status configuration and JSON for the public machine interface. Keep both choices open until the configuration schema and API are designed. Do not use task Markdown frontmatter as the authoritative status configuration.
+TOML is selected for project status configuration and JSON for the public machine interface. The format version 1 configuration schema and API v1 envelope are defined in implementation-contract.md. Do not use task Markdown frontmatter as the authoritative status configuration.
 
 ## 8. Backup and recovery implications
 
-If SQLite is selected, a live database must be backed up through a database-aware method. SQLite's Online Backup API creates a consistent snapshot while allowing the source database to remain in use; rusqlite exposes this API behind its backup feature. A raw file copy while the database is active is not an adequate general backup contract, especially when journal/WAL files are involved.
+For the selected SQLite store, a live database must be backed up through a database-aware method. SQLite's Online Backup API creates a consistent snapshot while allowing the source database to remain in use; rusqlite exposes this API behind its backup feature. A raw file copy while the database is active is not an adequate general backup contract, especially when journal/WAL files are involved.
 
 Backup destination and retention remain the responsibility of Manifest/the consuming project, as already decided. Todoing's architecture should expose a safe snapshot or export mechanism that the consumer can invoke. Backups should be verified by reopening and integrity-checking the copied database before they are treated as valid.
 
@@ -196,12 +196,12 @@ Backup destination and retention remain the responsibility of Manifest/the consu
 | Primary database | SQLite + rusqlite bundled. | Selected after candidate evaluation and passing Windows/Linux prototype; production verification continues. |
 | Rust binding | rusqlite with bundled. | Selected; production repository integration remains to be validated. |
 | Journal mode | Rollback-journal mode (DELETE) with a short EXCLUSIVE lock-acquisition barrier. | Selected for MVP; WAL is excluded unless a replacement read-exclusion mechanism is proven. |
-| Logical task locks | Durable database-backed lease + owner capability + fencing generation. | Recommended design direction; details open. |
+| Logical task locks | Durable database-backed lease + owner capability + fencing generation; 300-second lease, 60-second heartbeat, 60-second recovery grace. | Selected defaults; production race and clock-change tests remain. |
 | Lock barrier | Rollback-journal EXCLUSIVE transaction serializes acquisition against in-flight reads; later non-owner reads are rejected. | Validated in the Windows/Linux prototype; production integration tests remain. |
 | Status config format | TOML for project configuration; JSON for API v1. | Selected. |
-| Schema | Relational entities listed above. | Conceptual only; physical schema open. |
-| Migration | Validated, non-destructive migration with source retained until verification. | Requirement accepted; procedure open. |
-| Backup | Database-aware snapshot; Manifest owns destination/retention. | Requirement accepted; integration contract open. |
+| Schema | Relational SQLite schema defined in implementation-contract.md. | Logical contract selected; DDL, indexes, and migrations remain implementation work. |
+| Migration | Staged, validated, non-destructive migration; source retained after cutover. | Procedure defined; implementation and Windows activation tests remain. |
+| Backup | SQLite Online Backup API snapshot; Manifest owns destination/retention. | Interface defined; concurrent snapshot verification remains. |
 
 ### Architecture spike status
 
