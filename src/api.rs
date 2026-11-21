@@ -213,6 +213,7 @@ fn store_error(error: StoreError) -> ApiError {
     let (code, retryable) = match &error {
         StoreError::TaskNotFound(_) => ("task_not_found", false),
         StoreError::TaskTerminal => ("task_terminal", false),
+        StoreError::TaskArchived => ("task_archived", false),
         StoreError::TaskLocked => ("task_locked", true),
         StoreError::LockExpired => ("lock_expired", false),
         StoreError::StaleLock => ("stale_lock", false),
@@ -250,7 +251,7 @@ fn execute(request: Request, root: &Path) -> Result<Value, ApiError> {
     }
     const OPERATIONS: &[&str] = &[
         "store.info", "store.verify", "store.migrate", "store.snapshot",
-        "task.create", "task.list", "task.get", "task.update", "task.status.set",
+        "task.create", "task.list", "task.get", "task.archive", "task.restore", "task.update", "task.status.set",
         "task.complete", "task.cancel", "task.reopen", "task.label.add",
         "task.label.remove", "task.commit.add", "task.dependency.add",
         "task.dependency.remove", "task.dependency.list", "task.history.list",
