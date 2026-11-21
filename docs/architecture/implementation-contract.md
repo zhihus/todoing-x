@@ -147,7 +147,7 @@ Dependencies are directed edges within one project store. Self-dependencies and 
 
 ## 5. SQLite schema contract
 
-The production schema is defined in versioned SQL migrations. The following logical table set is mandatory:
+The production schema is defined in versioned SQL migrations. The v1 DDL baseline is documented in docs/architecture/sqlite-schema-v1.sql. The following logical table set is mandatory:
 
 | Table | Required content |
 |---|---|
@@ -159,7 +159,7 @@ The production schema is defined in versioned SQL migrations. The following logi
 | task_versions | Immutable per-task version number and complete JSON snapshot. |
 | task_baselines | Current user-approved version per task. |
 | operation_history | Append-only successful and rejected operation events. |
-| task_locks | Current lock owner, token hash, lease timestamps, fencing generation. |
+| task_locks | Current lock owner, token hash, lease timestamps, fencing generation. A released row is retained so the fencing generation never resets. |
 
 Status definitions and transitions remain in TOML, not duplicated as a second writable status database. tasks.status_id is not a foreign key to the config file; this preserves readability of historical/disabled statuses.
 
@@ -349,7 +349,7 @@ Errors are JSON responses on stdout. Human diagnostics, if any, go to stderr. No
 - task.version.list, task.version.get, task.version.compare, task.version.approve
 - task.lock.acquire, task.lock.heartbeat, task.lock.release, task.lock.recover
 
-The exact arguments and response data shapes are specified in the API schemas before implementation. Unknown operations and unsupported fields are rejected, not silently ignored.
+The request and response envelopes are specified in docs/api/v1/request.schema.json and docs/api/v1/response.schema.json. Per-operation args/data schemas are added before their handlers are implemented. Unknown operations and unsupported envelope fields are rejected, not silently ignored.
 
 ### Error codes
 
