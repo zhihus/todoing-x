@@ -237,6 +237,7 @@ struct SnapshotArgs {
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct EditableFrontmatter {
     id: i64,
     added_at: String,
