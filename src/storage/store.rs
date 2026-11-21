@@ -2,6 +2,7 @@ use super::StoreError;
 use crate::domain::ProjectId;
 use chrono::{SecondsFormat, Utc};
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, backup::Backup, params};
+use serde::Serialize;
 use sha2::{Digest, Sha256};
 use std::{
     fs::{self, File},
@@ -42,14 +43,14 @@ const REQUIRED_SCHEMA_OBJECTS: &[(&str, &str)] = &[
     ("trigger", "task_locks_no_delete"),
 ];
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct IntegrityReport {
     pub integrity_check: String,
     pub foreign_key_violations: usize,
     pub schema_version: u32,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct SnapshotReport {
     pub path: PathBuf,
     pub size_bytes: u64,
