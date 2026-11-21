@@ -148,7 +148,6 @@ impl Store {
         }
 
         let mut connection = connect(&database_path)?;
-        migrate_schema(&mut connection)?;
         let project_id_raw = metadata_value(&connection, "project_id")?;
         let project_id = ProjectId::new(project_id_raw.clone())
             .map_err(|_| StoreError::InvalidMetadata("project_id".into()))?;
@@ -160,6 +159,7 @@ impl Store {
                 });
             }
         }
+        migrate_schema(&mut connection)?;
         drop(connection);
 
         let store = Self {
