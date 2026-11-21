@@ -346,7 +346,7 @@ impl SqliteStore {
         task: &StoredTask,
         actor: &str,
     ) -> Result<StoredTask, String> {
-        validate_task(task)?;
+        validate_task(task, actor)?;
         let transaction = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)
@@ -711,7 +711,7 @@ fn validate_new_task(task: &NewTask) -> Result<(), String> {
     Ok(())
 }
 
-fn validate_task(task: &StoredTask) -> Result<(), String> {
+fn validate_task(task: &StoredTask, actor: &str) -> Result<(), String> {
     if task.title.trim().is_empty() {
         return Err("Task title cannot be empty".into());
     }
