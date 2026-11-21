@@ -157,17 +157,18 @@ A normalized relational schema is selected for SQLite. The following are logical
 
 | Entity | Responsibility |
 |---|---|
-| metadata | Schema version and project-store metadata. |
+| schema_migrations | Applied schema version and migration checksum. |
+| store_metadata | Schema version and project-store metadata, including project ID. |
 | tasks | Stable task identity and current task state. |
-| statuses | User-defined status definitions and enabled/disabled state. |
-| status_transitions | Permitted transition rules. |
+| task_labels | Ordered labels with normalized lookup keys. |
+| task_commit_refs | Ordered Git commit references. |
 | task_dependencies | Directed task-to-task relationships with uniqueness and foreign-key constraints. |
 | task_versions | Immutable snapshots for each successful task save. |
+| task_baselines | Current user-approved version per task. |
 | operation_history | Append-only successful and rejected task-operation records. |
 | task_locks | Current owner, lease, heartbeat, and fencing generation. |
-| task_commit_refs | Git commit traceability metadata, if normalized separately. |
 
-The schema must retain the current task fields (ID, title, creation timestamp, status, labels, body, and Git commit references) through migration. Whether labels and commit references are normalized or stored in structured columns remains a schema decision.
+The selected schema retains the current task fields (ID, title, creation timestamp, status, labels, body, and Git commit references) through migration. Labels and commit references are normalized into their own ordered tables. Status definitions and transition rules remain in TOML and are not duplicated in the database.
 
 Dependency-cycle detection can use a recursive query or an application graph traversal inside the same transaction that validates and writes the relationship. The chosen approach must be tested for self-dependencies, direct cycles, indirect cycles, and concurrent opposing dependency changes.
 
@@ -177,8 +178,8 @@ Status configuration is human-maintained project configuration, not the machine 
 
 | Format | Advantages | Risks / costs | Assessment |
 |---|---|---|---|
-| TOML | Comments, explicit types, readable tables/arrays, mature Serde integration, familiar in Rust projects. | Less suitable than JSON for direct machine interchange; needs a documented schema and validation. | **Preferred candidate for user-edited configuration.** |
-| JSON | Strict and widely supported; easy to exchange with agents and tools. | No comments; less convenient for users editing workflow definitions. | Strong alternative if a single format for config and API data is prioritized. |
+| TOML | Comments, explicit types, readable tables/arrays, mature Serde integration, familiar in Rust projects. | Less suitable than JSON for direct machine interchange; needs a documented schema and validation. | **Selected for project configuration.** |
+| JSON | Strict and widely supported; easy to exchange with agents and tools. | No comments; less convenient for users editing workflow definitions. | **Selected for API v1.** |
 | YAML | Familiar from current task frontmatter and supports comments. | Implicit typing and parser-dialect differences; the current Rust port already contains compatibility code for Python/PyYAML behavior. | Do not carry YAML forward by inertia. |
 
 TOML is selected for project status configuration and JSON for the public machine interface. The format version 1 configuration schema and API v1 envelope are defined in implementation-contract.md. Do not use task Markdown frontmatter as the authoritative status configuration.
