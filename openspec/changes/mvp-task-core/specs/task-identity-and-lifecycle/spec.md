@@ -51,11 +51,17 @@ Disabling or removing a status from the active workflow configuration MUST NOT i
 
 ### Requirement: Distinguish completion and cancellation outcomes
 
-The task model MUST preserve completion and cancellation as distinguishable outcomes.
+Each configured workflow status MUST map to no outcome, `completed`, or `cancelled`. The task MUST store its current outcome separately from its workflow status.
 
-The relationship between these outcomes and configurable workflow statuses MUST remain explicit in the model and MUST NOT be silently conflated. The exact representation is an integration design decision.
+Entering a status mapped to `completed` or `cancelled` MUST set the corresponding task outcome. Moving to a status with no outcome mapping MUST clear the current outcome. Configuration edits MUST NOT retroactively rewrite existing task outcomes.
 
 #### Scenario: Inspect terminal outcome
 
 - **WHEN** a client inspects a task with a completion or cancellation outcome
 - **THEN** the returned task data identifies which outcome occurred
+
+#### Scenario: Reopen a completed or cancelled task
+
+- **WHEN** a task transitions from a status mapped to a terminal outcome to a status with no outcome mapping
+- **THEN** the task's current outcome is cleared
+- **AND** the previous outcome remains available in immutable operation history
