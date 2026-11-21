@@ -98,7 +98,7 @@ fn json_interface_covers_remaining_commands() {
     let version = run(dir.path(), &["version", "--json"]);
     assert!(version.status.success());
     let version: Value = serde_json::from_slice(&version.stdout).unwrap();
-    assert!(version["version"].is_string());
+    assert!(version["data"]["version"].is_string());
 }
 
 #[test]
@@ -309,15 +309,16 @@ fn standard_hooks_can_be_installed_selectively_and_status_is_machine_readable() 
     let status = run(dir.path(), &["hooks", "status", "--json"]);
     assert!(status.status.success());
     let value: Value = serde_json::from_slice(&status.stdout).unwrap();
-    assert_eq!(value["hooks"][0]["name"], "before-done-git");
-    assert_eq!(value["hooks"][0]["installed"], false);
-    assert_eq!(value["hooks"][1]["installed"], false);
-    assert_eq!(value["agent_action"], "ask_user_before_install");
+    assert_eq!(value["api_version"], 1);
+    assert_eq!(value["data"]["hooks"][0]["name"], "before-done-git");
+    assert_eq!(value["data"]["hooks"][0]["installed"], false);
+    assert_eq!(value["data"]["hooks"][1]["installed"], false);
+    assert_eq!(value["data"]["agent_action"], "ask_user_before_install");
 
     let installed = run(dir.path(), &["hooks", "install", "git", "--json"]);
     assert!(installed.status.success(), "{}", String::from_utf8_lossy(&installed.stderr));
     let value: Value = serde_json::from_slice(&installed.stdout).unwrap();
-    assert_eq!(value["installed"][0], "before-done-git");
+    assert_eq!(value["data"]["installed"][0], "before-done-git");
 
     #[cfg(windows)]
     let git_hook = dir.path().join(".todoing/hooks/before-done-git.cmd");
@@ -337,9 +338,9 @@ fn standard_hooks_can_be_installed_selectively_and_status_is_machine_readable() 
     assert!(openspec_hook.is_file());
     let status = run(dir.path(), &["hooks", "status", "--json"]);
     let value: Value = serde_json::from_slice(&status.stdout).unwrap();
-    assert_eq!(value["hooks"][0]["installed"], true);
-    assert_eq!(value["hooks"][1]["installed"], true);
-    assert_eq!(value["agent_action"], "none");
+    assert_eq!(value["data"]["hooks"][0]["installed"], true);
+    assert_eq!(value["data"]["hooks"][1]["installed"], true);
+    assert_eq!(value["data"]["agent_action"], "none");
 }
 
 #[cfg(unix)]
@@ -653,7 +654,7 @@ fn body_append_and_label_operations_persist() {
 
 
 #[test]
-fn deleting_task_preserves_other_tasks_commit_metadata() {
+fn delete_is_rejected_and_preserves_all_tasks_commit_metadata() {
     let dir = tempdir().unwrap();
     git(dir.path(), &["init", "-q"]);
     git(dir.path(), &["config", "user.email", "todoing-test@example.invalid"]);
@@ -666,14 +667,18 @@ fn deleting_task_preserves_other_tasks_commit_metadata() {
     assert!(run(dir.path(), &["add", "keep me"]).status.success());
     assert!(run(dir.path(), &["commit", "1", "HEAD"]).status.success());
     assert!(run(dir.path(), &["commit", "2", "HEAD"]).status.success());
-    assert!(run(dir.path(), &["delete", "1", "--force"]).status.success());
+    let deleted = run(dir.path(), &["delete", "1", "--force"]);
+    assert!(!deleted.status.success());
+    assert!(String::from_utf8_lossy(&deleted.stderr).contains("Physical deletion is disabled"));
 
     let listed = run(dir.path(), &["ls", "--json"]);
     assert!(listed.status.success(), "{}", String::from_utf8_lossy(&listed.stderr));
     let tasks: Value = serde_json::from_slice(&listed.stdout).unwrap();
-    assert_eq!(tasks.as_array().unwrap().len(), 1);
+    assert_eq!(tasks.as_array().unwrap().len(), 2);
     assert_eq!(tasks[0]["id"], 2);
     assert_eq!(tasks[0]["commits"].as_array().unwrap().len(), 1);
+    assert_eq!(tasks[1]["id"], 1);
+    assert_eq!(tasks[1]["commits"].as_array().unwrap().len(), 1);
 
     let markdown = fs::read_to_string(dir.path().join(".todoing/tasks/2.md")).unwrap();
     assert!(markdown.contains("commits: ["));
@@ -753,48 +758,45 @@ fn invalid_status_and_identifier_are_rejected() {
 }
 
 #[test]
-fn delete_confirmation_treats_eof_as_abort_error() {
+fn delete_always_rejects_physical_deletion_without_reading_stdin() {
     let dir = tempdir().unwrap();
     assert!(run(dir.path(), &["add", "keep me"]).status.success());
 
     let output = run_with_input(dir.path(), &["delete", "1"], "");
     assert!(!output.status.success());
-    assert!(String::from_utf8_lossy(&output.stderr).contains("Aborted!"));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("Physical deletion is disabled"));
     assert!(String::from_utf8_lossy(&run(dir.path(), &["ls"]).stdout).contains("keep me"));
 }
 
 #[test]
-fn delete_confirmation_preserves_or_removes_task() {
+fn delete_rejection_preserves_task_regardless_of_confirmation_input() {
     let dir = tempdir().unwrap();
     assert!(run(dir.path(), &["add", "keep me"]).status.success());
 
     let refused = run_with_input(dir.path(), &["delete", "1"], "n\n");
-    assert!(refused.status.success());
-    assert!(String::from_utf8_lossy(&refused.stdout).contains("Delete (#1) keep me? [y/N]: "));
-    assert!(String::from_utf8_lossy(&refused.stdout).contains("Aborted."));
+    assert!(!refused.status.success());
+    assert!(String::from_utf8_lossy(&refused.stderr).contains("Physical deletion is disabled"));
     assert!(String::from_utf8_lossy(&run(dir.path(), &["ls"]).stdout).contains("keep me"));
 
     let accepted = run_with_input(dir.path(), &["delete", "1"], "yes\n");
-    assert!(accepted.status.success());
-    assert!(String::from_utf8_lossy(&run(dir.path(), &["ls"]).stdout).contains("No tasks."));
+    assert!(!accepted.status.success());
+    assert!(String::from_utf8_lossy(&accepted.stderr).contains("Physical deletion is disabled"));
+    assert!(String::from_utf8_lossy(&run(dir.path(), &["ls"]).stdout).contains("keep me"));
 }
 
 #[test]
-fn delete_json_confirmation_keeps_stdout_machine_readable() {
+fn delete_json_returns_versioned_error_and_preserves_task() {
     let dir = tempdir().unwrap();
     assert!(run(dir.path(), &["add", "json delete"]).status.success());
 
     let refused = run_with_input(dir.path(), &["delete", "1", "--json"], "n\n");
-    assert!(refused.status.success());
+    assert!(!refused.status.success());
     let result: Value = serde_json::from_slice(&refused.stdout).unwrap();
-    assert_eq!(result["id"], 1);
-    assert_eq!(result["deleted"], false);
-    assert!(String::from_utf8_lossy(&refused.stderr).contains("Delete (#1) json delete?"));
-
-    let accepted = run_with_input(dir.path(), &["delete", "1", "--json"], "yes\n");
-    assert!(accepted.status.success());
-    let result: Value = serde_json::from_slice(&accepted.stdout).unwrap();
-    assert_eq!(result["deleted"], true);
+    assert_eq!(result["api_version"], 1);
+    assert_eq!(result["ok"], false);
+    assert_eq!(result["error"]["code"], "invalid_request");
+    assert!(String::from_utf8_lossy(&refused.stderr).contains("Physical deletion is disabled"));
+    assert!(String::from_utf8_lossy(&run(dir.path(), &["ls"]).stdout).contains("json delete"));
 }
 
 #[test]
@@ -848,7 +850,6 @@ fn legacy_cli_preserves_missing_task_errors_and_version_output() {
         vec!["append", "99", "text"],
         vec!["status", "99", "done"],
         vec!["label", "99", "+label"],
-        vec!["delete", "99", "--force"],
     ] {
         let result = run(dir.path(), &args);
         assert!(!result.status.success(), "command unexpectedly succeeded: {args:?}");
@@ -858,13 +859,15 @@ fn legacy_cli_preserves_missing_task_errors_and_version_output() {
             String::from_utf8_lossy(&result.stderr)
         );
     }
+    let delete = run(dir.path(), &["delete", "99", "--force"]);
+    assert!(!delete.status.success());
+    assert!(String::from_utf8_lossy(&delete.stderr).contains("Physical deletion is disabled"));
 
-    let version = run(dir.path(), &["version"]);
+    let version = run(dir.path(), &["version", "--json"]);
     assert!(version.status.success());
-    assert_eq!(
-        String::from_utf8_lossy(&version.stdout).trim(),
-        env!("CARGO_PKG_VERSION")
-    );
+    let version: Value = serde_json::from_slice(&version.stdout).unwrap();
+    assert_eq!(version["api_version"], 1);
+    assert_eq!(version["data"]["version"], env!("CARGO_PKG_VERSION"));
 }
 
 #[test]
@@ -931,4 +934,81 @@ fn add_done_cmd_runs_on_create_after_optional_completion_hooks() {
     let created = run(dir.path(), &["add", "directly done", "--status", "done"]);
     assert!(created.status.success(), "{}", String::from_utf8_lossy(&created.stderr));
     assert!(marker.exists());
+}
+
+
+#[test]
+fn explicit_migration_switches_human_cli_to_sqlite_lifecycle() {
+    let dir = tempdir().unwrap();
+    assert!(run(dir.path(), &["add", "legacy task"]).status.success());
+
+    let migrated = run(dir.path(), &["migrate", "--project-id", "cli-integration", "--json"]);
+    assert!(migrated.status.success(), "{}", String::from_utf8_lossy(&migrated.stderr));
+    let report: Value = serde_json::from_slice(&migrated.stdout).unwrap();
+    assert_eq!(report["api_version"], 1);
+    assert_eq!(report["data"]["activated"], true);
+    assert_eq!(report["data"]["task_count"], 1);
+    assert!(dir.path().join(".todoing/todoing.db").is_file());
+
+    let listed = run(dir.path(), &["ls", "--json"]);
+    assert!(listed.status.success(), "{}", String::from_utf8_lossy(&listed.stderr));
+    let listed: Value = serde_json::from_slice(&listed.stdout).unwrap();
+    assert_eq!(listed["api_version"], 1);
+    assert_eq!(listed["data"][0]["id"], 1);
+    assert_eq!(listed["data"][0]["title"], "legacy task");
+
+    let added = run(dir.path(), &["add", "SQLite task", "--json"]);
+    assert!(added.status.success(), "{}", String::from_utf8_lossy(&added.stderr));
+    let added: Value = serde_json::from_slice(&added.stdout).unwrap();
+    assert_eq!(added["data"]["id"], 2);
+
+    let body = run(dir.path(), &["body", "2", "updated body", "--json"]);
+    assert!(body.status.success(), "{}", String::from_utf8_lossy(&body.stderr));
+    let body: Value = serde_json::from_slice(&body.stdout).unwrap();
+    assert_eq!(body["data"]["body"], "updated body");
+
+    let dependency = run(dir.path(), &["depends", "add", "2", "1", "--json"]);
+    assert!(dependency.status.success(), "{}", String::from_utf8_lossy(&dependency.stderr));
+
+    let completed = run(dir.path(), &["complete", "1", "--json"]);
+    assert!(completed.status.success(), "{}", String::from_utf8_lossy(&completed.stderr));
+    let completed: Value = serde_json::from_slice(&completed.stdout).unwrap();
+    assert_eq!(completed["data"]["outcome"], "completed");
+
+    let reopened = run(dir.path(), &["reopen", "1", "--json"]);
+    assert!(reopened.status.success(), "{}", String::from_utf8_lossy(&reopened.stderr));
+    let reopened: Value = serde_json::from_slice(&reopened.stdout).unwrap();
+    assert_eq!(reopened["data"]["outcome"], Value::Null);
+
+    let cancelled = run(dir.path(), &["cancel", "2", "--reason", "obsolete", "--json"]);
+    assert!(cancelled.status.success(), "{}", String::from_utf8_lossy(&cancelled.stderr));
+    let cancelled: Value = serde_json::from_slice(&cancelled.stdout).unwrap();
+    assert_eq!(cancelled["data"]["outcome"], "cancelled");
+
+    let deleted = run(dir.path(), &["delete", "2", "--json"]);
+    assert!(!deleted.status.success());
+    let deleted: Value = serde_json::from_slice(&deleted.stdout).unwrap();
+    assert_eq!(deleted["ok"], false);
+    assert_eq!(deleted["error"]["code"], "invalid_request");
+
+    let history = run(dir.path(), &["history", "1", "--json"]);
+    assert!(history.status.success(), "{}", String::from_utf8_lossy(&history.stderr));
+    let history: Value = serde_json::from_slice(&history.stdout).unwrap();
+    assert!(history["data"].as_array().unwrap().len() >= 3);
+
+    let versions = run(dir.path(), &["version", "1", "--json"]);
+    assert!(versions.status.success(), "{}", String::from_utf8_lossy(&versions.stderr));
+    let versions: Value = serde_json::from_slice(&versions.stdout).unwrap();
+    assert!(versions["data"].as_array().unwrap().len() >= 2);
+
+    let verified = run(dir.path(), &["verify", "--json"]);
+    assert!(verified.status.success(), "{}", String::from_utf8_lossy(&verified.stderr));
+    let verified: Value = serde_json::from_slice(&verified.stdout).unwrap();
+    assert_eq!(verified["data"]["integrity_check"], "ok");
+
+    let snapshot = run(dir.path(), &["snapshot", "cli-backup.db", "--json"]);
+    assert!(snapshot.status.success(), "{}", String::from_utf8_lossy(&snapshot.stderr));
+    let snapshot: Value = serde_json::from_slice(&snapshot.stdout).unwrap();
+    assert_eq!(snapshot["data"]["size_bytes"].as_u64().unwrap() > 0, true);
+    assert!(dir.path().join("cli-backup.db").is_file());
 }
