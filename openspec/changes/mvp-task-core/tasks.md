@@ -11,6 +11,18 @@
 - [ ] Define the versioned JSON contract, error codes, and process exit-code mapping.
 - [ ] Define the non-destructive migration procedure and integrity validation for existing task data.
 
+## Acceptance tests — TEST FIRST
+
+- [ ] Add failing tests for stable task IDs, no ID reuse, and prohibited physical deletion.
+- [ ] Add failing tests for configurable statuses, permitted transitions, and retired historical statuses.
+- [ ] Add failing tests for dependency validation and direct/indirect cycle rejection.
+- [ ] Add failing tests for atomic task/version/history mutation and immutable history.
+- [ ] Add failing tests for approved baseline selection and version comparison.
+- [ ] Add failing multi-process tests for task locks, strict read exclusion, heartbeat, release, and stale-lock recovery.
+- [ ] Add failing contract tests for JSON versioning, stable error codes, and exit codes.
+- [ ] Add failing migration tests for preservation, malformed source data, and non-destructive behavior.
+- [ ] Verify acceptance tests fail for the expected missing behavior before implementing the corresponding capability.
+
 ## Implementation
 
 - [ ] Implement the approved task model and configurable lifecycle.
