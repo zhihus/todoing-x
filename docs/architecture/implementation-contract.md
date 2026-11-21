@@ -139,7 +139,7 @@ Use SQLite INTEGER PRIMARY KEY AUTOINCREMENT for new IDs. Imported legacy IDs ar
 
 ### Task outcome
 
-Workflow status is configurable; outcome is semantic. A task can be in any configured status, while outcome records whether it ended as completed or cancelled. The outcome is set from the target status configuration when a task enters a mapped status. An explicit task.cancel operation sets cancelled without changing the workflow status and accepts an optional reason. task.complete sets completed without changing the workflow status. task.reopen clears the outcome; repeated completion/cancellation or status changes on a terminal task are rejected until reopen; status can then be changed through the normal transition rules. The operation history preserves every previous outcome and cancellation reason.
+Workflow status is configurable; outcome is semantic. A task can be in any configured status, while outcome records whether it ended as completed or cancelled. The outcome is set from the target status configuration when a task enters a mapped status. An explicit task.cancel operation sets cancelled without changing the workflow status and accepts an optional reason. task.complete sets completed without changing the workflow status. task.reopen clears the outcome. If the current status itself maps to an outcome, reopen requires a target_status_id that is enabled, has no terminal outcome, and is reachable through a configured transition. If the current status has no outcome mapping, target_status_id may be omitted and the status is retained. Repeated completion/cancellation or status changes on a terminal task are rejected until reopen. The operation history preserves every previous outcome and cancellation reason.
 
 ### Dependencies
 
