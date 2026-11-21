@@ -268,7 +268,7 @@ fn validate_schema(connection: &Connection) -> Result<(), StoreError> {
     for (object_type, object_name) in REQUIRED_SCHEMA_OBJECTS {
         let exists: i64 = connection.query_row(
             "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = ?1 AND name = ?2)",
-            params![object_type, object_name],
+            params![*object_type, *object_name],
             |row| row.get(0),
         )?;
         if exists != 1 {
