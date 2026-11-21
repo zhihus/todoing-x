@@ -399,10 +399,10 @@ fn show_hook_status(json: bool) {
             "name": name,
             "installed": hook_installed(name)
         })).collect();
-        emit_json(&serde_json::json!({
+        cli_success(true, serde_json::json!({
             "hooks": rows,
             "agent_action": if missing { "ask_user_before_install" } else { "none" }
-        }));
+        }), "");
     } else {
         for name in hooks {
             println!("{}: {}", name, if hook_installed(name) { "installed" } else { "not installed" });
@@ -424,10 +424,10 @@ fn install_hooks(selection: HookSelection, json: bool) {
         }
     }
     if json {
-        emit_json(&serde_json::json!({
+        cli_success(true, serde_json::json!({
             "installed": installed,
             "already_installed": already_installed
-        }));
+        }), "");
     } else {
         for name in installed { println!("Installed {}.", name); }
         for name in already_installed { println!("{} is already present; left unchanged.", name); }
@@ -658,7 +658,8 @@ fn fail_store(json_output: bool, error: StoreError) -> ! {
         StoreError::DependencyCycle => ("dependency_cycle", 4, false),
         StoreError::InvalidConfig(_) => ("config_invalid", 2, false),
         StoreError::ProjectIdMismatch { .. } => ("project_id_mismatch", 2, false),
-        StoreError::AlreadyExists(_) | StoreError::NotInitialized => ("migration_conflict", 6, false),
+        StoreError::AlreadyExists(_) => ("invalid_request", 2, false),
+        StoreError::NotInitialized => ("migration_conflict", 6, false),
         StoreError::InvalidTask(_) => ("invalid_request", 2, false),
         StoreError::HistoryRecordFailed(_) => ("history_record_failed", 5, false),
         StoreError::IntegrityCheckFailed(_) | StoreError::ForeignKeyViolations(_) |
@@ -1117,7 +1118,7 @@ fn run() {
         Some(Commands::History(_)) | Some(Commands::Lock(_)) |
         Some(Commands::Config) | Some(Commands::Verify) |
         Some(Commands::Snapshot(_)) |
-        Some(Commands::Version(VersionArgs { id: Some(_), .. }))
+        Some(Commands::Version(_))
     );
     let legacy_only = matches!(&cli.command, Some(Commands::Hooks(_)) | Some(Commands::InternalHook(_)));
     if database_exists && !legacy_only || forced_sqlite {
