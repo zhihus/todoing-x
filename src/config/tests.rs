@@ -96,10 +96,10 @@ fn rejects_configurations_without_enabled_statuses() {
 fn validates_lock_timing_relationship() {
     let mut config = sample();
     config.locking.lease_seconds = 120;
-    config.locking.heartbeat_seconds = 40;
+    config.locking.heartbeat_seconds = 39;
     assert!(config.validate().is_ok());
 
-    config.locking.heartbeat_seconds = 41;
+    config.locking.heartbeat_seconds = 40;
     assert!(matches!(config.validate(), Err(ConfigError::InvalidLockSettings(_))));
 }
 
