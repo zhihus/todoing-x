@@ -1,4 +1,4 @@
-use clap::{Args, Parser, Subcommand};
+use clap::{Args, Parser, Subcommand, ValueEnum};
 use serde::Serialize;
 use std::{
     fs,
@@ -132,6 +132,33 @@ struct DeleteArgs {
     id: String,
     #[arg(short='f', long="force", help="Skip confirmation")]
     force: bool,
+}
+
+#[derive(Args)]
+struct HooksArgs {
+    #[command(subcommand)]
+    command: HooksCommands,
+}
+
+#[derive(Subcommand)]
+enum HooksCommands {
+    Status,
+    Install {
+        #[arg(value_enum)]
+        hook: HookSelection,
+    },
+}
+
+#[derive(Clone, Copy, ValueEnum)]
+enum HookSelection {
+    Git,
+    Openspec,
+    All,
+}
+
+#[derive(Args)]
+struct InternalHookArgs {
+    name: String,
 }
 
 fn fail(message: impl AsRef<str>) -> ! {
