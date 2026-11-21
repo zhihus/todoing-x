@@ -94,6 +94,15 @@ pub struct TaskArchiveResult {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DependencyState {
+    pub task_id: TaskId,
+    pub status_id: Option<StatusId>,
+    pub outcome: Option<TaskOutcome>,
+    pub archived: Option<bool>,
+    pub locked: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TaskBaseline {
     pub task_id: TaskId,
     pub version_id: i64,
@@ -981,6 +990,49 @@ impl TaskRepository {
 
     pub fn list_dependencies(&self, task_id: TaskId) -> Result<Vec<TaskId>, StoreError> {
         Ok(self.get(task_id)?.dependencies)
+    }
+
+    pub fn list_dependency_states(&self, task_id: TaskId) -> Result<Vec<DependencyState>, StoreError> {
+        let mut connection = self.store.connection()?;
+        let transaction = connection.transaction()?;
+        self.check_lock(&transaction, task_id)?;
+        let ids = {
+            let mut statement = transaction.prepare(
+                "SELECT depends_on_task_id FROM task_dependencies
+                 WHERE task_id = ?1 ORDER BY depends_on_task_id ASC",
+            )?;
+            let rows = statement.query_map(params![task_id.get()], |row| row.get::<_, i64>(0))?;
+            rows.collect::<Result<Vec<_>, _>>()?
+        };
+        let mut states = Vec::with_capacity(ids.len());
+        for raw_id in ids {
+            let dependency_id = TaskId::new(raw_id)
+                .map_err(|error| StoreError::InvalidTask(error.to_string()))?;
+            match self.check_lock(&transaction, dependency_id) {
+                Ok(_) => {
+                    let task = load_task(&transaction, dependency_id)?;
+                    states.push(DependencyState {
+                        task_id: dependency_id,
+                        status_id: Some(task.status_id),
+                        outcome: task.outcome,
+                        archived: Some(task.archived_at.is_some()),
+                        locked: false,
+                    });
+                }
+                Err(StoreError::TaskLocked | StoreError::LockExpired | StoreError::StaleLock) => {
+                    states.push(DependencyState {
+                        task_id: dependency_id,
+                        status_id: None,
+                        outcome: None,
+                        archived: None,
+                        locked: true,
+                    });
+                }
+                Err(error) => return Err(error),
+            }
+        }
+        transaction.commit()?;
+        Ok(states)
     }
 
     pub fn list_versions(&self, task_id: TaskId) -> Result<Vec<TaskVersion>, StoreError> {
