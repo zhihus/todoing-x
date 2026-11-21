@@ -35,7 +35,7 @@ Disabling a status MUST prevent its use in new transitions without deleting or r
 
 - **WHEN** a stored task uses a status that has since been disabled
 - **THEN** Todoing continues to expose the stored status
-- **AND** rejects a new transition into that disabled status
+- **AND** rejects a new task creation or transition that selects that disabled status
 
 ### Requirement: Distinguish completion and cancellation outcomes
 
