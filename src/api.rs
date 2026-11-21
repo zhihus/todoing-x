@@ -163,6 +163,14 @@ struct LockArgs { task_id: i64 }
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
+struct SnapshotArgs {
+    output_path: String,
+    #[serde(default)]
+    overwrite: bool,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct LockOwnerArgs {
     task_id: i64,
     owner_id: String,
@@ -455,9 +463,20 @@ fn execute(request: Request, root: &Path) -> Result<Value, ApiError> {
                 Ok(json!({"released": true, "fencing_generation": grant.fencing_generation}))
             }
         }
-        "store.migrate" | "store.snapshot" => {
-            Err(invalid("This operation is specified but not implemented yet".into()))
+        "store.snapshot" => {
+            let args: SnapshotArgs = parse_args(request.args).map_err(invalid)?;
+            if args.output_path.trim().is_empty() {
+                return Err(invalid("output_path must not be empty".into()));
+            }
+            let report = store.snapshot(args.output_path, args.overwrite).map_err(store_error)?;
+            Ok(json!({"snapshot_path": report.path, "size_bytes": report.size_bytes, "sha256": report.sha256}))
         }
+        "store.migrate" => Err(ApiError {
+            code: "internal_error",
+            message: "Legacy migration is not implemented yet".into(),
+            retryable: false,
+            details: json!({}),
+        })
         other => Err(invalid(format!("Operation '{other}' is not implemented yet"))),
     }
 }
