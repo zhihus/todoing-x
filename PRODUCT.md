@@ -51,7 +51,7 @@ Manifest may consume Todoing through its public CLI/JSON contract and apply its 
 - Disabling a status prevents its use for new transitions but must not erase historical records that used it.
 - Manifest may publish a recommended status configuration. Todoing remains workflow-agnostic and does not automatically synchronize or impose Manifest statuses.
 - The Manifest workflow currently uses: Backlog, Ready, In Progress, In Review, Reviewed, and Done (display labels may be localized by the project).
-- Completion and cancellation outcomes must be represented distinctly in the task model. The exact relationship between outcome values and configurable workflow statuses must be settled in the integration design; do not silently conflate them.
+- Each configured status may map to no outcome, `completed`, or `cancelled`. The task stores its current outcome separately from its workflow status. Entering a status with an outcome mapping sets it; moving to a status without an outcome clears it. Configuration edits do not retroactively rewrite existing outcomes.
 
 ## 5. Tasks, dependencies, and deletion
 
