@@ -1,5 +1,5 @@
 use clap::{Args, Parser, Subcommand, ValueEnum};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::{
     fs,
     io::{Read, Write},
@@ -477,8 +477,7 @@ fn run_internal_hook(name: &str) -> Result<(), String> {
     }
 }
 
-fn run() {
-    let cli = Cli::parse();
+fn run_legacy(cli: Cli) {
     let json = cli.json;
     let store = Store::current();
     match cli.command {
@@ -575,41 +574,14 @@ fn run() {
             store.sync_mutation(&task).unwrap_or_else(|e| fail(e));
             emit_task(&task, json, format!("(#{}) commit linked.", task.id));
         }
-        Some(Commands::Delete(a)) => {
-            let (id, task) = task_or_fail(&store, &a.id);
-            if !a.force {
-                if json {
-                    eprint!("Delete (#{}) {}? [y/N]: ", id, task.title);
-                    let _ = std::io::stderr().flush();
-                } else {
-                    print!("Delete (#{}) {}? [y/N]: ", id, task.title);
-                    let _ = std::io::stdout().flush();
-                }
-                let mut answer = String::new();
-                let bytes_read = std::io::stdin().read_line(&mut answer).unwrap_or_else(|_| {
-                    eprintln!("Aborted!");
-                    std::process::exit(1);
-                });
-                if bytes_read == 0 {
-                    eprintln!("Aborted!");
-                    std::process::exit(1);
-                }
-                if !matches!(answer.trim().to_lowercase().as_str(), "y" | "yes") {
-                    if json { emit_json(&serde_json::json!({"id": id, "deleted": false})); }
-                    else { println!("Aborted."); }
-                    return;
-                }
-            }
-            store.delete_task_file(id).unwrap_or_else(|e| fail(e));
-            store.sync_delete(id).unwrap_or_else(|e| fail(e));
-            if json { emit_json(&serde_json::json!({"id": id, "deleted": true})); }
-            else { println!("(#{}) deleted.", id); }
+        Some(Commands::Delete(_)) => {
+            fail("Physical deletion is disabled. Use 'todoing cancel <id>' to retain the task and record its cancellation.");
         }
         Some(Commands::Reindex) => {
             let tasks = store.rebuild_index().unwrap_or_else(|e| fail(e));
             if json { emit_json(&tasks); } else { println!("Index rebuilt: {} tasks.", tasks.len()); }
         }
-        Some(Commands::Version) => {
+        Some(Commands::Version(args)) if args.id.is_none() => {
             if json { emit_json(&serde_json::json!({"version": VERSION})); }
             else { println!("{}", VERSION); }
         }
@@ -619,6 +591,17 @@ fn run() {
         },
         Some(Commands::InternalHook(args)) => run_internal_hook(&args.name).unwrap_or_else(|e| fail(e)),
         Some(Commands::Api) => todoing::api::run(),
+        Some(Commands::Version(_)) |
+        Some(Commands::Complete(_)) |
+        Some(Commands::Cancel(_)) |
+        Some(Commands::Reopen(_)) |
+        Some(Commands::Depends(_)) |
+        Some(Commands::History(_)) |
+        Some(Commands::Lock(_)) |
+        Some(Commands::Config) |
+        Some(Commands::Migrate(_)) |
+        Some(Commands::Verify) |
+        Some(Commands::Snapshot(_)) => fail("This command requires the SQLite store. Run 'todoing migrate --project-id <id>' first."),
         None => {}
     }
 }
