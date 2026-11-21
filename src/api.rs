@@ -193,41 +193,17 @@ fn id(raw: i64) -> Result<TaskId, String> {
 }
 
 fn migration_error(error: StoreError) -> ApiError {
-    match error {
-        StoreError::AlreadyExists(_) | StoreError::InvalidTask(_) => ApiError {
-            code: "migration_conflict", message: error.to_string(), retryable: false, details: json!({}),
-        },
-        StoreError::InvalidConfig(_) => ApiError {
-            code: "config_invalid", message: error.to_string(), retryable: false, details: json!({}),
-        },
-        StoreError::Io(_) => ApiError {
-            code: "io_error", message: error.to_string(), retryable: false, details: json!({}),
-        },
-        other => store_error(other),
-    }
-}
-
-fn migration_error(error: StoreError) -> ApiError {
-    match &error {
-        StoreError::AlreadyExists(_) | StoreError::InvalidTask(_) => ApiError {
-            code: "migration_conflict",
-            message: error.to_string(),
-            retryable: false,
-            details: json!({}),
-        },
-        StoreError::InvalidConfig(_) => ApiError {
-            code: "config_invalid",
-            message: error.to_string(),
-            retryable: false,
-            details: json!({}),
-        },
-        StoreError::Io(_) => ApiError {
-            code: "io_error",
-            message: error.to_string(),
-            retryable: false,
-            details: json!({}),
-        },
-        _ => store_error(error),
+    let code = match &error {
+        StoreError::AlreadyExists(_) | StoreError::InvalidTask(_) => "migration_conflict",
+        StoreError::InvalidConfig(_) => "config_invalid",
+        StoreError::Io(_) => "io_error",
+        _ => return store_error(error),
+    };
+    ApiError {
+        code,
+        message: error.to_string(),
+        retryable: false,
+        details: json!({}),
     }
 }
 
