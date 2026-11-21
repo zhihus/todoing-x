@@ -19,6 +19,7 @@ pub struct Task {
     pub updated_at: String,
     pub labels: Vec<String>,
     pub commit_refs: Vec<String>,
+    pub dependencies: Vec<TaskId>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -282,6 +283,17 @@ impl TaskRepository {
             }
             Err(error) => return Err(error),
         };
+
+        if task.dependencies != previous.dependencies {
+            drop(transaction);
+            return self.reject_operation(
+                Some(task.id), actor, "task.update", "invalid_request",
+                serde_json::to_string(task).ok(),
+                StoreError::InvalidTask(
+                    "Use dependency operations to change task dependencies".into(),
+                ),
+            );
+        }
 
         let status_changed = previous.status_id != task.status_id;
         if status_changed && previous.outcome.is_some() {
@@ -910,6 +922,25 @@ fn load_task(connection: &Connection, id: TaskId) -> Result<Task, StoreError> {
         rows.collect::<Result<Vec<String>, _>>()?
     };
 
+    let dependencies = {
+        let mut statement = connection.prepare(
+            "SELECT depends_on_task_id FROM task_dependencies
+             WHERE task_id = ?1 ORDER BY depends_on_task_id ASC",
+        )?;
+        let rows = statement.query_map(params![id.get()], |row| row.get::<_, i64>(0))?;
+        rows.map(|row| {
+            let raw_id = row?;
+            TaskId::new(raw_id).map_err(|error| {
+                rusqlite::Error::FromSqlConversionFailure(
+                    0,
+                    rusqlite::types::Type::Integer,
+                    Box::new(error),
+                )
+            })
+        })
+        .collect::<Result<Vec<_>, _>>()?
+    };
+
     let outcome = match row.2.as_deref() {
         None => None,
         Some("completed") => Some(TaskOutcome::Completed),
@@ -934,6 +965,7 @@ fn load_task(connection: &Connection, id: TaskId) -> Result<Task, StoreError> {
         updated_at: row.5,
         labels,
         commit_refs,
+        dependencies,
     })
 }
 
