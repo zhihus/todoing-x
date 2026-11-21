@@ -11,7 +11,7 @@ impl StatusId {
         let value = value.into();
         let valid = !value.is_empty()
             && value.chars().count() <= MAX_STATUS_ID_CHARS
-            && value.as_bytes()[0].is_ascii_lowercase().then_some(true).unwrap_or_else(|| value.as_bytes()[0].is_ascii_digit())
+            && value.as_bytes().first().is_some_and(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit())
             && value.bytes().all(|byte| {
                 byte.is_ascii_lowercase()
                     || byte.is_ascii_digit()
