@@ -2,6 +2,16 @@
 
 ## ADDED Requirements
 
+### Requirement: Maintain a project-scoped task store
+
+Todoing MUST maintain a separate task store for each project. The MVP MUST NOT require a central database shared by unrelated projects.
+
+#### Scenario: Open a project task store
+
+- **WHEN** a client operates in a project
+- **THEN** Todoing accesses the task store bound to that project
+- **AND** does not mix its task records with another project's store
+
 ### Requirement: Atomic task mutation
 
 Todoing MUST commit a task mutation and all state changes required to represent that mutation as one atomic logical operation.
