@@ -14,11 +14,11 @@
 - [x] 2.2 Add atomic/no-clobber default configuration installation and validate configuration before database activation.
 - [x] 2.3 Add the todoing init [--project-id <id>] CLI command.
 - [x] 2.4 Add the store.init JSON API v1 operation and update schemas/documentation.
-- [ ] 2.5 Synchronize current-behavior OpenSpec specs only after implementation and verification.
+- [x] 2.5 Synchronize current-behavior OpenSpec specs only after implementation and verification.
 
 ## 3. Verification
 
-- [ ] 3.1 Run formatting and full Rust test suite.
-- [ ] 3.2 Verify release build, isolated install, and binary smoke tests on Windows and Linux.
-- [ ] 3.3 Validate OpenSpec and JSON request/response schemas.
-- [ ] 3.4 Review failure paths to confirm existing config/database files are never overwritten.
+- [x] 3.1 Run the full Rust test suite on Windows and Linux.
+- [x] 3.2 Verify release build, isolated install, and binary smoke tests on Windows and Linux.
+- [x] 3.3 Validate OpenSpec and JSON request/response schemas.
+- [x] 3.4 Review failure paths to confirm existing config/database files are never overwritten.
