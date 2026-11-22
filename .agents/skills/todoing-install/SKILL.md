@@ -55,14 +55,14 @@ todoing init
 Todoing generates a project ID when omitted. When Manifest is the consumer, initialize with the stable ID owned by Manifest:
 
 ```bash
-todoing init --project-id <manifest-project-id>
+todoing init --project-id my-project-id
 ```
 
 For an existing project with legacy Markdown tasks, do not run init. First validate and then migrate the source data:
 
 ```bash
-todoing migrate --project-id <manifest-project-id> --dry-run
-todoing migrate --project-id <manifest-project-id>
+todoing migrate --project-id my-project-id --dry-run
+todoing migrate --project-id my-project-id
 ```
 
 Initialization refuses to hide legacy task files behind an empty database. Existing config.toml is validated and preserved.
