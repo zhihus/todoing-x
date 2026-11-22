@@ -28,6 +28,16 @@ The system MUST allow a task to declare dependencies on other tasks in the same 
 - **THEN** the response identifies each dependency and its current state
 - **AND** does not silently omit unresolved dependencies
 
+### Requirement: Preserve archived dependencies
+
+Archiving a task MUST NOT remove dependency relationships. Dependency inspection MUST continue to return the referenced task and identify whether it is archived, without exposing protected fields of a locked dependency.
+
+#### Scenario: Inspect an archived dependency
+
+- **WHEN** a task depends on an archived task that is not locked
+- **THEN** the dependency remains in the relationship list
+- **AND** its state reports `archived=true`
+
 ### Requirement: Prevent dependency cycles
 
 The system MUST reject a dependency change that would create a direct or indirect cycle in the task dependency graph. The cycle check and relationship mutation MUST occur in one transaction.

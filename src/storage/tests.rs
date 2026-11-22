@@ -1,6 +1,7 @@
 use super::{Store, StoreError};
 use crate::domain::ProjectId;
 use rusqlite::Connection;
+use sha2::Digest;
 use tempfile::tempdir;
 
 fn project_id() -> ProjectId {
@@ -78,7 +79,7 @@ fn verify_reports_integrity_and_schema_version() {
 
     assert_eq!(report.integrity_check, "ok");
     assert_eq!(report.foreign_key_violations, 0);
-    assert_eq!(report.schema_version, 1);
+    assert_eq!(report.schema_version, 2);
 }
 
 #[test]
@@ -168,13 +169,13 @@ fn open_rejects_unknown_schema_versions() {
     let root = tempdir().unwrap();
     let store = Store::initialize(root.path(), project_id()).unwrap();
     store.connection().unwrap().execute(
-        "UPDATE store_metadata SET value = '2' WHERE key = 'schema_version'",
+        "UPDATE store_metadata SET value = '3' WHERE key = 'schema_version'",
         [],
     ).unwrap();
 
     assert!(matches!(
         Store::open(root.path(), None),
-        Err(StoreError::UnsupportedSchemaVersion(2))
+        Err(StoreError::UnsupportedSchemaVersion(3))
     ));
 }
 
@@ -183,13 +184,13 @@ fn verify_rejects_migration_checksum_drift() {
     let root = tempdir().unwrap();
     let store = Store::initialize(root.path(), project_id()).unwrap();
     store.connection().unwrap().execute(
-        "UPDATE schema_migrations SET checksum = 'invalid' WHERE version = 1",
+        "UPDATE schema_migrations SET checksum = 'invalid' WHERE version = 2",
         [],
     ).unwrap();
 
     assert!(matches!(
         store.verify(),
-        Err(StoreError::MigrationChecksumMismatch { version: 1 })
+        Err(StoreError::MigrationChecksumMismatch { version: 2 })
     ));
 }
 
@@ -305,4 +306,113 @@ fn online_backup_snapshot_refuses_the_active_database_as_destination() {
         store.snapshot(store.database_path(), true),
         Err(StoreError::InvalidTask(_))
     ));
+}
+
+
+#[test]
+fn opening_a_v1_store_applies_archive_migration_without_changing_existing_tasks() {
+    let root = tempdir().unwrap();
+    let todoing_dir = root.path().join(".todoing");
+    std::fs::create_dir_all(&todoing_dir).unwrap();
+    let database_path = todoing_dir.join("todoing.db");
+    let connection = Connection::open(&database_path).unwrap();
+    connection.execute_batch("PRAGMA journal_mode=DELETE; PRAGMA foreign_keys=ON; PRAGMA synchronous=FULL;").unwrap();
+    connection.execute_batch(include_str!("../../migrations/0001_initial.sql")).unwrap();
+    let created_at = "2026-11-22T00:00:00Z";
+    connection.execute(
+        "INSERT INTO store_metadata(key, value) VALUES ('schema_version', '1')",
+        [],
+    ).unwrap();
+    connection.execute(
+        "INSERT INTO store_metadata(key, value) VALUES ('project_id', 'task-repository-tests')",
+        [],
+    ).unwrap();
+    connection.execute(
+        "INSERT INTO store_metadata(key, value) VALUES ('created_at', ?1)",
+        [created_at],
+    ).unwrap();
+    connection.execute(
+        "INSERT INTO schema_migrations(version, checksum, applied_at) VALUES (1, ?1, ?2)",
+        [hex::encode(sha2::Sha256::digest(include_str!("../../migrations/0001_initial.sql").as_bytes())), created_at.to_owned()],
+    ).unwrap();
+    connection.execute(
+        "INSERT INTO tasks(task_id, title, status_id, outcome, body, created_at, updated_at)
+         VALUES (42, 'legacy v1 task', 'todo', NULL, 'preserved body', ?1, ?1)",
+        [created_at],
+    ).unwrap();
+    drop(connection);
+
+    let store = Store::open(root.path(), Some(&ProjectId::new("task-repository-tests").unwrap())).unwrap();
+    let report = store.verify().unwrap();
+    assert_eq!(report.schema_version, 2);
+
+    let migrated = store.connection().unwrap();
+    let archive_columns: Vec<String> = {
+        let mut statement = migrated.prepare("PRAGMA table_info(tasks)").unwrap();
+        statement.query_map([], |row| row.get::<_, String>(1)).unwrap()
+            .collect::<Result<Vec<_>, _>>().unwrap()
+    };
+    assert!(archive_columns.contains(&"archived_at".to_owned()));
+    assert!(archive_columns.contains(&"archived_by".to_owned()));
+
+    let values: (Option<String>, Option<String>, String, String) = migrated.query_row(
+        "SELECT archived_at, archived_by, title, body FROM tasks WHERE task_id = 42",
+        [],
+        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+    ).unwrap();
+    assert_eq!(values, (None, None, "legacy v1 task".into(), "preserved body".into()));
+}
+
+
+#[test]
+fn failed_archive_schema_migration_rolls_back_all_ddl_and_version_changes() {
+    let root = tempdir().unwrap();
+    let todoing_dir = root.path().join(".todoing");
+    std::fs::create_dir_all(&todoing_dir).unwrap();
+    let database_path = todoing_dir.join("todoing.db");
+    let connection = Connection::open(&database_path).unwrap();
+    connection.execute_batch("PRAGMA journal_mode=DELETE; PRAGMA foreign_keys=ON; PRAGMA synchronous=FULL;").unwrap();
+    connection.execute_batch(include_str!("../../migrations/0001_initial.sql")).unwrap();
+    let created_at = "2026-11-22T00:00:00Z";
+    connection.execute(
+        "INSERT INTO store_metadata(key, value) VALUES ('schema_version', '1')",
+        [],
+    ).unwrap();
+    connection.execute(
+        "INSERT INTO store_metadata(key, value) VALUES ('project_id', 'task-repository-tests')",
+        [],
+    ).unwrap();
+    connection.execute(
+        "INSERT INTO store_metadata(key, value) VALUES ('created_at', ?1)",
+        [created_at],
+    ).unwrap();
+    connection.execute(
+        "INSERT INTO schema_migrations(version, checksum, applied_at) VALUES (1, ?1, ?2)",
+        [hex::encode(sha2::Sha256::digest(include_str!("../../migrations/0001_initial.sql").as_bytes())), created_at.to_owned()],
+    ).unwrap();
+    connection.execute_batch("CREATE INDEX idx_tasks_archive ON tasks(task_id);").unwrap();
+    drop(connection);
+
+    assert!(Store::open(root.path(), Some(&ProjectId::new("task-repository-tests").unwrap())).is_err());
+
+    let connection = Connection::open(&database_path).unwrap();
+    let version: String = connection.query_row(
+        "SELECT value FROM store_metadata WHERE key = 'schema_version'",
+        [],
+        |row| row.get(0),
+    ).unwrap();
+    assert_eq!(version, "1");
+    let columns: Vec<String> = {
+        let mut statement = connection.prepare("PRAGMA table_info(tasks)").unwrap();
+        statement.query_map([], |row| row.get::<_, String>(1)).unwrap()
+            .collect::<Result<Vec<_>, _>>().unwrap()
+    };
+    assert!(!columns.contains(&"archived_at".to_owned()));
+    assert!(!columns.contains(&"archived_by".to_owned()));
+    let preserved_index: i64 = connection.query_row(
+        "SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND name = 'idx_tasks_archive'",
+        [],
+        |row| row.get(0),
+    ).unwrap();
+    assert_eq!(preserved_index, 1);
 }

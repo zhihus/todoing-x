@@ -56,6 +56,7 @@ Optional:
 - query: case-insensitive substring across title, body, and labels; exact match against status ID.
 - limit: positive integer; omitted means no limit.
 - reverse: boolean; default false. Default order is descending task ID; reverse=true is ascending.
+- archive_state: active (default), archived, or all.
 
 All locked tasks are omitted entirely from list/search results, including their IDs and fields. The lock owner reads its task through task.get with its token.
 
@@ -66,7 +67,23 @@ Required:
 
 Result: current task fields, labels, commit references, dependency IDs, current outcome, current version number, and baseline version number if one exists.
 
-A locked task is readable only by its lock owner with a valid lock token.
+A locked task is readable only by its lock owner with a valid lock token. Archived tasks remain readable by ID when not locked, but are omitted from the default task.list result.
+
+### task.archive
+
+Required:
+- task_id.
+
+Moves a task into the archive without changing workflow status or terminal outcome. The task and all its history, versions, dependencies, labels, and commit references are retained. The operation is idempotent; an already archived task returns no_op=true without creating a task version.
+
+### task.restore
+
+Required:
+- task_id.
+
+Restores an archived task to the active list without changing workflow status or terminal outcome. The operation is idempotent; an already active task returns no_op=true without creating a task version.
+
+Archived tasks are read-only until restored. Ordinary mutations and new lock acquisition are rejected with task_archived. Archive and restore obey existing lock ownership rules. Archiving does not cascade to dependent or prerequisite tasks.
 
 ### task.update
 
@@ -164,7 +181,7 @@ Result: updated task and new version when an edge is removed. Removing a missing
 Required:
 - task_id.
 
-Returns dependency IDs and their current dependency state. A dependency task locked by another client is represented only as a locked reference; its task content is not disclosed.
+Returns dependency IDs and a parallel `states` array containing each dependency's status, outcome, archive state, and lock state. A dependency task locked by another client is represented without protected task fields; its status, outcome, and archive state are null and `locked` is true.
 
 ## 6. History and versions
 

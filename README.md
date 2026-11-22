@@ -51,6 +51,9 @@ todoing ls -n 5
 todoing ls -s in_progress
 todoing ls -l backend
 todoing ls -q auth
+todoing ls --archived
+todoing archive 4
+todoing restore 4
 todoing see 4
 todoing edit 4
 todoing status 4 in_progress
@@ -74,6 +77,12 @@ Statuses remain `todo`, `in_progress`, `done`, and `cancelled`. Custom status de
 Physical deletion is disabled. The legacy `delete` command remains recognized but always rejects deletion; use `cancel` to record a terminal outcome while retaining task history.
 
 `reindex` is a compatibility no-op that verifies SQLite integrity. `ls --scan` is deprecated in SQLite mode.
+
+## Archive and restore
+
+Archiving is an explicit operation independent of workflow status and completion/cancellation. Archived tasks are hidden from the default list, remain inspectable by ID, and retain their history, versions, dependencies, labels, and Git commit references. They are read-only until restored; no automatic archival or physical deletion is performed.
+
+Use `todoing ls --archived` to inspect the archive, `todoing archive <id>` to archive a task, and `todoing restore <id>` to return it to the active list. Archive and restore respect task-lock ownership; archiving does not release an existing lock.
 
 ## Actor attribution and locks
 

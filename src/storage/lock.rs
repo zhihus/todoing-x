@@ -191,6 +191,23 @@ impl TaskLockService {
             );
         }
 
+        let archived_at: Option<String> = transaction.query_row(
+            "SELECT archived_at FROM tasks WHERE task_id = ?1",
+            params![task_id.get()],
+            |row| row.get(0),
+        )?;
+        if archived_at.is_some() {
+            drop(transaction);
+            return self.reject(
+                Some(task_id),
+                actor,
+                "task.lock.acquire",
+                "task_archived",
+                Some(&serde_json::json!({"task_id": task_id}).to_string()),
+                StoreError::TaskArchived,
+            );
+        }
+
         let existing = load_lock(&transaction, task_id)?;
         let generation = match existing {
             None => 1,

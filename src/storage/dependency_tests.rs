@@ -134,3 +134,33 @@ fn task_update_cannot_bypass_dependency_operations() {
     assert!(repository.update(&changed, &actor()).is_err());
     assert!(repository.get(dependent.id).unwrap().dependencies.is_empty());
 }
+
+
+#[test]
+fn dependency_state_reports_archived_and_locked_references_without_leaking_locked_fields() {
+    let (_root, repository) = repository();
+    let dependent = repository.create(new_task("dependent"), &actor()).unwrap();
+    let archived_dependency = repository.create(new_task("archived dependency"), &actor()).unwrap();
+    let locked_dependency = repository.create(new_task("locked dependency"), &actor()).unwrap();
+    repository.add_dependency(dependent.id, archived_dependency.id, &actor()).unwrap();
+    repository.add_dependency(dependent.id, locked_dependency.id, &actor()).unwrap();
+    repository.archive(archived_dependency.id, &actor()).unwrap();
+
+    let lock_service = repository.lock_service().unwrap();
+    let owner = ActorContext::new(ActorId::new("agent:lock-owner").unwrap());
+    let grant = lock_service.acquire(locked_dependency.id, "dependency-owner", &owner).unwrap();
+    let states = repository.list_dependency_states(dependent.id).unwrap();
+
+    let archived = states.iter().find(|state| state.task_id == archived_dependency.id).unwrap();
+    assert!(!archived.locked);
+    assert_eq!(archived.archived, Some(true));
+    assert_eq!(archived.status_id.as_ref().unwrap().as_str(), "todo");
+
+    let locked = states.iter().find(|state| state.task_id == locked_dependency.id).unwrap();
+    assert!(locked.locked);
+    assert_eq!(locked.archived, None);
+    assert_eq!(locked.status_id, None);
+    assert_eq!(locked.outcome, None);
+
+    lock_service.release(&grant, &owner).unwrap();
+}

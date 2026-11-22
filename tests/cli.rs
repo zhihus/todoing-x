@@ -1125,3 +1125,86 @@ fn json_api_transport_covers_migration_snapshot_response_and_exit_contract() {
     assert_eq!(rejected_response["error"]["code"], "unsupported_api_version");
     assert!(!rejected.stderr.is_empty());
 }
+
+
+#[test]
+fn sqlite_cli_archive_restore_is_explicit_non_destructive_and_versioned() {
+    let dir = tempdir().unwrap();
+    assert!(run(dir.path(), &["add", "archive prerequisite"]).status.success());
+    assert!(run(dir.path(), &["add", "active dependent"]).status.success());
+    let migrated = run(dir.path(), &["migrate", "--project-id", "archive-cli-project", "--json"]);
+    assert!(migrated.status.success(), "{}", String::from_utf8_lossy(&migrated.stderr));
+
+    let dependency = run(dir.path(), &["depends", "add", "2", "1", "--json"]);
+    assert!(dependency.status.success(), "{}", String::from_utf8_lossy(&dependency.stderr));
+
+    let archived = run(dir.path(), &["archive", "1", "--json"]);
+    assert!(archived.status.success(), "{}", String::from_utf8_lossy(&archived.stderr));
+    let archived: Value = serde_json::from_slice(&archived.stdout).unwrap();
+    assert_eq!(archived["data"]["no_op"], false);
+    assert!(archived["data"]["task"]["archived_at"].is_string());
+    assert_eq!(archived["data"]["task"]["archived_by"], "cli-user");
+
+    let active_list = run(dir.path(), &["ls", "--json"]);
+    assert!(active_list.status.success());
+    let active_list: Value = serde_json::from_slice(&active_list.stdout).unwrap();
+    assert_eq!(active_list["data"].as_array().unwrap().len(), 1);
+    assert_eq!(active_list["data"][0]["id"], 2);
+
+    let archive_list = run(dir.path(), &["ls", "--archived", "--json"]);
+    assert!(archive_list.status.success());
+    let archive_list: Value = serde_json::from_slice(&archive_list.stdout).unwrap();
+    assert_eq!(archive_list["data"].as_array().unwrap().len(), 1);
+    assert_eq!(archive_list["data"][0]["id"], 1);
+
+    let read = run(dir.path(), &["see", "1", "--json"]);
+    assert!(read.status.success());
+    let read: Value = serde_json::from_slice(&read.stdout).unwrap();
+    assert!(read["data"]["archived_at"].is_string());
+
+    let blocked = run(dir.path(), &["body", "1", "not allowed", "--json"]);
+    assert!(!blocked.status.success());
+    let blocked: Value = serde_json::from_slice(&blocked.stdout).unwrap();
+    assert_eq!(blocked["error"]["code"], "task_archived");
+
+    let lock_blocked = run(dir.path(), &["lock", "acquire", "1", "--json"]);
+    assert!(!lock_blocked.status.success());
+    let lock_blocked: Value = serde_json::from_slice(&lock_blocked.stdout).unwrap();
+    assert_eq!(lock_blocked["error"]["code"], "task_archived");
+
+    let history_before = run(dir.path(), &["history", "1", "--json"]);
+    let history_before: Value = serde_json::from_slice(&history_before.stdout).unwrap();
+    let version_before = run(dir.path(), &["version", "1", "--json"]);
+    let version_before: Value = serde_json::from_slice(&version_before.stdout).unwrap();
+    let version_count = version_before["data"].as_array().unwrap().len();
+
+    let repeated = run(dir.path(), &["archive", "1", "--json"]);
+    assert!(repeated.status.success());
+    let repeated: Value = serde_json::from_slice(&repeated.stdout).unwrap();
+    assert_eq!(repeated["data"]["no_op"], true);
+    let version_after = run(dir.path(), &["version", "1", "--json"]);
+    let version_after: Value = serde_json::from_slice(&version_after.stdout).unwrap();
+    assert_eq!(version_after["data"].as_array().unwrap().len(), version_count);
+
+    let restored = run(dir.path(), &["restore", "1", "--json"]);
+    assert!(restored.status.success(), "{}", String::from_utf8_lossy(&restored.stderr));
+    let restored: Value = serde_json::from_slice(&restored.stdout).unwrap();
+    assert_eq!(restored["data"]["no_op"], false);
+    assert!(restored["data"]["task"]["archived_at"].is_null());
+
+    let restored_list = run(dir.path(), &["ls", "--json"]);
+    let restored_list: Value = serde_json::from_slice(&restored_list.stdout).unwrap();
+    assert_eq!(restored_list["data"].as_array().unwrap().len(), 2);
+
+    let history_after = run(dir.path(), &["history", "1", "--json"]);
+    let history_after: Value = serde_json::from_slice(&history_after.stdout).unwrap();
+    let events = history_after["data"].as_array().unwrap();
+    assert!(events.len() > history_before["data"].as_array().unwrap().len());
+    assert!(events.iter().any(|event| event["operation"] == "task.archive"));
+    assert!(events.iter().any(|event| event["operation"] == "task.restore"));
+
+    let dependencies = run(dir.path(), &["depends", "list", "2", "--json"]);
+    assert!(dependencies.status.success());
+    let dependencies: Value = serde_json::from_slice(&dependencies.stdout).unwrap();
+    assert_eq!(dependencies["data"].as_array().unwrap().len(), 1);
+}

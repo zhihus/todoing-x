@@ -128,6 +128,16 @@ The supported CLI MUST NOT physically delete task records. The legacy `delete` c
 - **THEN** the command fails with a machine-readable error when JSON output is requested
 - **AND** the task and its related records remain intact
 
+### Requirement: Archive and restore tasks
+
+The SQLite CLI MUST provide explicit `archive <task-id>` and `restore <task-id>` commands. `ls --archived` MUST list archived tasks; the default list MUST exclude them. Archive state MUST remain independent of workflow status and terminal outcome. Archived tasks MUST remain readable but MUST reject ordinary mutations and new lock acquisition until restored.
+
+#### Scenario: Archive and restore a task
+
+- **WHEN** the user archives a task
+- **THEN** it is omitted from the default list and remains visible through `ls --archived`
+- **AND** restore returns it to the active list without changing status or outcome
+
 ### Requirement: Manage dependencies, history, and versions
 
 The SQLite CLI MUST provide commands to add, remove, and list task dependencies; inspect operation history; and inspect task versions.

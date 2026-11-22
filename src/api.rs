@@ -82,6 +82,8 @@ struct ListArgs {
     limit: Option<usize>,
     #[serde(default)]
     reverse: bool,
+    #[serde(default)]
+    archive_state: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -211,6 +213,7 @@ fn store_error(error: StoreError) -> ApiError {
     let (code, retryable) = match &error {
         StoreError::TaskNotFound(_) => ("task_not_found", false),
         StoreError::TaskTerminal => ("task_terminal", false),
+        StoreError::TaskArchived => ("task_archived", false),
         StoreError::TaskLocked => ("task_locked", true),
         StoreError::LockExpired => ("lock_expired", false),
         StoreError::StaleLock => ("stale_lock", false),
@@ -248,7 +251,7 @@ fn execute(request: Request, root: &Path) -> Result<Value, ApiError> {
     }
     const OPERATIONS: &[&str] = &[
         "store.info", "store.verify", "store.migrate", "store.snapshot",
-        "task.create", "task.list", "task.get", "task.update", "task.status.set",
+        "task.create", "task.list", "task.get", "task.archive", "task.restore", "task.update", "task.status.set",
         "task.complete", "task.cancel", "task.reopen", "task.label.add",
         "task.label.remove", "task.commit.add", "task.dependency.add",
         "task.dependency.remove", "task.dependency.list", "task.history.list",
@@ -295,7 +298,8 @@ fn execute(request: Request, root: &Path) -> Result<Value, ApiError> {
             let connection = store.connection().map_err(store_error)?;
             let task_count: i64 = connection.query_row("SELECT COUNT(*) FROM tasks", [], |row| row.get(0))
                 .map_err(|error| store_error(StoreError::from(error)))?;
-            Ok(json!({"project_id": store.project_id(), "schema_version": 1, "api_version": 1, "task_count": task_count}))
+            let schema_version = store.verify().map_err(store_error)?.schema_version;
+            Ok(json!({"project_id": store.project_id(), "schema_version": schema_version, "api_version": 1, "task_count": task_count}))
         }
         "store.verify" => {
             #[derive(Deserialize)]
@@ -319,7 +323,12 @@ fn execute(request: Request, root: &Path) -> Result<Value, ApiError> {
         "task.list" => {
             let args: ListArgs = parse_args(request.args).map_err(|error| invalid(error.to_string()))?;
             if args.limit == Some(0) { return Err(invalid("limit must be a positive integer".into())); }
-            let mut tasks = repository.list().map_err(store_error)?;
+            let mut tasks = match args.archive_state.as_deref().unwrap_or("active") {
+                "active" => repository.list(),
+                "archived" => repository.list_archived(),
+                "all" => repository.list_all(),
+                _ => return Err(invalid("archive_state must be active, archived, or all".into())),
+            }.map_err(store_error)?;
             if let Some(status) = args.status_id { tasks.retain(|task| task.status_id.as_str() == status); }
             if let Some(outcome) = args.outcome {
                 if !matches!(outcome.as_str(), "active" | "completed" | "cancelled") {
@@ -341,6 +350,16 @@ fn execute(request: Request, root: &Path) -> Result<Value, ApiError> {
             if !args.reverse { tasks.reverse(); }
             if let Some(limit) = args.limit { tasks.truncate(limit); }
             Ok(json!({"tasks": tasks}))
+        }
+        "task.archive" => {
+            let args: TaskIdArgs = parse_args(request.args).map_err(|error| invalid(error.to_string()))?;
+            let result = repository.archive(id(args.task_id).map_err(|error| invalid(error.to_string()))?, &actor).map_err(store_error)?;
+            Ok(json!({"task": result.task, "no_op": result.no_op}))
+        }
+        "task.restore" => {
+            let args: TaskIdArgs = parse_args(request.args).map_err(|error| invalid(error.to_string()))?;
+            let result = repository.restore(id(args.task_id).map_err(|error| invalid(error.to_string()))?, &actor).map_err(store_error)?;
+            Ok(json!({"task": result.task, "no_op": result.no_op}))
         }
         "task.get" => {
             let args: TaskIdArgs = parse_args(request.args).map_err(|error| invalid(error.to_string()))?;
@@ -392,7 +411,11 @@ fn execute(request: Request, root: &Path) -> Result<Value, ApiError> {
         }
         "task.dependency.list" => {
             let args: TaskIdArgs = parse_args(request.args).map_err(|error| invalid(error.to_string()))?;
-            Ok(json!({"dependencies": repository.list_dependencies(id(args.task_id).map_err(|error| invalid(error.to_string()))?).map_err(store_error)?}))
+            let task_id = id(args.task_id).map_err(|error| invalid(error.to_string()))?;
+            Ok(json!({
+                "dependencies": repository.list_dependencies(task_id).map_err(store_error)?,
+                "states": repository.list_dependency_states(task_id).map_err(store_error)?
+            }))
         }
         "task.history.list" => {
             let args: HistoryArgs = parse_args(request.args).map_err(|error| invalid(error.to_string()))?;
@@ -549,7 +572,7 @@ fn api_exit_code(code: &str) -> i32 {
     match code {
         "invalid_request" | "unsupported_api_version" | "project_id_mismatch" | "config_invalid" => 2,
         "task_not_found" | "version_not_found" | "dependency_not_found" => 3,
-        "task_terminal" | "task_locked" | "lock_expired" | "stale_lock" |
+        "task_terminal" | "task_archived" | "task_locked" | "lock_expired" | "stale_lock" |
         "invalid_status_transition" | "dependency_cycle" => 4,
         "io_error" | "store_corrupt" | "store_busy" | "history_record_failed" => 5,
         "migration_conflict" => 6,
@@ -880,6 +903,87 @@ mod contract_tests {
         assert_eq!(api_exit_code("store_busy"), 5);
         assert_eq!(api_exit_code("migration_conflict"), 6);
         assert_eq!(api_exit_code("internal_error"), 70);
+    }
+
+
+    #[test]
+    fn api_archive_restore_and_archive_state_filtering_are_consistent() {
+        let root = setup_project();
+        let first = execute(request("api-test-project", "task.create", json!({
+            "title": "Archive candidate"
+        })), root.path()).unwrap();
+        let first_id = first["task"]["id"].as_i64().unwrap();
+        let second = execute(request("api-test-project", "task.create", json!({
+            "title": "Active candidate"
+        })), root.path()).unwrap();
+        let second_id = second["task"]["id"].as_i64().unwrap();
+        execute(request("api-test-project", "task.dependency.add", json!({
+            "task_id": second_id, "depends_on_task_id": first_id
+        })), root.path()).unwrap();
+
+        let archived = execute(request("api-test-project", "task.archive", json!({
+            "task_id": first_id
+        })), root.path()).unwrap();
+        assert_eq!(archived["no_op"], false);
+        assert!(archived["task"]["archived_at"].is_string());
+        assert_eq!(archived["task"]["archived_by"], "contract-test-agent");
+
+        let active = execute(request("api-test-project", "task.list", json!({})), root.path()).unwrap();
+        assert_eq!(active["tasks"].as_array().unwrap().len(), 1);
+        assert_eq!(active["tasks"][0]["id"], second_id);
+
+        let archive_view = execute(request("api-test-project", "task.list", json!({
+            "archive_state": "archived"
+        })), root.path()).unwrap();
+        assert_eq!(archive_view["tasks"].as_array().unwrap().len(), 1);
+        assert_eq!(archive_view["tasks"][0]["id"], first_id);
+
+        let all = execute(request("api-test-project", "task.list", json!({
+            "archive_state": "all"
+        })), root.path()).unwrap();
+        assert_eq!(all["tasks"].as_array().unwrap().len(), 2);
+
+        let dependency_state = execute(request("api-test-project", "task.dependency.list", json!({
+            "task_id": second_id
+        })), root.path()).unwrap();
+        assert_eq!(dependency_state["dependencies"][0], first_id);
+        assert_eq!(dependency_state["states"][0]["archived"], true);
+        assert_eq!(dependency_state["states"][0]["locked"], false);
+
+        let read = execute(request("api-test-project", "task.get", json!({
+            "task_id": first_id
+        })), root.path()).unwrap();
+        assert_eq!(read["task"]["archived_at"], archived["task"]["archived_at"]);
+
+        let denied = execute(request("api-test-project", "task.update", json!({
+            "task_id": first_id, "patch": {"title": "cannot edit"}
+        })), root.path()).unwrap_err();
+        assert_eq!(denied.code, "task_archived");
+
+        let lock_denied = execute(request("api-test-project", "task.lock.acquire", json!({
+            "task_id": first_id
+        })), root.path()).unwrap_err();
+        assert_eq!(lock_denied.code, "task_archived");
+
+        let repeated = execute(request("api-test-project", "task.archive", json!({
+            "task_id": first_id
+        })), root.path()).unwrap();
+        assert_eq!(repeated["no_op"], true);
+
+        let restored = execute(request("api-test-project", "task.restore", json!({
+            "task_id": first_id
+        })), root.path()).unwrap();
+        assert_eq!(restored["no_op"], false);
+        assert!(restored["task"]["archived_at"].is_null());
+        assert!(restored["task"]["archived_by"].is_null());
+
+        let repeated_restore = execute(request("api-test-project", "task.restore", json!({
+            "task_id": first_id
+        })), root.path()).unwrap();
+        assert_eq!(repeated_restore["no_op"], true);
+
+        let final_list = execute(request("api-test-project", "task.list", json!({})), root.path()).unwrap();
+        assert_eq!(final_list["tasks"].as_array().unwrap().len(), 2);
     }
 
 }

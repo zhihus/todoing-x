@@ -60,6 +60,10 @@ enum Commands {
     Version(VersionArgs),
     #[command(about="Mark a task completed.")]
     Complete(TaskIdArgs),
+    #[command(about="Archive a task without changing its workflow status.")]
+    Archive(TaskIdArgs),
+    #[command(about="Restore an archived task to the active task list.")]
+    Restore(TaskIdArgs),
     #[command(about="Cancel a task without deleting it.")]
     Cancel(CancelArgs),
     #[command(about="Reopen a completed or cancelled task.")]
@@ -111,6 +115,8 @@ struct ListArgs {
     reverse: bool,
     #[arg(long="scan", help="Bypass index, scan .md files directly")]
     scan: bool,
+    #[arg(long="archived", help="List archived tasks instead of active tasks (SQLite mode)")]
+    archived: bool,
 }
 #[derive(Args)]
 struct SeeArgs {
@@ -247,6 +253,10 @@ struct EditableFrontmatter {
     labels: Vec<String>,
     #[serde(default)]
     commits: Vec<String>,
+    #[serde(default)]
+    archived_at: Option<String>,
+    #[serde(default)]
+    archived_by: Option<String>,
 }
 
 #[derive(Args)]
@@ -497,6 +507,9 @@ fn run_legacy(cli: Cli) {
             emit_task(&task, json, format!("(#{}) {}", task.id, task.title));
         }
         Some(Commands::Ls(a)) => {
+            if a.archived {
+                cli_failure(json, "invalid_request", 2, "--archived requires the SQLite store; run 'todoing migrate' first", false);
+            }
             if a.scan { store.rebuild_index().unwrap_or_else(|e| fail(e)); }
             let status = a.status.as_deref().map(TaskStatus::parse).transpose().unwrap_or_else(|e| fail(e));
             let tasks = store.filter(status, &a.labels, a.limit, a.query.as_deref(), a.reverse).unwrap_or_else(|e| fail(e));
@@ -592,6 +605,9 @@ fn run_legacy(cli: Cli) {
         },
         Some(Commands::InternalHook(args)) => run_internal_hook(&args.name).unwrap_or_else(|e| fail(e)),
         Some(Commands::Api) => todoing::api::run(),
+        Some(Commands::Archive(_)) | Some(Commands::Restore(_)) => {
+            cli_failure(json, "invalid_request", 2, "Archive and restore require the SQLite store. Run 'todoing migrate --project-id <id>' first.", false);
+        },
         Some(Commands::Version(_)) |
         Some(Commands::Complete(_)) |
         Some(Commands::Cancel(_)) |
@@ -651,6 +667,7 @@ fn fail_store(json_output: bool, error: StoreError) -> ! {
         StoreError::VersionNotFound { .. } => ("version_not_found", 3, false),
         StoreError::DependencyNotFound(_) => ("dependency_not_found", 3, false),
         StoreError::TaskTerminal => ("task_terminal", 4, false),
+        StoreError::TaskArchived => ("task_archived", 4, false),
         StoreError::TaskLocked => ("task_locked", 4, true),
         StoreError::LockExpired => ("lock_expired", 4, false),
         StoreError::StaleLock => ("stale_lock", 4, false),
@@ -719,12 +736,15 @@ fn status_icon(task: &SqliteTask) -> &'static str {
 }
 
 fn format_sqlite_list(task: &SqliteTask) -> String {
-    format!("(#{}) [{}] {{{}}} {}", task.id, task.labels.join(","), status_icon(task), task.title)
+    let archived = if task.archived_at.is_some() { "[archived] " } else { "" };
+    format!("{}(#{}) [{}] {{{}}} {}", archived, task.id, task.labels.join(","), status_icon(task), task.title)
 }
 
 fn format_sqlite_see(task: &SqliteTask) -> String {
     let frontmatter = serde_json::json!({
         "added_at": task.created_at,
+        "archived_at": task.archived_at,
+        "archived_by": task.archived_by.as_ref().map(ActorId::as_str),
         "commits": task.commit_refs,
         "id": task.id.get(),
         "labels": task.labels,
@@ -760,6 +780,8 @@ fn parse_edited_task(source: &str, original: &SqliteTask, json_output: bool) -> 
         body,
         created_at: original.created_at.clone(),
         updated_at: original.updated_at.clone(),
+        archived_at: original.archived_at.clone(),
+        archived_by: original.archived_by.clone(),
         labels: parsed.labels,
         commit_refs: parsed.commits,
         dependencies: original.dependencies.clone(),
@@ -860,7 +882,11 @@ fn run_sqlite(cli: Cli) {
             if args.scan {
                 cli_failure(json_output, "invalid_request", 2, "--scan is deprecated for SQLite; use 'todoing verify'", false);
             }
-            let mut tasks = context.repository.list().unwrap_or_else(|error| fail_store(json_output, error));
+            let mut tasks = if args.archived {
+                context.repository.list_archived()
+            } else {
+                context.repository.list()
+            }.unwrap_or_else(|error| fail_store(json_output, error));
             if let Some(status) = args.status {
                 tasks.retain(|task| task.status_id.as_str().eq_ignore_ascii_case(&status));
             }
@@ -987,6 +1013,28 @@ fn run_sqlite(cli: Cli) {
                 let versions = repository.list_versions(task_id).unwrap_or_else(|error| fail_store(json_output, error));
                 cli_success(json_output, serde_json::to_value(&versions).unwrap(), format!("Task #{}: {} versions", task_id, versions.len()));
             }
+        }
+        Some(Commands::Archive(args)) => {
+            let task_id = parse_cli_task_id(&args.id, json_output);
+            let repository = repository_for_task(&context, task_id, json_output);
+            let result = repository.archive(task_id, &context.actor)
+                .unwrap_or_else(|error| fail_store(json_output, error));
+            cli_success(
+                json_output,
+                serde_json::json!({"task": result.task, "no_op": result.no_op}),
+                format!("Task #{} archived.", task_id),
+            );
+        }
+        Some(Commands::Restore(args)) => {
+            let task_id = parse_cli_task_id(&args.id, json_output);
+            let repository = repository_for_task(&context, task_id, json_output);
+            let result = repository.restore(task_id, &context.actor)
+                .unwrap_or_else(|error| fail_store(json_output, error));
+            cli_success(
+                json_output,
+                serde_json::json!({"task": result.task, "no_op": result.no_op}),
+                format!("Task #{} restored.", task_id),
+            );
         }
         Some(Commands::Complete(args)) => {
             let task_id = parse_cli_task_id(&args.id, json_output);
@@ -1143,6 +1191,8 @@ mod sqlite_cli_tests {
             body: "original body".into(),
             created_at: "2026-11-21T10:00:00Z".into(),
             updated_at: "2026-11-21T10:00:00Z".into(),
+            archived_at: None,
+            archived_by: None,
             labels: vec!["alpha".into(), "beta".into()],
             commit_refs: vec!["0123456789abcdef0123456789abcdef01234567".into()],
             dependencies: vec![],

@@ -52,6 +52,21 @@ The lock protocol MUST support acquisition, owner identity, lease expiry, heartb
 - **THEN** the lock becomes available for a subsequent acquisition
 - **AND** its fencing generation is retained
 
+### Requirement: Enforce archive restrictions on locks
+
+A client MUST NOT acquire a new lock for an archived task. Archive and restore MUST obey existing lock ownership: another client's active lock blocks both operations, while the current owner may archive the task under its own valid grant. Archiving MUST NOT silently release that lock.
+
+#### Scenario: Reject acquisition for an archived task
+
+- **WHEN** a client attempts to acquire a lock for an archived task
+- **THEN** acquisition is rejected with `task_archived`
+
+#### Scenario: Archive under the current owner's lock
+
+- **WHEN** the current lock owner archives its task using its valid grant
+- **THEN** archive succeeds
+- **AND** the lock remains active until explicitly released or recovered
+
 ### Requirement: Recover abandoned task locks
 
 The system MUST provide explicit recovery only after the lease expires and the configured recovery grace period elapses. Recovery MUST NOT silently transfer ownership while the original lease is valid. A successful recovery MUST increment the fencing generation.

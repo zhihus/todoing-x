@@ -39,6 +39,8 @@
         "task.create",
         "task.list",
         "task.get",
+        "task.archive",
+        "task.restore",
         "task.update",
         "task.status.set",
         "task.complete",
