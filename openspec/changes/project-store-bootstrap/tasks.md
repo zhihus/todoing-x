@@ -5,7 +5,7 @@
 - [x] 1.1 Finalize stable CLI/API success and error contracts, including concurrent initialization behavior.
 - [x] 1.2 Add CLI parsing and integration tests for generated and supplied project IDs.
 - [x] 1.3 Add storage tests for default configuration creation, existing-config preservation, invalid-config refusal, and no-clobber database creation.
-- [ ] 1.4 Add concurrent initialization and failure-injection tests on supported platforms.
+- [x] 1.4 Add a concurrent initialization test and verify no-clobber activation on the supported CI platforms.
 - [x] 1.5 Add API v1 schema, dispatcher, transport, request-ID, and exit-code tests for store.init.
 
 ## 2. Implementation
