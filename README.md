@@ -125,6 +125,10 @@ printf '%s\n' '{"api_version":1,"project_id":"my-project","actor_id":"agent","op
 
 The request and response schemas are in `docs/api/v1/`. Error codes map to stable process exit codes; diagnostics are written to stderr.
 
+## External integrations
+
+Todoing is consumer-agnostic. External orchestrators use project-scoped JSON API v1 and own workflow policy, OpenSpec/Git checks, actor trust, and backup retention. See [the external consumer integration contract](docs/integrations/consumer-contract.md) for bootstrap, project isolation, locks, status configuration, Git references, and current limitations.
+
 ## Snapshots
 
 `todoing snapshot <path>` uses SQLite's Online Backup API. It refuses to run while any task lock is active, verifies the resulting database, and returns its size and SHA-256 checksum. Existing destinations are not overwritten unless `--overwrite` is supplied. Do not copy the live database file as a substitute for a verified snapshot.
