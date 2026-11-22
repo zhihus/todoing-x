@@ -64,7 +64,7 @@
 6. Online Backup API behavior while writes continue.
 7. Rejected-operation logging behavior when the database itself is unavailable.
 8. Structured attachments or application-specific payloads, if a concrete use case appears.
-9. Archive/restore model and retention policy; deferred beyond MVP.
+9. Configurable automatic archival policies and retention/cleanup behavior; explicit archive/restore is implemented in schema v2 and exposed through CLI/API.
 10. Generic event delivery semantics; deferred beyond MVP.
 
 The selected technical baseline is not to be changed silently. Any deviation requires a new decision record and corresponding tests.
@@ -84,7 +84,7 @@ The selected technical baseline is not to be changed silently. Any deviation req
 ### Later work
 
 - Generic optional lifecycle events/hooks and Manifest integration.
-- Archive/restore and archival policies.
+- Configurable automatic archival policies; explicit archive/restore is implemented.
 - Full import/export and integrity validation.
 - Manifest backup automation.
 - Read-only multi-project UI and advanced diagnostics.
