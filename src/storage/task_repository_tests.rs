@@ -235,7 +235,8 @@ fn archive_obeys_existing_task_lock_ownership() {
 fn archive_transaction_rolls_back_task_version_and_history_on_storage_failure() {
     let (_root, repository) = repository();
     let task = repository.create(new_task("rollback"), &actor()).unwrap();
-    let connection = repository.store.connection().unwrap();
+    let store = Store::open(_root.path(), None).unwrap();
+    let connection = store.connection().unwrap();
     connection.execute_batch(
         "CREATE TRIGGER reject_task_archive
          BEFORE UPDATE OF archived_at ON tasks
