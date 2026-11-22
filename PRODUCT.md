@@ -41,17 +41,17 @@ Manifest may consume Todoing through its public CLI/JSON contract and apply its 
 - A central task database shared by unrelated projects is out of scope for the MVP.
 - Todoing is local-first; Git may version project data, but Git is not the transaction manager or backup system.
 - Todoing must preserve data integrity independently of whether the project is under Git.
-- Project identity is required at the Manifest integration boundary. The exact mechanism for binding a process to a project is an integration design item, not a Todoing-specific Manifest dependency.
+- Each project has its own .todoing/todoing.db store. Human CLI initialization uses todoing init and generates a project ID when --project-id is omitted. JSON API initialization uses store.init with an explicit project_id; every later API request must provide that same ID, which Todoing verifies against database metadata. The consuming framework owns the stable ID. A project ID is a namespace guard, not an authentication credential.
 
 ## 4. Task lifecycle and status configuration
 
 - Statuses are configurable by the user; Todoing must not hard-code a single workflow.
-- The status configuration is stored in a simple, user-editable project configuration file. Its exact syntax and schema remain an architecture decision.
+- The status configuration is stored in the user-editable .todoing/config.toml file, using TOML format version 1.
 - Users control the available statuses and their ordering. Permitted transitions must be representable and validated.
 - Disabling a status prevents its use for new transitions but must not erase historical records that used it.
 - Manifest may publish a recommended status configuration. Todoing remains workflow-agnostic and does not automatically synchronize or impose Manifest statuses.
 - The Manifest workflow currently uses: Backlog, Ready, In Progress, In Review, Reviewed, and Done (display labels may be localized by the project).
-- Completion and cancellation outcomes must be represented distinctly in the task model. The exact relationship between outcome values and configurable workflow statuses must be settled in the integration design; do not silently conflate them.
+- Completion and cancellation are distinct nullable task outcomes, independent of workflow status. A configured status may map to an outcome; explicit complete/cancel operations can set an outcome without changing status. Reopening clears the outcome under the configured transition rules.
 
 ## 5. Tasks, dependencies, and deletion
 
@@ -90,24 +90,23 @@ Manifest may consume Todoing through its public CLI/JSON contract and apply its 
 - The JSON contract must be versioned, documented, deterministic, and backward-compatible within a declared version.
 - Errors must have stable machine-readable codes and predictable process exit codes; diagnostics must not corrupt JSON output on stdout.
 - Commands must expose task operations, status configuration, dependencies, history/version inspection, and lock operations.
-- The final command set and compatibility policy for the current Python-compatible CLI are architecture decisions.
+- The CLI and JSON API v1 operation set is documented in README.md and docs/api/v1/operations.md. API v1 processes one JSON request per todoing api invocation, reading stdin and writing one response to stdout. The store.init operation initializes a new store before ordinary store operations.
 
 ## 9. Events and hooks
 
-- Todoing may expose generic lifecycle events/hooks for operations such as task creation, update, status transition, archive/restore, and completion of a work session.
-- The event mechanism must be generic, documented, and optional. Missing handlers must not break ordinary Todoing operation.
-- Todoing does not know what OpenSpec, Manifest, or a particular harness is.
-- Consumers such as Manifest may attach their own handlers and enforce consumer-specific policy outside the Todoing core.
-- Event payload schema, delivery guarantees, ordering, failure handling, and configuration are architecture decisions to be specified before implementation.
+- A generic lifecycle event/hook mechanism is a deferred capability; it is not part of the current SQLite backend contract.
+- Todoing does not know what OpenSpec, Manifest, or a particular harness is and does not enforce their policies.
+- Consumers may integrate optional checks externally, but core correctness must not depend on handlers.
+- Event payload schema, delivery guarantees, ordering, failure handling, and configuration remain undecided until a concrete use case justifies the design.
 
 ## 10. Git references, backup, and portability
 
 - Tasks may store references to Git commits as traceability metadata.
 - Todoing does not enforce project Git workflow or treat a commit as proof that a task is complete.
 - Git history is not a substitute for task history, transactional persistence, or backup.
-- Backup is the responsibility of the consuming project/framework (Manifest in the intended integration). The design must permit backups to a separate physical disk or remote storage.
-- Import/export must preserve tasks, versions, history, dependencies, links, and metadata, and must validate integrity. Implementation is post-MVP.
-- Migration from the current Markdown/YAML task files and JSON index must be planned before replacing the current storage format.
+- Todoing provides a verified SQLite Online Backup API snapshot. The consuming project/framework owns destination selection, retention, and replication.
+- Full import/export must preserve tasks, versions, history, dependencies, links, and metadata, and validate integrity; it remains post-MVP.
+- A non-destructive migration from legacy Markdown/YAML task files and index.json to SQLite is implemented. Source files are retained unchanged as recovery material.
 
 ## 11. Storage
 
@@ -137,12 +136,14 @@ The SQLite database is the sole writable source of task state after initializati
 - Backup automation and advanced diagnostics.
 - A read-only multi-project UI, if later justified.
 
-The precise sequencing of post-MVP capabilities may be changed by explicit product decisions.
+The core MVP capabilities are implemented: project-local SQLite storage and initialization, configurable statuses, task operations, dependencies, immutable history and versions, baselines, exclusive locks, CLI and JSON API v1, non-destructive legacy migration, archive/restore, and verified snapshots.
+
+Deferred capabilities include generic lifecycle events/hooks, automatic archival policies, full import/export, backup automation, and consumer-side integration policy and consistency checks. The precise sequencing may be changed by explicit product decisions.
 
 ## 13. Compatibility and migration principles
 
-- The existing Rust implementation is a prototype and compatibility port, not the final product specification.
-- Existing commands, task files, and index formats must be inventoried before migration decisions are made.
+- This Product Definition is normative. Implementation behavior must not silently override accepted product requirements.
+- The Rust implementation is the active product implementation. The legacy Markdown/YAML task format remains a migration source and recovery format; it is not a second writable source of truth after SQLite initialization or migration.
 - Breaking changes must be explicit, documented, and accompanied by migration tooling or a clear migration procedure.
 - Migration must not silently lose task content, identifiers, commit references, or other recoverable metadata.
 - No existing data may be physically deleted as part of routine migration.
@@ -158,3 +159,22 @@ The precise sequencing of post-MVP capabilities may be changed by explicit produ
 7. Machine interfaces are stable, versioned contracts.
 8. Git is useful for traceability but is not a database transaction or backup mechanism.
 9. Undecided technical choices remain explicitly undecided until investigated and approved.
+
+
+## 15. Implementation status and integration boundary
+
+### Implemented in Todoing
+
+- Project-local SQLite store initialization through the CLI and JSON API.
+- User-configurable TOML statuses and transitions.
+- Task lifecycle, dependencies, archive/restore, immutable versions, approval baselines, and append-only history.
+- Exclusive task locks with heartbeat, release, recovery, and fencing generations.
+- Versioned JSON API v1, non-destructive legacy migration, and verified SQLite snapshots.
+
+### Deferred or consumer-owned
+
+- Generic lifecycle events/hooks are deferred; the SQLite backend does not execute the legacy Markdown completion hooks.
+- Manifest or another consumer owns orchestration, role policy, OpenSpec workflow, Git workflow, and cross-component consistency checks.
+- Integrations are optional. A consumer runs checks only for components it has connected and configured.
+- Todoing stores Git commit references for traceability; it does not treat them as proof of completion or enforce Git policy.
+- Status mapping, consumer trust/authentication, and event-delivery semantics require explicit decisions at the integration boundary; Todoing must not invent them.
