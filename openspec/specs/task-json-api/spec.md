@@ -63,6 +63,21 @@ The API MUST expose store info, integrity verification, migration, snapshots, ta
 - **AND** workflow status remains unchanged
 - **AND** history records the actor and optional reason
 
+### Requirement: Archive and restore tasks
+
+The API MUST expose `task.archive` and `task.restore`, each requiring `task_id`. `task.list` MUST accept `archive_state` values `active` (default), `archived`, and `all`. Task records MUST include archive metadata. Repeated archive/restore requests MUST return `no_op=true`, append a no-op history event, and MUST NOT create a task version.
+
+#### Scenario: Filter and restore archived tasks
+
+- **WHEN** a client archives a task and requests `task.list` with `archive_state=archived`
+- **THEN** the task is returned only in the archive view
+- **AND** `task.restore` returns it to the default active list without changing workflow status or outcome
+
+#### Scenario: Reject mutation of an archived task
+
+- **WHEN** a client attempts an ordinary mutation or new lock acquisition for an archived task
+- **THEN** the API returns `task_archived`
+
 ### Requirement: Enforce project-local task access
 
 The project ID MUST match the active store metadata. Actor identity MUST be supplied for reads and writes and recorded for attribution; actor identity is not an authentication mechanism.
