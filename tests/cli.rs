@@ -1206,5 +1206,5 @@ fn sqlite_cli_archive_restore_is_explicit_non_destructive_and_versioned() {
     let dependencies = run(dir.path(), &["depends", "list", "2", "--json"]);
     assert!(dependencies.status.success());
     let dependencies: Value = serde_json::from_slice(&dependencies.stdout).unwrap();
-    assert_eq!(dependencies["data"]["dependencies"].as_array().unwrap().len(), 1);
+    assert_eq!(dependencies["data"].as_array().unwrap().len(), 1);
 }
