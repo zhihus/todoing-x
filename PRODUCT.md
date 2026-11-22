@@ -132,7 +132,7 @@ The storage choice must support the atomicity and concurrency requirements in th
 
 - Generic optional lifecycle events/hooks and consumer integration.
 - Manifest integration contract, project identity binding, and cross-component consistency checks.
-- Archive/restore and configurable archival policies.
+- Configurable archival policies; explicit archive/restore has been delivered.
 - Import/export with full integrity validation.
 - Backup automation and advanced diagnostics.
 - A read-only multi-project UI, if later justified.
