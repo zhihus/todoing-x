@@ -780,6 +780,8 @@ fn parse_edited_task(source: &str, original: &SqliteTask, json_output: bool) -> 
         body,
         created_at: original.created_at.clone(),
         updated_at: original.updated_at.clone(),
+        archived_at: original.archived_at.clone(),
+        archived_by: original.archived_by.clone(),
         labels: parsed.labels,
         commit_refs: parsed.commits,
         dependencies: original.dependencies.clone(),
