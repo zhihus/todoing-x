@@ -18,7 +18,7 @@
 
 ## 3. Verification
 
-- [x] 3.1 Run formatting and full Rust test suite.
+- [x] 3.1 Run the full Rust test suite on Windows and Linux.
 - [x] 3.2 Verify release build, isolated install, and binary smoke tests on Windows and Linux.
 - [x] 3.3 Validate OpenSpec and JSON request/response schemas.
 - [x] 3.4 Review failure paths to confirm existing config/database files are never overwritten.
