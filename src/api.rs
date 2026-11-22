@@ -298,7 +298,8 @@ fn execute(request: Request, root: &Path) -> Result<Value, ApiError> {
             let connection = store.connection().map_err(store_error)?;
             let task_count: i64 = connection.query_row("SELECT COUNT(*) FROM tasks", [], |row| row.get(0))
                 .map_err(|error| store_error(StoreError::from(error)))?;
-            Ok(json!({"project_id": store.project_id(), "schema_version": 1, "api_version": 1, "task_count": task_count}))
+            let schema_version = store.verify().map_err(store_error)?.schema_version;
+            Ok(json!({"project_id": store.project_id(), "schema_version": schema_version, "api_version": 1, "task_count": task_count}))
         }
         "store.verify" => {
             #[derive(Deserialize)]
