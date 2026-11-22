@@ -209,6 +209,17 @@ fn migration_error(error: StoreError) -> ApiError {
     }
 }
 
+fn initialization_error(error: StoreError) -> ApiError {
+    let (code, retryable) = match &error {
+        StoreError::AlreadyExists(_) => ("store_already_initialized", false),
+        StoreError::InvalidConfig(_) => ("config_invalid", false),
+        StoreError::InvalidTask(_) => ("migration_required", false),
+        StoreError::Io(_) => ("io_error", false),
+        _ => ("internal_error", false),
+    };
+    ApiError { code, message: error.to_string(), retryable, details: json!({}) }
+}
+
 fn store_error(error: StoreError) -> ApiError {
     let (code, retryable) = match &error {
         StoreError::TaskNotFound(_) => ("task_not_found", false),
@@ -250,7 +261,7 @@ fn execute(request: Request, root: &Path) -> Result<Value, ApiError> {
         return Err(ApiError { code: "invalid_request", message: "request_id must contain 1 to 128 characters".into(), retryable: false, details: json!({}) });
     }
     const OPERATIONS: &[&str] = &[
-        "store.info", "store.verify", "store.migrate", "store.snapshot",
+        "store.init", "store.info", "store.verify", "store.migrate", "store.snapshot",
         "task.create", "task.list", "task.get", "task.archive", "task.restore", "task.update", "task.status.set",
         "task.complete", "task.cancel", "task.reopen", "task.label.add",
         "task.label.remove", "task.commit.add", "task.dependency.add",
@@ -265,6 +276,19 @@ fn execute(request: Request, root: &Path) -> Result<Value, ApiError> {
     let project_id = ProjectId::new(request.project_id).map_err(|e| ApiError { code: "invalid_request", message: e.to_string(), retryable: false, details: json!({}) })?;
     let actor_id = ActorId::new(request.actor_id).map_err(|e| ApiError { code: "invalid_request", message: e.to_string(), retryable: false, details: json!({}) })?;
     let actor = ActorContext::new(actor_id);
+    if request.operation == "store.init" {
+        if request.lock_token.is_some() {
+            return Err(invalid("lock_token is not accepted by store.init".into()));
+        }
+        parse_args::<EmptyArgs>(request.args.clone()).map_err(invalid)?;
+        let report = crate::initialization::initialize(root, Some(project_id.clone()))
+            .map_err(initialization_error)?;
+        return Ok(json!({
+            "project_id": report.project_id,
+            "schema_version": report.schema_version,
+            "api_version": 1
+        }));
+    }
     if request.operation == "store.migrate" {
         if request.lock_token.is_some() {
             return Err(invalid("lock_token is not accepted by store.migrate".into()));
