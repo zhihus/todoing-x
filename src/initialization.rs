@@ -7,7 +7,7 @@ use crate::{
 use std::{
     fs,
     io::Write,
-    path::{Path, PathBuf},
+    path::Path,
 };
 use tempfile::NamedTempFile;
 
