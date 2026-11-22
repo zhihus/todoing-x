@@ -111,9 +111,9 @@ Manifest may consume Todoing through its public CLI/JSON contract and apply its 
 
 ## 11. Storage
 
-The storage engine has not been finally selected. SQLite is the preliminary candidate, not an approved final decision. A technical comparison must evaluate transaction semantics, concurrent access, locking, history/version growth, portability, backup/restore, performance, and operational complexity.
+SQLite is the selected storage engine: one database per project, accessed from Rust through rusqlite with bundled SQLite. The implementation uses rollback-journal DELETE mode, synchronous=FULL, verified foreign keys, and a bounded busy timeout. The selection is based on the relational task model and cross-platform process-locking evidence documented in docs/architecture/implementation-contract.md and docs/architecture/technical-research.md.
 
-The storage choice must support the atomicity and concurrency requirements in this document. Markdown/YAML may remain useful as an import/export or human-readable interchange format even if it is not the primary transactional store.
+The SQLite database is the sole writable source of task state after initialization or migration. Markdown/YAML remain legacy recovery material and may be used for import/export; they are not the transactional store.
 
 ## 12. Delivery scope
 

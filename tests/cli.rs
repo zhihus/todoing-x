@@ -495,6 +495,106 @@ fn run_with_input(root: &Path, args: &[&str], input: &str) -> std::process::Outp
 
 
 #[test]
+fn init_creates_a_new_store_and_refuses_reinitialization() {
+    let dir = tempdir().unwrap();
+    let initialized = run(dir.path(), &["init", "--json"]);
+    assert!(initialized.status.success(), "{}", String::from_utf8_lossy(&initialized.stderr));
+    let response: Value = serde_json::from_slice(&initialized.stdout).unwrap();
+    assert_eq!(response["ok"], true);
+    assert!(response["data"]["project_id"].as_str().unwrap().starts_with("p-"));
+    assert_eq!(response["data"]["schema_version"], 2);
+    assert!(dir.path().join(".todoing/todoing.db").is_file());
+    assert!(dir.path().join(".todoing/config.toml").is_file());
+
+    let repeated = run(dir.path(), &["init", "--json"]);
+    assert!(!repeated.status.success());
+    let response: Value = serde_json::from_slice(&repeated.stdout).unwrap();
+    assert_eq!(response["error"]["code"], "store_already_initialized");
+}
+
+#[test]
+fn init_preserves_valid_config_and_rejects_invalid_config() {
+    let dir = tempdir().unwrap();
+    let config_dir = dir.path().join(".todoing");
+    fs::create_dir_all(&config_dir).unwrap();
+    let config_path = config_dir.join("config.toml");
+    let source = "format_version = 1\n\n[[statuses]]\nid = \"todo\"\nlabel = \"To Do\"\nenabled = true\n";
+    fs::write(&config_path, source).unwrap();
+    let initialized = run(dir.path(), &["init", "--project-id", "custom-project"]);
+    assert!(initialized.status.success(), "{}", String::from_utf8_lossy(&initialized.stderr));
+    assert_eq!(fs::read_to_string(config_path).unwrap(), source);
+
+    let invalid = tempdir().unwrap();
+    fs::create_dir_all(invalid.path().join(".todoing")).unwrap();
+    fs::write(invalid.path().join(".todoing/config.toml"), "not = [valid").unwrap();
+    let rejected = run(invalid.path(), &["init", "--json"]);
+    assert!(!rejected.status.success());
+    let response: Value = serde_json::from_slice(&rejected.stdout).unwrap();
+    assert_eq!(response["error"]["code"], "config_invalid");
+    assert!(!invalid.path().join(".todoing/todoing.db").exists());
+}
+
+#[test]
+fn json_api_store_init_creates_a_project_store() {
+    let dir = tempdir().unwrap();
+    let request = serde_json::json!({
+        "api_version": 1,
+        "request_id": "bootstrap-1",
+        "project_id": "api-project",
+        "actor_id": "manifest",
+        "operation": "store.init",
+        "args": {}
+    });
+    let output = run_with_input(dir.path(), &["api"], &request.to_string());
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    let response: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(response["request_id"], "bootstrap-1");
+    assert_eq!(response["data"]["project_id"], "api-project");
+    assert_eq!(response["data"]["schema_version"], 2);
+
+    let info = serde_json::json!({
+        "api_version": 1,
+        "project_id": "api-project",
+        "actor_id": "manifest",
+        "operation": "store.info",
+        "args": {}
+    });
+    let output = run_with_input(dir.path(), &["api"], &info.to_string());
+    assert!(output.status.success());
+    let response: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(response["data"]["project_id"], "api-project");
+
+    let repeated = run_with_input(dir.path(), &["api"], &request.to_string());
+    assert_eq!(repeated.status.code(), Some(6));
+    let response: Value = serde_json::from_slice(&repeated.stdout).unwrap();
+    assert_eq!(response["error"]["code"], "store_already_initialized");
+}
+
+#[test]
+fn init_refuses_legacy_task_data_without_creating_a_database() {
+    let dir = tempdir().unwrap();
+    let tasks = dir.path().join(".todoing/tasks");
+    fs::create_dir_all(&tasks).unwrap();
+    fs::write(tasks.join("1.md"), "legacy task").unwrap();
+
+    let rejected = run(dir.path(), &["init", "--json"]);
+    assert!(!rejected.status.success());
+    let response: Value = serde_json::from_slice(&rejected.stdout).unwrap();
+    assert_eq!(response["error"]["code"], "migration_required");
+    assert!(!dir.path().join(".todoing/todoing.db").exists());
+}
+
+#[test]
+fn init_rejects_invalid_supplied_project_id() {
+    let dir = tempdir().unwrap();
+    let rejected = run(dir.path(), &["init", "--project-id", "  ", "--json"]);
+    assert!(!rejected.status.success());
+    let response: Value = serde_json::from_slice(&rejected.stdout).unwrap();
+    assert_eq!(response["error"]["code"], "invalid_request");
+    assert!(!dir.path().join(".todoing/todoing.db").exists());
+}
+
+#[test]
 fn help_preserves_original_command_surface_and_adds_only_commit_extension() {
     let dir = tempdir().unwrap();
     let output = run(dir.path(), &["--help"]);

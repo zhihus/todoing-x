@@ -44,6 +44,29 @@ Cargo normally places installed binaries in `~/.cargo/bin` (Unix-like systems) o
 | `linker/compiler errors` | Install the platform's native build tools and retry. |
 | `Error: No such command` | Check `todoing --help` and update with `cargo install --git https://github.com/zhihus/todoing-x --force`. |
 
+## Initialize or migrate a project
+
+For a new project, initialize its local SQLite task store:
+
+```bash
+todoing init
+```
+
+Todoing generates a project ID when omitted. When Manifest is the consumer, initialize with the stable ID owned by Manifest:
+
+```bash
+todoing init --project-id my-project-id
+```
+
+For an existing project with legacy Markdown tasks, do not run init. First validate and then migrate the source data:
+
+```bash
+todoing migrate --project-id my-project-id --dry-run
+todoing migrate --project-id my-project-id
+```
+
+Initialization refuses to hide legacy task files behind an empty database. Existing config.toml is validated and preserved.
+
 ## Set up the agent skill
 
 The repository contains the skill at `.agents/skills/todoing/`. If the repository is already available locally, the skill is ready to use.
@@ -66,19 +89,9 @@ Copy-Item -Recurse -Force "C:\path\to\todoing-x\.agents\skills\todoing" "C:\path
 
 The skill can then be loaded by agents that support the `.agents/skills/` convention.
 
-## Configure optional standard hooks
+## Legacy hooks
 
-The Todoing binary includes the standard Git and OpenSpec completion checks, but they are not installed automatically. After the skill is available to the agent, the agent must run `todoing hooks status --json` before its first task-management operation in each project.
-
-If checks are missing, the agent explains what they do and asks the user whether to install Git, OpenSpec, both, or neither. Installation requires explicit approval:
-
-```bash
-todoing hooks install git
-todoing hooks install openspec
-todoing hooks install all
-```
-
-The agent must not silently install checks. Existing hook files are preserved. Removing a standard hook file disables that check.
+The bundled Git and OpenSpec hooks belong to the legacy Markdown backend. The SQLite backend does not execute them as task-completion gates. Do not install or rely on these hooks for new SQLite projects. Manifest or another consuming workflow owns Git/OpenSpec validation and completion policy.
 
 ## Add todoing instructions to the project
 
@@ -97,8 +110,7 @@ Quick reference:
 - `todoing status <id> in_progress` — start work
 - `todoing append <id> "progress"` — record progress
 - `todoing commit <id> HEAD` — link a Git commit
-- `todoing status <id> done` — complete a task after configured completion hooks pass
-- `todoing hooks status --json` — check whether standard Git/OpenSpec hooks are installed
+- `todoing status <id> done` — complete a task after the consuming workflow's checks pass
 ```
 
 Place the instructions in the project's root `AGENTS.md` or `CLAUDE.md`, whichever the user prefers or already uses. Do not modify project instructions without the user's approval.

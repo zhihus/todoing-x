@@ -76,6 +76,8 @@ enum Commands {
     Lock(LockArgs),
     #[command(about="Show project configuration.")]
     Config,
+    #[command(about="Initialize a new project-local SQLite task store.")]
+    Init(InitArgs),
     #[command(about="Migrate legacy Markdown tasks to SQLite.")]
     Migrate(MigrateArgs),
     #[command(about="Verify the SQLite task store.")]
@@ -225,6 +227,12 @@ enum LockCommands {
     Recover { id: String },
     Heartbeat { id: String, owner_id: String, fencing_generation: i64 },
     Release { id: String, owner_id: String, fencing_generation: i64 },
+}
+
+#[derive(Args)]
+struct InitArgs {
+    #[arg(long)]
+    project_id: Option<String>,
 }
 
 #[derive(Args)]
@@ -605,6 +613,7 @@ fn run_legacy(cli: Cli) {
         },
         Some(Commands::InternalHook(args)) => run_internal_hook(&args.name).unwrap_or_else(|e| fail(e)),
         Some(Commands::Api) => todoing::api::run(),
+        Some(Commands::Init(_)) => fail("The init command requires the SQLite initialization path."),
         Some(Commands::Archive(_)) | Some(Commands::Restore(_)) => {
             cli_failure(json, "invalid_request", 2, "Archive and restore require the SQLite store. Run 'todoing migrate --project-id <id>' first.", false);
         },
@@ -831,6 +840,27 @@ fn run_sqlite(cli: Cli) {
         .or_else(|| std::env::var("TODOING_ACTOR_ID").ok())
         .unwrap_or_else(|| "cli-user".into());
 
+    if let Some(Commands::Init(args)) = &cli.command {
+        let project_id = args.project_id.clone().map(ProjectId::new).transpose().unwrap_or_else(|error| {
+            cli_failure(json_output, "invalid_request", 2, error.to_string(), false)
+        });
+        let report = todoing::initialization::initialize(&root, project_id).unwrap_or_else(|error| {
+            let (code, exit) = match &error {
+                StoreError::AlreadyExists(_) => ("store_already_initialized", 6),
+                StoreError::InvalidConfig(_) => ("config_invalid", 2),
+                StoreError::InvalidTask(_) => ("migration_required", 2),
+                StoreError::Io(_) => ("io_error", 5),
+                _ => ("internal_error", 70),
+            };
+            cli_failure(json_output, code, exit, error.to_string(), false)
+        });
+        cli_success(json_output, serde_json::json!({
+            "project_id": report.project_id.clone(),
+            "schema_version": report.schema_version,
+            "api_version": 1
+        }), format!("Initialized Todoing project {} (schema {})", report.project_id, report.schema_version));
+        return;
+    }
     if matches!(&cli.command, Some(Commands::Api)) {
         todoing::api::run();
         return;
@@ -1152,7 +1182,7 @@ fn run_sqlite(cli: Cli) {
             HooksCommands::Install { hook } => install_hooks(hook, json_output),
         },
         Some(Commands::InternalHook(args)) => run_internal_hook(&args.name).unwrap_or_else(|error| cli_failure(json_output, "invalid_request", 2, error, false)),
-        Some(Commands::Api) | Some(Commands::Migrate(_)) | None => unreachable!(),
+        Some(Commands::Api) | Some(Commands::Init(_)) | Some(Commands::Migrate(_)) | None => unreachable!(),
     }
 }
 
@@ -1160,7 +1190,7 @@ fn run() {
     let cli = Cli::parse();
     let database_exists = std::path::Path::new(".todoing/todoing.db").is_file();
     let forced_sqlite = matches!(&cli.command,
-        Some(Commands::Api) | Some(Commands::Migrate(_)) |
+        Some(Commands::Api) | Some(Commands::Init(_)) | Some(Commands::Migrate(_)) |
         Some(Commands::Complete(_)) | Some(Commands::Cancel(_)) |
         Some(Commands::Reopen(_)) | Some(Commands::Depends(_)) |
         Some(Commands::History(_)) | Some(Commands::Lock(_)) |

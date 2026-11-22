@@ -21,6 +21,17 @@ cargo build --release
 cargo test
 ```
 
+## Initialize a new project
+
+For a new project without legacy task files, initialize the local SQLite store:
+
+```bash
+todoing init
+todoing init --project-id my-project
+```
+
+The project ID is generated when omitted. Initialization creates the default .todoing/config.toml only when absent, validates and preserves an existing configuration, and refuses to overwrite an existing database. If legacy Markdown task files or index.json exist, use the migration workflow instead.
+
 ## Migrate an existing project
 
 First validate the source without changing it:
@@ -109,7 +120,7 @@ todoing complete 4 --json
 For direct JSON API v1 access, `todoing api` reads one request from stdin and writes one response to stdout:
 
 ```bash
-printf '%s\\n' '{"api_version":1,"project_id":"my-project","actor_id":"agent","operation":"task.list","args":{}}' | todoing api
+printf '%s\n' '{"api_version":1,"project_id":"my-project","actor_id":"agent","operation":"task.list","args":{}}' | todoing api
 ```
 
 The request and response schemas are in `docs/api/v1/`. Error codes map to stable process exit codes; diagnostics are written to stderr.
