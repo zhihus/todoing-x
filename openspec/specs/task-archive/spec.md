@@ -1,4 +1,10 @@
-## ADDED Requirements
+# Task archive
+
+## Purpose
+
+Describe explicit task archiving and restoration as a lifecycle state independent of workflow status and terminal outcome.
+
+## Requirements
 
 ### Requirement: Archive tasks without changing lifecycle status
 
