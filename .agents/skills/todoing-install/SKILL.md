@@ -44,6 +44,29 @@ Cargo normally places installed binaries in `~/.cargo/bin` (Unix-like systems) o
 | `linker/compiler errors` | Install the platform's native build tools and retry. |
 | `Error: No such command` | Check `todoing --help` and update with `cargo install --git https://github.com/zhihus/todoing-x --force`. |
 
+## Initialize or migrate a project
+
+For a new project, initialize its local SQLite task store:
+
+```bash
+todoing init
+```
+
+Todoing generates a project ID when omitted. When Manifest is the consumer, initialize with the stable ID owned by Manifest:
+
+```bash
+todoing init --project-id <manifest-project-id>
+```
+
+For an existing project with legacy Markdown tasks, do not run init. First validate and then migrate the source data:
+
+```bash
+todoing migrate --project-id <manifest-project-id> --dry-run
+todoing migrate --project-id <manifest-project-id>
+```
+
+Initialization refuses to hide legacy task files behind an empty database. Existing config.toml is validated and preserved.
+
 ## Set up the agent skill
 
 The repository contains the skill at `.agents/skills/todoing/`. If the repository is already available locally, the skill is ready to use.
