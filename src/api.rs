@@ -594,12 +594,12 @@ fn invalid(message: String) -> ApiError {
 
 fn api_exit_code(code: &str) -> i32 {
     match code {
-        "invalid_request" | "unsupported_api_version" | "project_id_mismatch" | "config_invalid" => 2,
+        "invalid_request" | "unsupported_api_version" | "project_id_mismatch" | "config_invalid" | "migration_required" => 2,
         "task_not_found" | "version_not_found" | "dependency_not_found" => 3,
         "task_terminal" | "task_archived" | "task_locked" | "lock_expired" | "stale_lock" |
         "invalid_status_transition" | "dependency_cycle" => 4,
         "io_error" | "store_corrupt" | "store_busy" | "history_record_failed" => 5,
-        "migration_conflict" => 6,
+        "migration_conflict" | "store_already_initialized" => 6,
         _ => 70,
     }
 }
