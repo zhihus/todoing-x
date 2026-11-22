@@ -566,6 +566,30 @@ fn json_api_store_init_creates_a_project_store() {
 }
 
 #[test]
+fn init_refuses_legacy_task_data_without_creating_a_database() {
+    let dir = tempdir().unwrap();
+    let tasks = dir.path().join(".todoing/tasks");
+    fs::create_dir_all(&tasks).unwrap();
+    fs::write(tasks.join("1.md"), "legacy task").unwrap();
+
+    let rejected = run(dir.path(), &["init", "--json"]);
+    assert!(!rejected.status.success());
+    let response: Value = serde_json::from_slice(&rejected.stdout).unwrap();
+    assert_eq!(response["error"]["code"], "migration_required");
+    assert!(!dir.path().join(".todoing/todoing.db").exists());
+}
+
+#[test]
+fn init_rejects_invalid_supplied_project_id() {
+    let dir = tempdir().unwrap();
+    let rejected = run(dir.path(), &["init", "--project-id", "  ", "--json"]);
+    assert!(!rejected.status.success());
+    let response: Value = serde_json::from_slice(&rejected.stdout).unwrap();
+    assert_eq!(response["error"]["code"], "invalid_request");
+    assert!(!dir.path().join(".todoing/todoing.db").exists());
+}
+
+#[test]
 fn help_preserves_original_command_surface_and_adds_only_commit_extension() {
     let dir = tempdir().unwrap();
     let output = run(dir.path(), &["--help"]);
