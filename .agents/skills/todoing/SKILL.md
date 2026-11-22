@@ -101,7 +101,7 @@ Use --json for machine-readable CLI output. API v1 processes one JSON request pe
 
 ```bash
 todoing --json ls
-printf '%s\\n' '{"api_version":1,"project_id":"my-project","actor_id":"agent","operation":"task.list","args":{}}' | todoing api
+printf '%s\n' '{"api_version":1,"project_id":"my-project","actor_id":"agent","operation":"task.list","args":{}}' | todoing api
 ```
 
 Every API request includes api_version, project_id, actor_id, operation, and args. request_id is optional and echoed unchanged. The supplied project_id must match the store metadata.
