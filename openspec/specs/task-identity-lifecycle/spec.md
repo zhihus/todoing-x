@@ -26,6 +26,15 @@ The supported Todoing interfaces MUST NOT physically delete task records. Comple
 - **THEN** Todoing rejects the request
 - **AND** the task record and related data remain intact
 
+### Requirement: Keep archive state independent of task outcome
+
+The SQLite task model MUST represent archive state independently from workflow status and terminal outcome. Archiving MUST retain task identity, history, versions, dependencies, labels, and Git commit references. Restoring MUST clear archive metadata without changing workflow status or terminal outcome.
+
+#### Scenario: Archive a terminal task
+
+- **WHEN** a completed or cancelled task is archived
+- **THEN** its terminal outcome remains unchanged
+
 ### Requirement: Represent terminal outcomes explicitly
 
 The SQLite task model MUST represent `completed` and `cancelled` as distinct nullable outcomes independent of workflow status. A task with a terminal outcome MUST be reopened before ordinary status changes.
