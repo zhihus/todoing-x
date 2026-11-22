@@ -1016,7 +1016,8 @@ fn run_sqlite(cli: Cli) {
         }
         Some(Commands::Archive(args)) => {
             let task_id = parse_cli_task_id(&args.id, json_output);
-            let result = context.repository.archive(task_id, &context.actor)
+            let repository = repository_for_task(&context, task_id, json_output);
+            let result = repository.archive(task_id, &context.actor)
                 .unwrap_or_else(|error| fail_store(json_output, error));
             cli_success(
                 json_output,
@@ -1026,7 +1027,8 @@ fn run_sqlite(cli: Cli) {
         }
         Some(Commands::Restore(args)) => {
             let task_id = parse_cli_task_id(&args.id, json_output);
-            let result = context.repository.restore(task_id, &context.actor)
+            let repository = repository_for_task(&context, task_id, json_output);
+            let result = repository.restore(task_id, &context.actor)
                 .unwrap_or_else(|error| fail_store(json_output, error));
             cli_success(
                 json_output,
