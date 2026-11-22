@@ -563,6 +563,11 @@ fn json_api_store_init_creates_a_project_store() {
     assert!(output.status.success());
     let response: Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(response["data"]["project_id"], "api-project");
+
+    let repeated = run_with_input(dir.path(), &["api"], &request.to_string());
+    assert!(!repeated.status.success());
+    let response: Value = serde_json::from_slice(&repeated.stdout).unwrap();
+    assert_eq!(response["error"]["code"], "store_already_initialized");
 }
 
 #[test]
