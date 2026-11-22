@@ -323,7 +323,7 @@ The exact activation/rename procedure must account for Windows file replacement 
 
 Manifest/the consuming project owns backup destination, retention, and off-device replication. Todoing exposes a database-aware snapshot operation using SQLite's Online Backup API through rusqlite; snapshot creation is rejected while any task lock is active. Do not copy a live database file blindly. A produced backup must be reopened and integrity-checked before being reported as valid.
 
-Git history is not a backup mechanism. Archive/restore and full task import/export remain post-MVP capabilities.
+Git history is not a backup mechanism. Explicit archive/restore is implemented. Configurable archival policies and full task import/export remain post-MVP capabilities.
 
 ## 10. Error model
 
@@ -359,7 +359,7 @@ The existing SQLite spike is a reference test, not a substitute for production r
 
 ## 12. Explicitly outside the MVP
 
-- Archive/restore implementation.
+- Configurable archival policies.
 - Full task import/export beyond legacy migration.
 - Generic lifecycle event delivery and extensible hook framework.
 - Backup scheduling/retention/remote replication.
