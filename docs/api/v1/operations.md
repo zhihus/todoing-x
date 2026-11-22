@@ -181,7 +181,7 @@ Result: updated task and new version when an edge is removed. Removing a missing
 Required:
 - task_id.
 
-Returns dependency IDs and their current dependency state. A dependency task locked by another client is represented only as a locked reference; its task content is not disclosed.
+Returns dependency IDs and a parallel `states` array containing each dependency's status, outcome, archive state, and lock state. A dependency task locked by another client is represented without protected task fields; its status, outcome, and archive state are null and `locked` is true.
 
 ## 6. History and versions
 
