@@ -229,3 +229,60 @@ fn archive_obeys_existing_task_lock_ownership() {
     service.release(&grant, &owner).unwrap();
     assert_eq!(repository.list_archived().unwrap().len(), 1);
 }
+
+
+#[test]
+fn archive_transaction_rolls_back_task_version_and_history_on_storage_failure() {
+    let (_root, repository) = repository();
+    let task = repository.create(new_task("rollback"), &actor()).unwrap();
+    let connection = repository.store.connection().unwrap();
+    connection.execute_batch(
+        "CREATE TRIGGER reject_task_archive
+         BEFORE UPDATE OF archived_at ON tasks
+         WHEN NEW.archived_at IS NOT NULL
+         BEGIN
+             SELECT RAISE(ABORT, 'injected archive failure');
+         END;"
+    ).unwrap();
+    drop(connection);
+
+    assert!(repository.archive(task.id, &actor()).is_err());
+    let current = repository.get(task.id).unwrap();
+    assert!(current.archived_at.is_none());
+    assert!(current.archived_by.is_none());
+    assert_eq!(repository.list_versions(task.id).unwrap().len(), 1);
+    assert!(repository.get_history(task.id).unwrap().iter()
+        .all(|event| event.operation != "task.archive"));
+}
+
+#[test]
+fn concurrent_archive_requests_are_serialized_and_versioned_once() {
+    use std::sync::{Arc, Barrier};
+    use std::thread;
+
+    let (_root, repository) = repository();
+    let task = repository.create(new_task("concurrent archive"), &actor()).unwrap();
+    let barrier = Arc::new(Barrier::new(3));
+    let first_repository = repository.clone();
+    let second_repository = repository.clone();
+    let first_barrier = barrier.clone();
+    let second_barrier = barrier.clone();
+
+    let first = thread::spawn(move || {
+        first_barrier.wait();
+        first_repository.archive(task.id, &actor()).unwrap()
+    });
+    let second = thread::spawn(move || {
+        second_barrier.wait();
+        second_repository.archive(task.id, &actor()).unwrap()
+    });
+    barrier.wait();
+
+    let first_result = first.join().unwrap();
+    let second_result = second.join().unwrap();
+    assert_ne!(first_result.no_op, second_result.no_op);
+    assert!(repository.get(task.id).unwrap().archived_at.is_some());
+    assert_eq!(repository.list_versions(task.id).unwrap().len(), 2);
+    assert_eq!(repository.get_history(task.id).unwrap().iter()
+        .filter(|event| event.operation == "task.archive").count(), 2);
+}
