@@ -855,7 +855,7 @@ fn run_sqlite(cli: Cli) {
             cli_failure(json_output, code, exit, error.to_string(), false)
         });
         cli_success(json_output, serde_json::json!({
-            "project_id": report.project_id,
+            "project_id": report.project_id.clone(),
             "schema_version": report.schema_version,
             "api_version": 1
         }), format!("Initialized Todoing project {} (schema {})", report.project_id, report.schema_version));
