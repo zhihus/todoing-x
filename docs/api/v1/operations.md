@@ -25,13 +25,14 @@
 | Operation | Required args | Optional args | Result |
 |---|---|---|---|
 | store.init | none | none | project_id, schema_version, API version; initializes a new store using the envelope project_id. |
-|---|---|---|---|
 | store.info | none | none | project_id, schema_version, API version, task count. |
 | store.verify | none | deep (boolean, default true) | integrity status and structured diagnostics. |
 | store.migrate | none | dry_run (boolean, default false) | migration report, imported count, warnings; requires legacy store and no active target DB. |
 | store.snapshot | output_path | overwrite (boolean, default false) | verified snapshot path, byte size, checksum. |
 
-store.init creates a new project-local store only when no database exists. It validates and preserves an existing config.toml, or creates the generic default configuration when absent. It refuses to initialize over legacy Markdown task files or index.json; use store.migrate for those projects. A repeated or concurrent initialization that loses the no-clobber database activation returns store_already_initialized. The CLI may generate a project ID when --project-id is omitted; JSON API callers must supply project_id in the request envelope.\n\nstore.migrate is non-destructive. It refuses to overwrite an existing database. A dry run validates sources and reports expected actions without activating a database.
+store.init creates a new project-local store only when no database exists. It validates and preserves an existing config.toml, or creates the generic default configuration when absent. It refuses to initialize over legacy Markdown task files or index.json; use store.migrate for those projects. A repeated or concurrent initialization that loses the no-clobber database activation returns store_already_initialized. The CLI may generate a project ID when --project-id is omitted; JSON API callers must supply project_id in the request envelope.
+
+store.migrate is non-destructive. It refuses to overwrite an existing database. A dry run validates sources and reports expected actions without activating a database.
 
 store.snapshot uses SQLite Online Backup API. It is rejected while any task lock is active so a client cannot use a snapshot to bypass task read exclusion. The destination must not resolve to the active database path. Existing destination files are not overwritten unless overwrite=true. The snapshot is reopened and integrity-checked before success is returned.
 
