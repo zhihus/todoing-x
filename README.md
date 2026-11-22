@@ -78,6 +78,12 @@ Physical deletion is disabled. The legacy `delete` command remains recognized bu
 
 `reindex` is a compatibility no-op that verifies SQLite integrity. `ls --scan` is deprecated in SQLite mode.
 
+## Archive and restore
+
+Archiving is an explicit operation independent of workflow status and completion/cancellation. Archived tasks are hidden from the default list, remain inspectable by ID, and retain their history, versions, dependencies, labels, and Git commit references. They are read-only until restored; no automatic archival or physical deletion is performed.
+
+Use `todoing ls --archived` to inspect the archive, `todoing archive <id>` to archive a task, and `todoing restore <id>` to return it to the active list. Archive and restore respect task-lock ownership; archiving does not release an existing lock.
+
 ## Actor attribution and locks
 
 Task history records an actor. Set it globally with `--actor` or `TODOING_ACTOR_ID`; the default CLI actor is `cli-user`.
