@@ -614,7 +614,7 @@ fn run_legacy(cli: Cli) {
         Some(Commands::InternalHook(args)) => run_internal_hook(&args.name).unwrap_or_else(|e| fail(e)),
         Some(Commands::Api) => todoing::api::run(),
         Some(Commands::Init(_)) => fail("The init command requires the SQLite initialization path."),
-        Some(Commands::Archive(_) | Some(Commands::Restore(_)) => {
+        Some(Commands::Archive(_)) | Some(Commands::Restore(_)) => {
             cli_failure(json, "invalid_request", 2, "Archive and restore require the SQLite store. Run 'todoing migrate --project-id <id>' first.", false);
         },
         Some(Commands::Version(_)) |
