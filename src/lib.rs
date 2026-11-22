@@ -1,5 +1,6 @@
 pub mod api;
 pub mod migration;
+pub mod initialization;
 pub mod config;
 pub mod domain;
 pub mod storage;
