@@ -518,7 +518,7 @@ fn init_preserves_valid_config_and_rejects_invalid_config() {
     let config_dir = dir.path().join(".todoing");
     fs::create_dir_all(&config_dir).unwrap();
     let config_path = config_dir.join("config.toml");
-    let source = "format_version = 1\n\n[[statuses]]\nid = \\\"todo\\\"\nlabel = \\\"To Do\\\"\nenabled = true\n";
+    let source = "format_version = 1\n\n[[statuses]]\nid = \"todo\"\nlabel = \"To Do\"\nenabled = true\n";
     fs::write(&config_path, source).unwrap();
     let initialized = run(dir.path(), &["init", "--project-id", "custom-project"]);
     assert!(initialized.status.success(), "{}", String::from_utf8_lossy(&initialized.stderr));
