@@ -1,180 +1,136 @@
 ---
 name: todoing
-description: Use the `todoing` CLI for local task management. Track, list, search, and update tasks stored as Markdown files in `.todoing/tasks/`. Use this whenever the user asks to manage work items, track tasks, list to-dos, or mentions todoing in the context of task tracking.
+description: Use the Todoing CLI for local project-scoped task management. Todoing stores task state, history, versions, dependencies, and locks in a SQLite database; use its CLI or JSON API rather than editing store files directly.
 ---
 
 # todoing
 
-`todoing` is a local CLI task manager. Tasks live in `.todoing/tasks/{id}.md`, with a rebuildable JSON index at `.todoing/index.json`. Everything is Git-trackable plain text; there are no databases or servers.
+Todoing is a local-first Rust task manager. Each project has its own SQLite store under .todoing/todoing.db. The CLI is the primary human/agent interface; JSON API v1 is the stable machine interface.
 
-Run commands from the repository root so the correct `.todoing/` directory is used. It is created automatically when needed.
+## Initialize or migrate a project
 
-## Statuses
-
-| Key | Meaning |
-|---|---|
-| `todo` | Not yet started |
-| `in_progress` | Being worked on |
-| `done` | Completed |
-| `cancelled` | No longer needed |
-
-IDs are sequential integers. `#1` and `1` are equivalent.
-
-## Standard hook setup
-
-Before the first task-management operation in each project, run:
+For a new project with no legacy task data:
 
 ```bash
-todoing hooks status --json
+todoing init
+todoing init --project-id my-project
 ```
 
-If the JSON field `agent_action` is `ask_user_before_install`, explain only the missing checks and ask the user whether to install Git, OpenSpec, both, or neither:
-- Git checks that the task has linked commits and that every linked commit exists in the current repository.
-- OpenSpec checks that all checklist items in active changes are complete.
+The project ID is generated when omitted. When called by Manifest, use the stable project ID supplied by Manifest.
 
-Do not install anything until the user explicitly approves. Install only the selected checks:
+For a project that already has legacy Markdown tasks, validate and migrate them instead of initializing an empty store:
 
 ```bash
-todoing hooks install git
-todoing hooks install openspec
-todoing hooks install all
+todoing migrate --project-id my-project --dry-run
+todoing migrate --project-id my-project
 ```
 
-If the user declines, continue without those checks and do not ask again during the same conversation unless the user reopens the decision. Existing hook files are never overwritten by installation. A missing hook is intentionally disabled. Do not recreate a removed hook unless the user asks to enable it.
+Migration preserves legacy source files and imports task IDs, content, statuses/outcomes, labels, commit references, and creation timestamps. Do not run init when .todoing/tasks/*.md or .todoing/index.json contains legacy task data; init deliberately refuses this case.
 
-## Commands
+## Store and configuration
 
-### Create a task
+- .todoing/todoing.db is the source of truth for task state, versions, history, dependencies, and locks.
+- .todoing/config.toml contains user-controlled status definitions, transitions, and lock settings.
+- Existing config.toml is validated and preserved by init; it is not silently replaced.
+- Status IDs and transitions are project-configurable. Inspect the project configuration rather than assuming a fixed workflow.
+- Physical task deletion is not supported. Use cancel for a terminal outcome or archive to hide a task from the active list. Archive and completion are separate concepts.
+- Archived tasks retain history and relationships and can be restored.
+
+## Common commands
+
+### Create and inspect
 
 ```bash
 todoing add "Set up CI pipeline"
-todoing add "Fix API bug" -l bug -s in_progress -b "Reproduce the failure."
-```
-
-Options: repeatable `-l, --label`, `-s, --status` (default `todo`), and `-b, --body`.
-
-Creation validation rejects an empty title or empty labels. The optional `.todoing/hooks/on-create` hook runs before the task is saved.
-
-### List and search
-
-```bash
+todoing add "Fix API bug" -s in_progress -l bug -b "Reproduce the failure."
 todoing ls
-todoing ls -n 5
+todoing ls -n 10
 todoing ls -s in_progress
-todoing ls -l bug -l backend
+todoing ls -l backend
 todoing ls -q "connection timeout"
-todoing ls -r
-todoing ls --scan
-```
-
-- `-n, --limit`: number of newest tasks; `0` means all.
-- `-s, --status`: filter by status.
-- `-l, --label`: repeatable; all requested labels must match (AND).
-- `-q, --query`: case-insensitive search in title, body, labels, and status.
-- `-r, --reverse`: oldest first.
-- `--scan`: rebuild the index from Markdown files before listing.
-
-### Inspect and edit
-
-```bash
 todoing see 3
-todoing body 3 "Replace the description."
-todoing append 3 "Add another progress note."
-todoing edit 3
-todoing status 3 in_progress
-todoing label 3 +bug -- -obsolete
-todoing label 3 +urgent --clear
-todoing delete 3 --force
-todoing reindex
-todoing version
 ```
 
-Use `body` to replace the description and `append` to add a paragraph. `edit` opens the task file in `$EDITOR`; in non-interactive agent workflows, use `body`/`append` instead. Label operations use `+label` to add and `-label` to remove; put `--` before removal operations when required by the CLI parser.
-
-### Link Git commits
+### Update task content and metadata
 
 ```bash
+todoing body 3 "Replace the description."
+todoing append 3 "Record the next progress update."
+todoing status 3 in_progress
+todoing label 3 +bug
 todoing commit 3 HEAD
-todoing commit 3 a1b2c3d
 ```
 
-The supplied revision is resolved to a full commit SHA and stored with the task. The original Python implementation does not preserve this added metadata. Any Python command that writes `index.json` drops commit references from the index for all tasks; run `todoing reindex` with Rust to restore references from Markdown. If Python rewrites a task with linked commits, it also removes those references from that task file permanently. Use the Rust CLI whenever commit links are in use.
+Commit references are resolved to full Git commit SHAs and stored as traceability metadata. A commit link is not proof that a task is complete.
 
-## AI-agent interface
+### Completion, cancellation, and archive
 
-Use `--json` before or after a command for machine-readable output:
+```bash
+todoing complete 3
+todoing cancel 4 --reason "No longer needed"
+todoing reopen 4
+todoing archive 5
+todoing ls --archived
+todoing restore 5
+```
+
+Completion/cancellation outcomes are distinct from workflow status. Archiving does not change status or outcome. Physical deletion is rejected.
+
+### Dependencies, history, and versions
+
+```bash
+todoing depends add 6 4
+todoing depends list 6
+todoing history 3
+todoing version 3
+```
+
+Dependencies are project-local. Todoing rejects self-dependencies and dependency cycles. Successful task saves create immutable versions and append-only operation history.
+
+### Exclusive locks
+
+```bash
+todoing lock acquire 3
+```
+
+The result includes an owner ID, secret lock token, and fencing generation. Keep the token secret and set TODOING_LOCK_TOKEN for owner operations; never put it in command-line arguments, task content, or Git. Heartbeat, release, and recovery require the owner ID and fencing generation. Non-owner reads and writes of a locked task are rejected; list/search omits locked tasks.
+
+## JSON interface
+
+Use --json for machine-readable CLI output. API v1 processes one JSON request per invocation:
 
 ```bash
 todoing --json ls
-todoing ls --json -s in_progress
-todoing --json see 3
-todoing --json add "Implement validation"
+printf '%s\\n' '{"api_version":1,"project_id":"my-project","actor_id":"agent","operation":"task.list","args":{}}' | todoing api
 ```
 
-JSON is written to stdout; errors are written to stderr.
+Every API request includes api_version, project_id, actor_id, operation, and args. request_id is optional and echoed unchanged. The supplied project_id must match the store metadata.
 
-## Completion checks and hooks
+Manifest initializes a project store with the stable ID it owns:
 
-Completion checks are optional hooks stored in `.todoing/hooks/`. Standard Git and OpenSpec hooks are bundled with Todoing but must be installed with the user's approval:
-- `before-done-git`: requires at least one linked Git commit and verifies that every linked SHA exists in the current repository.
-- `before-done-openspec`: checks that all checklist items in active `openspec/changes/*/tasks.md` files are complete; `openspec/changes/archive/` is ignored.
-- `before-done`: additional project-specific completion check.
-- `on-create`: receives a new task as JSON on stdin before it is saved.
-
-Each completion hook runs only if its file exists. Omit or remove a hook to disable that check. Hooks run in this order: `before-done-git`, `before-done-openspec`, `before-done`. They run both for `status <id> done` and for task creation with `--status done`.
-
-Exit code 0 allows the operation; a non-zero exit code rejects it. On Unix, use executable files named exactly as the hook names. On Windows, use `.cmd` or `.bat` files.
-
-## Common workflows for AI agents
-
-### Start working on a task
-
-```bash
-todoing status 3 in_progress
-todoing append 3 "Starting work: investigating the issue."
+```json
+{"api_version":1,"project_id":"my-project","actor_id":"manifest","operation":"store.init","args":{}}
 ```
 
-### Log progress
+Todoing validates and preserves project configuration, creates the store without overwriting an existing database, and returns the initialized project ID and schema version. A repeated initialization returns store_already_initialized.
 
-```bash
-todoing append 3 "Fixed the race condition in the connection pool."
-```
+## Completion policy and hooks
 
-### Complete a task
+Todoing core does not enforce Manifest or OpenSpec workflow policy. The SQLite backend does not execute the legacy Markdown completion hooks. Manifest is responsible for orchestration, OpenSpec checks, Git policy, user approval, and cross-component consistency.
 
-```bash
-todoing append 3 "Implementation complete; all required checks pass."
-todoing commit 3 HEAD
-todoing status 3 done
-```
+The bundled hooks commands and scripts belong to the legacy Markdown workflow. Do not rely on them as SQLite task-completion gates.
 
-The final status transition is allowed only after configured completion hooks pass.
+## Agent operating rules
 
-### Check what needs attention
-
-```bash
-todoing ls -s todo -n 10
-todoing ls -s in_progress
-todoing ls -l p0
-```
-
-### Create and search
-
-```bash
-todoing add "Refactor auth module" -l enhancement -s in_progress -b "Current approach is brittle."
-todoing ls -q "auth"
-```
-
-## AI-agent usage
-
-- Use the CLI rather than reading `.todoing/` files directly. Read files directly only to diagnose a broken store or CLI.
-- Avoid `todoing edit` in non-interactive agent workflows; use `body` and `append`.
-- Use `--force` with `delete` to avoid an interactive prompt.
-- The task body is full Markdown. Use it for plans, research notes, links, logs, and handoff context.
-- Record progress in the task body so another agent can resume the work.
-- Do not mark a task done until its work is complete and all configured completion hooks pass.
-- If the index is missing or inconsistent, use `todoing reindex`.
+- Run commands from the project root so Todoing resolves the correct project-local store.
+- Use the CLI or JSON API; do not edit SQLite files directly.
+- Inspect the configured statuses before changing task status.
+- Use a lock for the full duration of an agent work session when exclusive ownership is required.
+- Record meaningful progress in the task body using append.
+- Do not mark a task complete until the work and the consuming workflow's checks are complete.
+- Use verify to check store integrity and snapshot to create a verified SQLite backup.
+- Use todoing migrate for legacy Markdown projects; do not use init to replace existing task data.
 
 ## Self-dogfooding
 
-Todoing tracks its own development. When working in the todoing repository, run `todoing ls -n 5` to inspect the latest tasks before starting work.
+When working in the todoing-x repository, inspect the project's tasks with todoing ls before starting work.
