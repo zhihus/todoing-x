@@ -1,5 +1,9 @@
 # Project store initialization
 
+## Purpose
+
+Define safe initialization of a project-local Todoing SQLite store through the CLI and JSON API, without overwriting existing configuration, databases, or legacy task data.
+
 ## Requirements
 
 ### Requirement: Explicit project store initialization
