@@ -51,6 +51,9 @@ todoing ls -n 5
 todoing ls -s in_progress
 todoing ls -l backend
 todoing ls -q auth
+todoing ls --archived
+todoing archive 4
+todoing restore 4
 todoing see 4
 todoing edit 4
 todoing status 4 in_progress
