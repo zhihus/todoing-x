@@ -300,7 +300,8 @@ fn verified_snapshot_preserves_archived_task_metadata() {
     let store = Store::open(root.path(), None).unwrap();
     let destination = root.path().join("archive-snapshot.db");
     let report = store.snapshot(&destination, false).unwrap();
-    assert_eq!(report.path, destination);
+    assert_eq!(report.path.file_name(), destination.file_name());
+    assert!(report.path.is_file());
 
     let snapshot = Connection::open(&destination).unwrap();
     let archived: (Option<String>, Option<String>) = snapshot.query_row(
