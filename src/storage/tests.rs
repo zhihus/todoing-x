@@ -79,7 +79,7 @@ fn verify_reports_integrity_and_schema_version() {
 
     assert_eq!(report.integrity_check, "ok");
     assert_eq!(report.foreign_key_violations, 0);
-    assert_eq!(report.schema_version, 1);
+    assert_eq!(report.schema_version, 2);
 }
 
 #[test]
