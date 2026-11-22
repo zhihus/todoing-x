@@ -159,6 +159,34 @@ mod tests {
     }
 
     #[test]
+    fn concurrent_initializers_activate_exactly_one_project_store() {
+        let root = tempdir().unwrap();
+        let root_a = root.path().to_path_buf();
+        let root_b = root.path().to_path_buf();
+
+        let first = std::thread::spawn(move || {
+            initialize(&root_a, Some(ProjectId::new("project-a").unwrap()))
+                .map(|report| report.project_id)
+                .map_err(|error| error.to_string())
+        });
+        let second = std::thread::spawn(move || {
+            initialize(&root_b, Some(ProjectId::new("project-b").unwrap()))
+                .map(|report| report.project_id)
+                .map_err(|error| error.to_string())
+        });
+
+        let results = [first.join().unwrap(), second.join().unwrap()];
+        let successes: Vec<_> = results.iter().filter_map(|result| result.as_ref().ok()).collect();
+        let failures: Vec<_> = results.iter().filter_map(|result| result.as_ref().err()).collect();
+        assert_eq!(successes.len(), 1);
+        assert_eq!(failures.len(), 1);
+        assert!(failures[0].contains("already exists"));
+
+        let actual = Store::open(root.path(), None).unwrap();
+        assert_eq!(actual.project_id().as_str(), successes[0].as_str());
+    }
+
+    #[test]
     fn legacy_markdown_tasks_require_migration() {
         let root = tempdir().unwrap();
         let tasks = root.path().join(TODOING_DIR).join("tasks");
