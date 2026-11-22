@@ -32,6 +32,7 @@
     "operation": {
       "type": "string",
       "enum": [
+        "store.init",
         "store.info",
         "store.verify",
         "store.migrate",
