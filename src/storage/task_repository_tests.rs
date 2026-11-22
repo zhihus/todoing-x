@@ -287,3 +287,27 @@ fn concurrent_archive_requests_are_serialized_and_versioned_once() {
     assert_eq!(repository.get_history(task.id).unwrap().iter()
         .filter(|event| event.operation == "task.archive").count(), 2);
 }
+
+
+#[test]
+fn verified_snapshot_preserves_archived_task_metadata() {
+    use rusqlite::Connection;
+
+    let (root, repository) = repository();
+    let task = repository.create(new_task("snapshot archive"), &actor()).unwrap();
+    repository.archive(task.id, &actor()).unwrap();
+
+    let store = Store::open(root.path(), None).unwrap();
+    let destination = root.path().join("archive-snapshot.db");
+    let report = store.snapshot(&destination, false).unwrap();
+    assert_eq!(report.path, destination);
+
+    let snapshot = Connection::open(&destination).unwrap();
+    let archived: (Option<String>, Option<String>) = snapshot.query_row(
+        "SELECT archived_at, archived_by FROM tasks WHERE task_id = ?1",
+        [task.id.get()],
+        |row| Ok((row.get(0)?, row.get(1)?)),
+    ).unwrap();
+    assert!(archived.0.is_some());
+    assert_eq!(archived.1.as_deref(), Some("agent:repository-tests"));
+}
