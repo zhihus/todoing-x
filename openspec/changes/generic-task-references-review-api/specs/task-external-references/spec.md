@@ -10,7 +10,7 @@ store these values without interpreting consumer-specific meaning.
 
 #### Scenario: Add an external reference
 
-- **WHEN** a client adds a valid external reference to an unlocked task while holding its lock
+- **WHEN** a client adds a valid external reference to a task while holding its active lock
 - **THEN** the reference is returned by the task reference list
 - **AND** the task version and operation history record the change atomically
 
