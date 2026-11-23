@@ -65,11 +65,13 @@ counter and review history visible at that version.
 Add nullable `final_commit_sha` task metadata. `task.commit.finalize` resolves a
 Git revision using the existing repository resolution rules and stores the full
 SHA. The first successful assignment creates a task version and history event.
-Repeating the same SHA is a no-op. A different SHA when one is already set is
-rejected; no implicit replacement or clear operation is provided.
+Repeating the same SHA is a no-op. A different SHA may replace the current marker
+only after the task has been explicitly reopened; the previous value remains in
+immutable versions and history. No clear operation is provided.
 
-The operation requires the current task lock. The final marker is traceability
-metadata and does not change task outcome or workflow status.
+The operation requires the current task lock. A terminal task must be reopened
+before the marker can be changed. The final marker is traceability metadata and
+does not change task outcome or workflow status.
 
 ## API and errors
 
