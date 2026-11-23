@@ -25,7 +25,7 @@
 
 - [ ] 4.1 Implement external-reference add/list/remove with lock enforcement and atomic history/version writes.
 - [ ] 4.2 Implement Review add/list with exact idempotency, version binding, and atomic revision_count update.
-- [ ] 4.3 Implement final commit marker assignment with Git SHA resolution and conflict handling.
+- [ ] 4.3 Implement final commit marker assignment with Git SHA resolution and replacement-after-reopen handling.
 
 ## 5. JSON API and documentation
 
