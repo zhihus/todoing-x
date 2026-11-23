@@ -34,7 +34,7 @@ revision to a full SHA and return the final commit marker.
 
 ### Requirement: Return stable extension error codes
 
-The API MUST return stable error codes for external-reference conflicts and
-missing references, Review ID conflicts, and missing reviewed versions.
+The API MUST return the stable codes external_ref_conflict, external_ref_not_found,
+review_id_conflict, and review_version_not_found for the corresponding failures.
 Final-commit mutation on a terminal task MUST use the existing task_terminal error.
-The response schema MUST enumerate any new extension codes.
+The response schema MUST enumerate all extension codes.
