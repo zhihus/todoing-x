@@ -62,7 +62,8 @@ Snapshot and migration tests must cover the new schema.
 
 - External references are generic: Todoing stores `namespace`, `value`, and
   `relation`, but does not interpret them.
-- An active `namespace + value` pair is unique within one project store.
+- An active `namespace + value` pair is unique within one project store. Identical
+  add/remove retries are idempotent.
 - Review records contain `review_id`, reviewed version, reviewer label, outcome,
   comments, actor attribution, and timestamp.
 - Same `review_id` plus identical payload is an idempotent no-op; a different
