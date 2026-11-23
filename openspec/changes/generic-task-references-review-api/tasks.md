@@ -8,7 +8,7 @@
 
 ## 2. Tests first
 
-- [ ] 2.1 Add storage tests for external-reference add/list/remove, uniqueness, no-op, and lock exclusion.
+- [ ] 2.1 Add storage tests for external-reference add/list/remove, task/project uniqueness scopes, no-op, and lock exclusion.
 - [ ] 2.2 Add storage tests for Review records, version binding, idempotency, and conflicting review_id payloads.
 - [ ] 2.3 Add tests proving revision_count increments once per changes_requested record and never for approved/no-op.
 - [ ] 2.4 Add tests for final commit resolution, repeated same SHA, replacement after reopen, and rejection before reopen.
