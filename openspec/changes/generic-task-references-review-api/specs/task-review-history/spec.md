@@ -40,8 +40,14 @@ The system MUST enforce uniqueness of review_id within a task.
 #### Scenario: Reject a conflicting review request
 
 - **WHEN** a client reuses a review_id with a different payload
-- **THEN** the operation is rejected with a stable conflict error
+- **THEN** the operation is rejected with review_id_conflict
 - **AND** task state, history, and review records remain unchanged
+
+#### Scenario: Reject a missing reviewed version
+
+- **WHEN** a lock owner submits a Review record for a version that does not exist
+- **THEN** the operation is rejected with review_version_not_found
+- **AND** no Review record, task version, or counter increment is committed
 
 ### Requirement: Protect review history under locks
 
