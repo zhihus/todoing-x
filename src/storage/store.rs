@@ -12,10 +12,11 @@ use std::{
 };
 use tempfile::NamedTempFile;
 
-const SCHEMA_VERSION: u32 = 2;
+const SCHEMA_VERSION: u32 = 3;
 const BUSY_TIMEOUT: Duration = Duration::from_secs(10);
 const INITIAL_SCHEMA: &str = include_str!("../../migrations/0001_initial.sql");
 const ARCHIVE_SCHEMA: &str = include_str!("../../migrations/0002_task_archive.sql");
+const EXTENSIONS_SCHEMA: &str = include_str!("../../migrations/0003_task_references_reviews.sql");
 const REQUIRED_SCHEMA_OBJECTS: &[(&str, &str)] = &[
     ("table", "schema_migrations"),
     ("table", "store_metadata"),
@@ -27,6 +28,8 @@ const REQUIRED_SCHEMA_OBJECTS: &[(&str, &str)] = &[
     ("table", "task_baselines"),
     ("table", "operation_history"),
     ("table", "task_locks"),
+    ("table", "task_external_references"),
+    ("table", "task_reviews"),
     ("index", "idx_tasks_status"),
     ("index", "idx_task_labels_key"),
     ("index", "idx_task_commit_refs_sha"),
@@ -37,6 +40,10 @@ const REQUIRED_SCHEMA_OBJECTS: &[(&str, &str)] = &[
     ("index", "idx_dependencies_reverse"),
     ("index", "idx_locks_state_expiry"),
     ("index", "idx_tasks_archive"),
+    ("index", "idx_external_ref_task_active"),
+    ("index", "idx_external_ref_project_active"),
+    ("index", "idx_external_ref_task_history"),
+    ("index", "idx_task_reviews_task_record"),
     ("trigger", "tasks_no_delete"),
     ("trigger", "task_versions_no_update"),
     ("trigger", "task_versions_no_delete"),
@@ -45,6 +52,8 @@ const REQUIRED_SCHEMA_OBJECTS: &[(&str, &str)] = &[
     ("trigger", "task_locks_no_delete"),
     ("trigger", "tasks_archive_metadata_insert"),
     ("trigger", "tasks_archive_metadata_update"),
+    ("trigger", "task_reviews_no_update"),
+    ("trigger", "task_reviews_no_delete"),
 ];
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -114,6 +123,15 @@ impl Store {
         connection.execute(
             "INSERT INTO schema_migrations(version, checksum, applied_at) VALUES (2, ?1, ?2)",
             params![archive_schema_checksum(), created_at],
+        )?;
+        connection.execute_batch(EXTENSIONS_SCHEMA)?;
+        connection.execute(
+            "UPDATE store_metadata SET value = ?1 WHERE key = 'schema_version'",
+            params![SCHEMA_VERSION.to_string()],
+        )?;
+        connection.execute(
+            "INSERT INTO schema_migrations(version, checksum, applied_at) VALUES (3, ?1, ?2)",
+            params![extensions_schema_checksum(), created_at],
         )?;
         connection.execute_batch("COMMIT;")?;
         drop(connection);
@@ -448,6 +466,28 @@ fn migrate_schema(connection: &mut Connection) -> Result<(), StoreError> {
         transaction.commit()?;
     }
 
+    if version <= 2 {
+        let transaction = connection.transaction_with_behavior(TransactionBehavior::Exclusive)?;
+        let locked_version = metadata_value(&transaction, "schema_version")?
+            .parse::<u32>()
+            .map_err(|_| StoreError::InvalidMetadata("schema_version".into()))?;
+        if locked_version == 2 {
+            verify_migration_checksum(&transaction, 2, archive_schema_checksum())?;
+            transaction.execute_batch(EXTENSIONS_SCHEMA)?;
+            transaction.execute(
+                "UPDATE store_metadata SET value = '3' WHERE key = 'schema_version'",
+                [],
+            )?;
+            transaction.execute(
+                "INSERT INTO schema_migrations(version, checksum, applied_at) VALUES (3, ?1, ?2)",
+                params![extensions_schema_checksum(), Utc::now().to_rfc3339_opts(SecondsFormat::Micros, true)],
+            )?;
+        } else if locked_version > SCHEMA_VERSION {
+            return Err(StoreError::UnsupportedSchemaVersion(locked_version));
+        }
+        transaction.commit()?;
+    }
+
     validate_schema(connection)
 }
 
@@ -492,6 +532,7 @@ fn validate_schema(connection: &Connection) -> Result<(), StoreError> {
     }
     verify_migration_checksum(connection, 1, initial_schema_checksum())?;
     verify_migration_checksum(connection, 2, archive_schema_checksum())?;
+    verify_migration_checksum(connection, 3, extensions_schema_checksum())?;
     Ok(())
 }
 
@@ -501,4 +542,8 @@ fn initial_schema_checksum() -> String {
 
 fn archive_schema_checksum() -> String {
     hex::encode(Sha256::digest(ARCHIVE_SCHEMA.as_bytes()))
+}
+
+fn extensions_schema_checksum() -> String {
+    hex::encode(Sha256::digest(EXTENSIONS_SCHEMA.as_bytes()))
 }
