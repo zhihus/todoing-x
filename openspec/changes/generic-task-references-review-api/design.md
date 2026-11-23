@@ -19,16 +19,19 @@ Add a task-scoped external-reference model with:
 - namespace (consumer-defined, non-empty bounded string);
 - value (non-empty bounded string);
 - relation (consumer-defined, non-empty bounded string);
+- scope: `task` or `project` (default `task`);
 - creation timestamp;
 - active/removal state.
 
-A partial unique index enforces one active row per `namespace + value` in a
-project store. Todoing does not interpret namespace or relation. Removal marks a
-reference inactive rather than erasing its history. Every add/remove operation is
+Task scope enforces one active row per `(task_id, namespace, value)`. Project scope
+enforces one active row per `(namespace, value)` across the project store and
+conflicts with any other active reference using that pair. The checks must be
+transactionally safe under concurrent writers. Todoing does not interpret namespace
+or relation. Removal marks a reference inactive rather than erasing its history. Every add/remove operation is
 recorded in operation history and reflected in the new task version snapshot.
 Adding an already-active identical reference is a no-op. Removing an already
 inactive reference is also a no-op; an unknown reference ID returns a stable
-not-found error. Reusing an active namespace/value pair with a different relation
+not-found error. Reusing an active namespace/value pair with a different relation on the same task
 is a conflict.
 
 The API returns active references by default. Historical task versions retain the
