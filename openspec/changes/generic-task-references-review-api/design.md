@@ -90,7 +90,7 @@ Add operations:
 Request/response schemas and operation documentation must define exact required
 fields, bounds, pagination, no-op responses, and stable error codes. Error cases
 must distinguish duplicate external-reference conflicts, review-ID payload
-conflicts, missing reviewed versions, and conflicting final commit assignment.
+conflicts, missing reviewed versions, and unknown external-reference IDs.
 
 All task-specific operations must enforce existing lock ownership. A non-owner
 must not learn protected task/reference/review data.
