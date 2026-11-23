@@ -1,5 +1,8 @@
 # Generic task references, review history, and final commit marker
 
+**Status:** draft; no implementation changes or tests have been executed.
+
+
 ## Why
 
 The current JSON API v1 provides task versions, operation history, dependencies,
@@ -77,6 +80,13 @@ Snapshot and migration tests must cover the new schema.
 - Adding/removing external references, adding Review records, and setting the final
   commit marker require the current task lock and create a version/history event
   atomically when state changes.
+
+## Open Questions
+
+- Exact maximum lengths for namespace, value, relation, review_id, reviewer, and comments.
+- Default and maximum page sizes for Review history pagination.
+- Final API error-code names and whether additive operations remain under API v1.
+- Migration rollback/recovery behavior if migration v3 fails midway.
 
 ## Verification
 
