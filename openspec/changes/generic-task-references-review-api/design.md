@@ -123,13 +123,13 @@ and migration checksum mismatch.
 
 Write tests before implementation for:
 
-- valid add/list/remove and external-reference uniqueness;
+- valid add/list/remove, task/project uniqueness scopes, and external-reference no-op behavior;
 - lock owner and non-owner access;
 - reference no-op and historical snapshot behavior;
 - Review version binding and outcomes;
 - exact idempotency and conflicting duplicate review IDs;
 - revision-count increments once per Review record;
-- final commit resolution, no-op, and conflicting replacement;
+- final commit resolution, no-op, replacement after reopen, and rejection before reopen;
 - transaction rollback at each mutation boundary;
 - schema v2 to v3 migration with existing data;
 - snapshot/verify round-trip;
