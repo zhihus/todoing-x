@@ -14,7 +14,7 @@ harness.
 ## What Changes
 
 - Add typed, project-local external references to tasks with add/list/remove API
-  operations and uniqueness for active `namespace + value` pairs.
+  operations and configurable uniqueness scope for active `namespace + value` pairs.
 - Add append-only Review records linked to immutable task versions.
 - Maintain `revision_count` as task metadata, incrementing exactly once for each
   new `changes_requested` Review record.
