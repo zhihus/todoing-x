@@ -8,12 +8,14 @@
 
 ## 2. Tests first
 
-- [ ] 2.1 Add storage tests for external-reference add/list/remove, task/project uniqueness scopes, no-op, and lock exclusion.
-- [ ] 2.2 Add storage tests for Review records, version binding, idempotency, and conflicting review_id payloads.
-- [ ] 2.3 Add tests proving revision_count increments once per changes_requested record and never for approved/no-op.
-- [ ] 2.4 Add tests for final commit resolution, repeated same SHA, replacement after reopen, and rejection before reopen.
-- [ ] 2.5 Add migration tests from schema v2 preserving tasks, versions, history, locks, dependencies, and archive metadata.
-- [ ] 2.6 Add API contract tests for every new operation and stable error response.
+- [ ] 2.1 Add storage tests for task-scoped reference uniqueness and same-task idempotency.
+- [ ] 2.2 Add storage tests for project-scoped uniqueness and cross-scope conflicts.
+- [ ] 2.3 Add storage tests for reference removal, no-op retries, and lock exclusion.
+- [ ] 2.4 Add storage tests for Review records, version binding, idempotency, and conflicting review_id payloads.
+- [ ] 2.5 Add tests proving revision_count increments once per changes_requested record and never for approved/no-op.
+- [ ] 2.6 Add tests for final commit resolution, repeated same SHA, replacement after reopen, and rejection before reopen.
+- [ ] 2.7 Add migration tests from schema v2 preserving tasks, versions, history, locks, dependencies, and archive metadata.
+- [ ] 2.8 Add API contract tests for every new operation and stable error response.
 
 ## 3. Storage and domain implementation
 
