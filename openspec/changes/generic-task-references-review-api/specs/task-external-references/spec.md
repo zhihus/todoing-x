@@ -5,8 +5,9 @@
 ### Requirement: Store generic external references
 
 The system MUST allow a task to store zero or more typed external references. Each
-reference MUST contain a non-empty namespace, value, and relation. Todoing MUST
-store these values without interpreting consumer-specific meaning.
+reference MUST contain a non-empty namespace, value, and relation, plus a scope
+(task or project; default task). Todoing MUST store these values without interpreting
+consumer-specific meaning.
 
 #### Scenario: Add an external reference
 
@@ -16,7 +17,21 @@ store these values without interpreting consumer-specific meaning.
 
 ### Requirement: Enforce active reference uniqueness
 
-An active `namespace + value` pair MUST be unique within one project store.
+With task scope, an active `namespace + value` pair MUST be unique within one task.
+With project scope, the pair MUST be unique across the project store and conflict
+with any other active reference using that pair.
+
+#### Scenario: Enforce task-scope uniqueness
+
+- **WHEN** a client adds the same namespace/value pair to the same task twice
+- **THEN** the second identical add is a no-op
+- **AND** no new task version is created
+
+#### Scenario: Enforce project-scope uniqueness
+
+- **WHEN** a client adds a project-scoped pair already active on another task
+- **THEN** the operation is rejected with external_ref_conflict
+- **AND** neither task is changed
 
 #### Scenario: Treat an identical add as a no-op
 
