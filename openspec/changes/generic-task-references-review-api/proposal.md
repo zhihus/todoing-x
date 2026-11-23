@@ -70,8 +70,9 @@ Snapshot and migration tests must cover the new schema.
 - `revision_count` is persisted in task state and increases once per newly accepted
   `changes_requested` record, regardless of comment count.
 - A Review record does not change workflow status.
-- A task has at most one final commit SHA. Repeating the same SHA is a no-op;
-  replacing a different existing final SHA is rejected.
+- A task has one current final commit SHA. Repeating the same SHA is a no-op;
+  replacing it is allowed only after the task is explicitly reopened. Prior values
+  remain in immutable versions and history.
 - Adding/removing external references, adding Review records, and setting the final
   commit marker require the current task lock and create a version/history event
   atomically when state changes.
