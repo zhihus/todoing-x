@@ -16,9 +16,10 @@ to a full SHA before storing it.
 
 ### Requirement: Make final commit assignment idempotent
 
-Repeating the same final SHA MUST be a no-op. Assigning a different SHA when a
-final marker already exists MUST be rejected; the marker MUST NOT be silently
-replaced or cleared.
+Repeating the same final SHA MUST be a no-op. A different SHA MAY replace the
+current marker only after the task has been explicitly reopened. The previous
+value MUST remain available in immutable task versions and operation history.
+The marker MUST NOT be cleared.
 
 #### Scenario: Repeat the same final SHA
 
@@ -26,8 +27,14 @@ replaced or cleared.
 - **THEN** the current task is returned with no_op=true
 - **AND** no new version is created
 
-#### Scenario: Reject a different final SHA
+#### Scenario: Update the final SHA after reopening
 
-- **WHEN** a client attempts to assign a different final SHA to a task that already has one
-- **THEN** the operation is rejected with a stable conflict error
+- **WHEN** a lock owner reopens a terminal task and assigns a different final SHA
+- **THEN** the current marker is updated
+- **AND** the previous marker remains in the prior immutable task version and history
+
+#### Scenario: Reject final SHA mutation on a terminal task
+
+- **WHEN** a client attempts to change the final SHA without reopening the task
+- **THEN** the operation is rejected with task_terminal
 - **AND** the existing marker remains unchanged
