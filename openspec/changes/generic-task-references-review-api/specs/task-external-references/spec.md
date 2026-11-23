@@ -18,10 +18,16 @@ store these values without interpreting consumer-specific meaning.
 
 An active `namespace + value` pair MUST be unique within one project store.
 
+#### Scenario: Treat an identical add as a no-op
+
+- **WHEN** a lock owner repeats an identical active reference on the same task
+- **THEN** the existing reference is returned with no_op=true
+- **AND** no new task version is created
+
 #### Scenario: Reject a duplicate active reference
 
 - **WHEN** a client adds an active namespace/value pair already attached to another task
-- **THEN** the operation is rejected with a stable conflict error
+- **THEN** the operation is rejected with external_ref_conflict
 - **AND** neither task is changed
 
 ### Requirement: Remove references without erasing history
@@ -35,6 +41,13 @@ were created.
 - **WHEN** the lock owner removes an active reference
 - **THEN** it is no longer returned by the default active-reference list
 - **AND** the task version and operation history record the removal
+
+#### Scenario: Repeat removal or use an unknown reference ID
+
+- **WHEN** a client repeats removal of an inactive reference
+- **THEN** the operation returns no_op=true without a new task version
+- **WHEN** a client supplies an unknown reference ID
+- **THEN** the operation is rejected with external_ref_not_found
 
 ### Requirement: Enforce lock read exclusion
 
