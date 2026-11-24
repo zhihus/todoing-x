@@ -1,7 +1,7 @@
 use crate::{
     config::ProjectConfig,
     domain::{ActorContext, ActorId, ProjectId, StatusId, TaskId},
-    storage::{LockGrant, NewTask, Store, StoreError, TaskRepository},
+    storage::{LockGrant, NewTask, Store, StoreError, Task, TaskRepository},
 };
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::{Value, json};
@@ -369,7 +369,7 @@ fn execute(request: Request, root: &Path) -> Result<Value, ApiError> {
             };
             let task = repository.create(NewTask { title: args.title, status_id: status, outcome: None, body: args.body, labels: args.labels, commit_refs: vec![] }, &actor).map_err(store_error)?;
             let event_id = repository.get_history(task.id).map_err(store_error)?.last().map(|event| event.event_id);
-            Ok(json!({"task": task, "version_no": 1, "event_id": event_id}))
+            Ok(json!({"task": task_value(&repository, &task)?, "version_no": 1, "event_id": event_id}))
         }
         "task.list" => {
             let args: ListArgs = parse_args(request.args).map_err(|error| invalid(error.to_string()))?;
@@ -400,25 +400,14 @@ fn execute(request: Request, root: &Path) -> Result<Value, ApiError> {
             tasks.sort_by_key(|task| task.id);
             if !args.reverse { tasks.reverse(); }
             if let Some(limit) = args.limit { tasks.truncate(limit); }
-            let mut task_values = Vec::with_capacity(tasks.len());
-            for task in tasks {
-                let metadata = repository.extension_metadata(task.id).map_err(store_error)?;
-                let mut value = serde_json::to_value(&task).map_err(|error| ApiError {
-                    code: "internal_error", message: format!("Cannot serialize task: {error}"),
-                    retryable: false, details: json!({})
-                })?;
-                let object = value.as_object_mut().expect("task serializes as an object");
-                object.insert("revision_count".into(), metadata["revision_count"].clone());
-                object.insert("final_commit_sha".into(), metadata["final_commit_sha"].clone());
-                object.insert("external_references".into(), metadata["external_references"].clone());
-                task_values.push(value);
-            }
+            let task_values = tasks.iter().map(|task| task_value(&repository, task))
+                .collect::<Result<Vec<_>, _>>()?;
             Ok(json!({"tasks": task_values}))
         }
         "task.archive" => {
             let args: TaskIdArgs = parse_args(request.args).map_err(|error| invalid(error.to_string()))?;
             let result = repository.archive(id(args.task_id).map_err(|error| invalid(error.to_string()))?, &actor).map_err(store_error)?;
-            Ok(json!({"task": result.task, "no_op": result.no_op}))
+            Ok(json!({"task": task_value(&repository, &result.task)?, "no_op": result.no_op}))
         }
         "task.restore" => {
             let args: TaskIdArgs = parse_args(request.args).map_err(|error| invalid(error.to_string()))?;
@@ -430,16 +419,8 @@ fn execute(request: Request, root: &Path) -> Result<Value, ApiError> {
             let task = repository.get(id(args.task_id).map_err(|error| invalid(error.to_string()))?).map_err(store_error)?;
             let version_no = repository.list_versions(task.id).map_err(store_error)?.last().map(|version| version.version_no).unwrap_or(0);
             let baseline = repository.get_baseline(task.id).map_err(store_error)?;
-            let metadata = repository.extension_metadata(task.id).map_err(store_error)?;
-            let mut task_value = serde_json::to_value(&task).map_err(|error| ApiError {
-                code: "internal_error", message: format!("Cannot serialize task: {error}"),
-                retryable: false, details: json!({})
-            })?;
-            let object = task_value.as_object_mut().expect("task serializes as an object");
-            object.insert("revision_count".into(), metadata["revision_count"].clone());
-            object.insert("final_commit_sha".into(), metadata["final_commit_sha"].clone());
-            object.insert("external_references".into(), metadata["external_references"].clone());
-            Ok(json!({"task": task_value, "version_no": version_no, "baseline_version_no": baseline.map(|value| value.version_no)}))
+            let task = task_value(&repository, &task)?;
+            Ok(json!({"task": task, "version_no": version_no, "baseline_version_no": baseline.map(|value| value.version_no)}))
         }
         "task.update" => {
             let args: UpdateArgs = parse_args(request.args).map_err(|error| invalid(error.to_string()))?;
@@ -449,32 +430,36 @@ fn execute(request: Request, root: &Path) -> Result<Value, ApiError> {
             if let Some(title) = args.patch.title { task.title = title; }
             if let Some(body) = args.patch.body { task.body = body; }
             let updated = repository.update(&task, &actor).map_err(store_error)?;
-            Ok(json!({"task": updated}))
+            Ok(json!({"task": task_value(&repository, &updated)?}))
         }
         "task.status.set" => {
             let args: StatusArgs = parse_args(request.args).map_err(|error| invalid(error.to_string()))?;
             let status = StatusId::new(args.status_id).map_err(|error| invalid(error.to_string()))?;
             let task = repository.set_status(id(args.task_id).map_err(|error| invalid(error.to_string()))?, status, &actor).map_err(store_error)?;
-            Ok(json!({"task": task}))
+            Ok(json!({"task": task_value(&repository, &task)?}))
         }
         "task.complete" => {
             let args: TaskIdArgs = parse_args(request.args).map_err(|error| invalid(error.to_string()))?;
-            Ok(json!({"task": repository.complete(id(args.task_id).map_err(|error| invalid(error.to_string()))?, &actor).map_err(store_error)?}))
+            let task = repository.complete(id(args.task_id).map_err(|error| invalid(error.to_string()))?, &actor).map_err(store_error)?;
+            Ok(json!({"task": task_value(&repository, &task)?}))
         }
         "task.cancel" => {
             let args: CancelArgs = parse_args(request.args).map_err(|error| invalid(error.to_string()))?;
-            Ok(json!({"task": repository.cancel(id(args.task_id).map_err(|error| invalid(error.to_string()))?, args.reason.as_deref().filter(|reason| !reason.is_empty()), &actor).map_err(store_error)?}))
+            let task = repository.cancel(id(args.task_id).map_err(|error| invalid(error.to_string()))?, args.reason.as_deref().filter(|reason| !reason.is_empty()), &actor).map_err(store_error)?;
+            Ok(json!({"task": task_value(&repository, &task)?}))
         }
         "task.reopen" => {
             let args: ReopenArgs = parse_args(request.args).map_err(|error| invalid(error.to_string()))?;
             let target = args.target_status_id.map(StatusId::new).transpose().map_err(|error| invalid(error.to_string()))?;
-            Ok(json!({"task": repository.reopen(id(args.task_id).map_err(|error| invalid(error.to_string()))?, target, &actor).map_err(store_error)?}))
+            let task = repository.reopen(id(args.task_id).map_err(|error| invalid(error.to_string()))?, target, &actor).map_err(store_error)?;
+            Ok(json!({"task": task_value(&repository, &task)?}))
         }
         "task.dependency.add" => {
             let args: DependencyArgs = parse_args(request.args).map_err(|error| invalid(error.to_string()))?;
             let task_id = id(args.task_id).map_err(|error| invalid(error.to_string()))?;
             repository.add_dependency(task_id, id(args.depends_on_task_id).map_err(|error| invalid(error.to_string()))?, &actor).map_err(store_error)?;
-            Ok(json!({"task": repository.get(task_id).map_err(store_error)?}))
+            let task = repository.get(task_id).map_err(store_error)?;
+            Ok(json!({"task": task_value(&repository, &task)?}))
         }
         "task.dependency.remove" => {
             let args: DependencyArgs = parse_args(request.args).map_err(|error| invalid(error.to_string()))?;
@@ -545,7 +530,7 @@ fn execute(request: Request, root: &Path) -> Result<Value, ApiError> {
             }
             let changed = before != task.labels;
             let updated = repository.update(&task, &actor).map_err(store_error)?;
-            Ok(json!({"task": updated, "no_op": !changed}))
+            Ok(json!({"task": task_value(&repository, &updated)?, "no_op": !changed}))
         }
         "task.commit.add" => {
             let args: CommitArgs = parse_args(request.args).map_err(|error| invalid(error.to_string()))?;
@@ -571,7 +556,7 @@ fn execute(request: Request, root: &Path) -> Result<Value, ApiError> {
             }
             let changed = before != task.commit_refs;
             let updated = repository.update(&task, &actor).map_err(store_error)?;
-            Ok(json!({"task": updated, "commit_sha": sha, "no_op": !changed}))
+            Ok(json!({"task": task_value(&repository, &updated)?, "commit_sha": sha, "no_op": !changed}))
         }
         "task.external-ref.add" => {
             let args: ExternalReferenceAddArgs = parse_args(request.args).map_err(invalid)?;
@@ -666,6 +651,20 @@ fn lock_grant_json(grant: &LockGrant) -> Value {
         "heartbeat_at": grant.heartbeat_at,
         "expires_at": grant.expires_at
     })
+}
+
+
+fn task_value(repository: &TaskRepository, task: &Task) -> Result<Value, ApiError> {
+    let metadata = repository.extension_metadata(task.id).map_err(store_error)?;
+    let mut value = serde_json::to_value(task).map_err(|error| ApiError {
+        code: "internal_error", message: format!("Cannot serialize task: {error}"),
+        retryable: false, details: json!({})
+    })?;
+    let object = value.as_object_mut().expect("task serializes as an object");
+    object.insert("revision_count".into(), metadata["revision_count"].clone());
+    object.insert("final_commit_sha".into(), metadata["final_commit_sha"].clone());
+    object.insert("external_references".into(), metadata["external_references"].clone());
+    Ok(value)
 }
 
 fn invalid(message: String) -> ApiError {
