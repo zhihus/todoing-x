@@ -2704,7 +2704,7 @@ impl TaskRepository {
             Ok(value) => Ok(value),
             Err(error) => {
                 let code = extension_error_code(&error);
-                let target = if matches!(error, StoreError::TaskNotFound(_)) { None } else { Some(task_id) };
+                let target = if matches!(&error, StoreError::TaskNotFound(_)) { None } else { Some(task_id) };
                 self.reject_operation(target, actor, "task.external-ref.add", code, Some(requested), error)
             }
         }
@@ -2718,7 +2718,7 @@ impl TaskRepository {
             Ok(value) => Ok(value),
             Err(error) => {
                 let code = extension_error_code(&error);
-                let target = if matches!(error, StoreError::TaskNotFound(_)) { None } else { Some(task_id) };
+                let target = if matches!(&error, StoreError::TaskNotFound(_)) { None } else { Some(task_id) };
                 self.reject_operation(target, actor, "task.external-ref.remove", code, Some(requested), error)
             }
         }
@@ -2734,7 +2734,7 @@ impl TaskRepository {
             Ok(value) => Ok(value),
             Err(error) => {
                 let code = extension_error_code(&error);
-                let target = if matches!(error, StoreError::TaskNotFound(_)) { None } else { Some(task_id) };
+                let target = if matches!(&error, StoreError::TaskNotFound(_)) { None } else { Some(task_id) };
                 self.reject_operation(target, actor, "task.review.add", code, Some(requested), error)
             }
         }
@@ -2748,7 +2748,7 @@ impl TaskRepository {
             Ok(value) => Ok(value),
             Err(error) => {
                 let code = extension_error_code(&error);
-                let target = if matches!(error, StoreError::TaskNotFound(_)) { None } else { Some(task_id) };
+                let target = if matches!(&error, StoreError::TaskNotFound(_)) { None } else { Some(task_id) };
                 self.reject_operation(target, actor, "task.commit.finalize", code, Some(requested), error)
             }
         }
