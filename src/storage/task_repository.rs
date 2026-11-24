@@ -6,7 +6,7 @@ use crate::domain::{ActorContext, ActorId, StatusId, TaskId, TaskOutcome};
 use chrono::{SecondsFormat, Utc};
 use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior, params};
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{Value, json};
 use std::{collections::HashSet, path::Path};
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -1456,7 +1456,7 @@ impl TaskRepository {
             "SELECT EXISTS(SELECT 1 FROM task_versions WHERE task_id = ?1 AND version_no = ?2)",
             params![task_id.get(), version_no], |row| row.get(0)
         )?;
-        if !version_exists { return Err(StoreError::VersionNotFound { task_id: task_id.get(), version_no }); }
+        if !version_exists { return Err(StoreError::InvalidTask("review_version_not_found".into())); }
         let now = now_string();
         let before = snapshot_json(&tx, &task)?;
         tx.execute(
@@ -1513,6 +1513,23 @@ impl TaskRepository {
             return Ok(json!({"task_id": task_id, "final_commit_sha": sha, "no_op": true}));
         }
         if task.outcome.is_some() { return Err(StoreError::TaskTerminal); }
+        if current.is_some() {
+            let last_set: Option<i64> = tx.query_row(
+                "SELECT MAX(event_id) FROM operation_history WHERE task_id = ?1 AND operation = 'task.final_commit.set'",
+                params![task_id.get()], |row| row.get(0)
+            )?;
+            let reopened_after_set: bool = match last_set {
+                Some(event_id) => tx.query_row(
+                    "SELECT EXISTS(SELECT 1 FROM operation_history WHERE task_id = ?1
+                     AND operation = 'task.reopen' AND event_id > ?2)",
+                    params![task_id.get(), event_id], |row| row.get(0)
+                )?,
+                None => false,
+            };
+            if !reopened_after_set {
+                return Err(StoreError::InvalidTask("final_commit_reopen_required".into()));
+            }
+        }
         let now = now_string();
         let before = snapshot_json(&tx, &task)?;
         tx.execute("UPDATE tasks SET final_commit_sha = ?1 WHERE task_id = ?2", params![sha, task_id.get()])?;
