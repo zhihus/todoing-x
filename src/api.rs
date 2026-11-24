@@ -157,6 +157,23 @@ struct CommitArgs { task_id: i64, revision: String }
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
+struct ExternalReferenceAddArgs { task_id: i64, namespace: String, value: String, relation: String, #[serde(default = "default_reference_scope")] scope: String }
+fn default_reference_scope() -> String { "task".into() }
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ExternalReferenceListArgs { task_id: i64, #[serde(default)] include_removed: bool }
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ExternalReferenceRemoveArgs { task_id: i64, reference_id: String }
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ReviewAddArgs { task_id: i64, review_id: String, version_no: i64, reviewer: String, outcome: String, #[serde(default)] comments: Vec<Value> }
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct FinalCommitArgs { task_id: i64, revision: String }
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct CompareArgs { task_id: i64, from_version_no: i64, to_version_no: i64 }
 
 #[derive(Debug, Deserialize)]
@@ -269,6 +286,8 @@ fn execute(request: Request, root: &Path) -> Result<Value, ApiError> {
         "task.version.list", "task.version.get", "task.version.compare",
         "task.version.approve", "task.lock.acquire", "task.lock.heartbeat",
         "task.lock.release", "task.lock.recover",
+        "task.external_reference.add", "task.external_reference.list", "task.external_reference.remove",
+        "task.review.add", "task.review.list", "task.final_commit.set",
     ];
     if !OPERATIONS.contains(&request.operation.as_str()) {
         return Err(invalid(format!("Unknown operation '{}'", request.operation)));
@@ -390,7 +409,8 @@ fn execute(request: Request, root: &Path) -> Result<Value, ApiError> {
             let task = repository.get(id(args.task_id).map_err(|error| invalid(error.to_string()))?).map_err(store_error)?;
             let version_no = repository.list_versions(task.id).map_err(store_error)?.last().map(|version| version.version_no).unwrap_or(0);
             let baseline = repository.get_baseline(task.id).map_err(store_error)?;
-            Ok(json!({"task": task, "version_no": version_no, "baseline_version_no": baseline.map(|value| value.version_no)}))
+            let metadata = repository.extension_metadata(task.id).map_err(store_error)?;
+            Ok(json!({"task": task, "version_no": version_no, "baseline_version_no": baseline.map(|value| value.version_no), "revision_count": metadata["revision_count"], "final_commit_sha": metadata["final_commit_sha"]}))
         }
         "task.update" => {
             let args: UpdateArgs = parse_args(request.args).map_err(|error| invalid(error.to_string()))?;
@@ -523,6 +543,37 @@ fn execute(request: Request, root: &Path) -> Result<Value, ApiError> {
             let changed = before != task.commit_refs;
             let updated = repository.update(&task, &actor).map_err(store_error)?;
             Ok(json!({"task": updated, "commit_sha": sha, "no_op": !changed}))
+        }
+        "task.external_reference.add" => {
+            let args: ExternalReferenceAddArgs = parse_args(request.args).map_err(invalid)?;
+            repository.external_reference_add(id(args.task_id).map_err(invalid)?, &args.namespace, &args.value, &args.relation, &args.scope, &actor).map_err(store_error)
+        }
+        "task.external_reference.list" => {
+            let args: ExternalReferenceListArgs = parse_args(request.args).map_err(invalid)?;
+            repository.external_reference_list(id(args.task_id).map_err(invalid)?, args.include_removed).map_err(store_error)
+        }
+        "task.external_reference.remove" => {
+            let args: ExternalReferenceRemoveArgs = parse_args(request.args).map_err(invalid)?;
+            repository.external_reference_remove(id(args.task_id).map_err(invalid)?, &args.reference_id, &actor).map_err(store_error)
+        }
+        "task.review.add" => {
+            let args: ReviewAddArgs = parse_args(request.args).map_err(invalid)?;
+            repository.review_add(id(args.task_id).map_err(invalid)?, &args.review_id, args.version_no, &args.reviewer, &args.outcome, &args.comments, &actor).map_err(store_error)
+        }
+        "task.review.list" => {
+            let args: TaskIdArgs = parse_args(request.args).map_err(invalid)?;
+            repository.review_list(id(args.task_id).map_err(invalid)?).map_err(store_error)
+        }
+        "task.final_commit.set" => {
+            let args: FinalCommitArgs = parse_args(request.args).map_err(invalid)?;
+            if args.revision.trim().is_empty() { return Err(invalid("revision must not be empty".into())); }
+            let output = Command::new("git").current_dir(root)
+                .args(["rev-parse", "--verify", "--end-of-options"])
+                .arg(format!("{}^{{commit}}", args.revision)).output()
+                .map_err(|e| ApiError { code: "io_error", message: format!("Cannot run git: {e}"), retryable: false, details: json!({}) })?;
+            if !output.status.success() { return Err(invalid(format!("Git revision '{}' does not resolve to a commit", args.revision))); }
+            let sha = String::from_utf8_lossy(&output.stdout).trim().to_ascii_lowercase();
+            repository.set_final_commit(id(args.task_id).map_err(invalid)?, &sha, &actor).map_err(store_error)
         }
         "task.lock.acquire" => {
             let args: LockArgs = parse_args(request.args).map_err(|error| invalid(error.to_string()))?;
