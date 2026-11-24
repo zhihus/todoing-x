@@ -75,7 +75,7 @@ Repeating the same SHA is a no-op. A different SHA may replace the current marke
 only after the task has been explicitly reopened; the previous value remains in
 immutable versions and history. No clear operation is provided.
 
-The operation requires the current task lock. A terminal task must be reopened
+The operation honors active task-lock ownership: an unlocked task may be modified without a token; when locked, only its owner may change the marker. A terminal task must be reopened
 before the marker can be changed. The final marker is traceability metadata and
 does not change task outcome or workflow status.
 
