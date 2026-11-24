@@ -71,7 +71,7 @@ jobs:
           ajv compile --spec=draft2020 -s docs/api/v1/response.schema.json
 
   archive-completed-change:
-    needs: openspec-validation
+    needs: [test, sqlite-lock-spike, openspec-validation]
     if: ${{ github.event_name == 'push' && contains(github.event.head_commit.message, '[archive-openspec]') }}
     runs-on: ubuntu-latest
     permissions:
