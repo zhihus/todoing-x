@@ -326,6 +326,7 @@ fn external_references_are_idempotent_removable_and_versioned() {
         task.id, "openspec.change", "generic-task-api", "implements", "project", &actor()
     ).unwrap();
     assert_eq!(repeated["no_op"], true);
+    assert_eq!(repository.list_versions(task.id).unwrap().len(), 2);
     assert_eq!(repository.external_reference_list(task.id, false).unwrap()["references"].as_array().unwrap().len(), 1);
     let reference_diff = repository.compare_versions(task.id, 1, 2).unwrap();
     assert!(reference_diff.changes.iter().any(|change| change.field == "external_references"));
@@ -351,6 +352,7 @@ fn reviews_are_immutable_idempotent_and_increment_revision_count_once() {
     assert!(review_diff.changes.iter().any(|change| change.field == "revision_count"));
     let retry = repository.review_add(task.id, "review-1", 1, "reviewer-a", "changes_requested", &comments, &actor()).unwrap();
     assert_eq!(retry["no_op"], true);
+    assert_eq!(repository.list_versions(task.id).unwrap().len(), 2);
     assert_eq!(repository.extension_metadata(task.id).unwrap()["revision_count"], 1);
     assert!(repository.review_add(task.id, "review-1", 1, "reviewer-a", "approved", &comments, &actor()).is_err());
     repository.review_add(task.id, "review-2", 1, "reviewer-b", "approved", &[], &actor()).unwrap();
@@ -366,6 +368,7 @@ fn final_commit_replacement_requires_reopen_and_keeps_prior_snapshot() {
     let second = "1123456789abcdef0123456789abcdef01234567";
     assert_eq!(repository.set_final_commit(task.id, first, &actor()).unwrap()["no_op"], false);
     assert_eq!(repository.set_final_commit(task.id, first, &actor()).unwrap()["no_op"], true);
+    assert_eq!(repository.list_versions(task.id).unwrap().len(), 2);
     assert!(repository.set_final_commit(task.id, second, &actor()).is_err());
     repository.complete(task.id, &actor()).unwrap();
     repository.reopen(task.id, None, &actor()).unwrap();
