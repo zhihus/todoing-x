@@ -71,3 +71,19 @@ History, version, and baseline reads MUST obey task lock read exclusion.
 
 - **WHEN** a client other than the lock owner requests a task's history, versions, or baseline
 - **THEN** the request is rejected without disclosing protected task data
+
+### Requirement: Preserve extension metadata in immutable task versions
+
+Task versions MUST snapshot active external references, `revision_count`, and `final_commit_sha`. Review records MUST be append-only and linked to an existing immutable version of the same task. A newly accepted `changes_requested` Review record MUST increment `revision_count` exactly once; an approved record or idempotent retry MUST NOT increment it.
+
+#### Scenario: Compare versions containing extension metadata
+
+- **WHEN** a client compares versions across an external-reference, Review counter, or final-commit change
+- **THEN** the comparison reports the corresponding deterministic field-level differences
+- **AND** historical snapshots remain unchanged
+
+#### Scenario: Reject a conflicting Review retry
+
+- **WHEN** a client reuses a Review ID with a different canonical payload
+- **THEN** the operation is rejected with `review_id_conflict`
+- **AND** no Review record, version, history event, or counter change is committed
