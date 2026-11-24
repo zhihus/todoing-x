@@ -33,11 +33,11 @@
 
 - [x] 5.1 Add API dispatch, argument types, response fields, and error mapping for the new operations.
 - [x] 5.2 Update request/response schemas and the normative operations document.
-- [ ] 5.3 Update consumer contract and current-behavior OpenSpec specs after implementation passes tests.
+- [x] 5.3 Update consumer contract and current-behavior OpenSpec specs after implementation passes tests.
 
 ## 6. Verification
 
 - [x] 6.1 Validate OpenSpec and JSON schemas.
 - [x] 6.2 Run focused tests, full cargo test, and cargo build --release.
 - [x] 6.3 Verify Windows and Linux CI results.
-- [ ] 6.4 Perform an independent code review and reconcile all findings before merge.
+- [x] 6.4 Perform an independent code review and reconcile all findings before merge.
