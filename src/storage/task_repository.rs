@@ -1542,8 +1542,13 @@ impl TaskRepository {
             "SELECT final_commit_sha FROM tasks WHERE task_id = ?1", params![task_id.get()], |row| row.get(0)
         )?;
         if current.as_deref() == Some(sha.as_str()) {
+            let task_version_no: i64 = tx.query_row(
+                "SELECT COALESCE(MAX(version_no), 0) FROM task_versions WHERE task_id = ?1",
+                params![task_id.get()], |row| row.get(0)
+            )?;
             tx.commit()?;
-            return Ok(json!({"task_id": task_id, "final_commit_sha": sha, "no_op": true}));
+            return Ok(json!({"task_id": task_id, "final_commit_sha": sha,
+                "task_version_no": task_version_no, "no_op": true}));
         }
         if task.outcome.is_some() { return Err(StoreError::TaskTerminal); }
         if current.is_some() {
