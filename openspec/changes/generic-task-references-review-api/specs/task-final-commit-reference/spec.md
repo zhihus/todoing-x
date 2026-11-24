@@ -29,7 +29,7 @@ The marker MUST NOT be cleared.
 
 #### Scenario: Update the final SHA after reopening
 
-- **WHEN** a lock owner reopens a terminal task and assigns a different final SHA
+- **WHEN** a client reopens a terminal task and assigns a different final SHA on an unlocked task or while holding its active lock
 - **THEN** the current marker is updated
 - **AND** the previous marker remains in the prior immutable task version and history
 
