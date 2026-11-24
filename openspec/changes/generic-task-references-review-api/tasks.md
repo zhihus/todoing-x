@@ -41,3 +41,10 @@
 - [x] 6.2 Run focused tests, full cargo test, and cargo build --release.
 - [x] 6.3 Verify Windows and Linux CI results.
 - [x] 6.4 Perform an independent code review and reconcile all findings before merge.
+
+## 7. SQLite snapshot verification and restore
+
+- [x] 7.1 Add tests for snapshot verification, checksum mismatch, full-store restore, active-lock refusal, and retained pre-restore safety snapshot.
+- [x] 7.2 Implement `store.snapshot.verify` and `store.snapshot.restore` using SQLite Online Backup API and exclusive locking.
+- [x] 7.3 Add API v1 dispatch, CLI commands, request schema, and operation documentation.
+- [x] 7.4 Run full Linux and Windows CI plus real Manifest/OpenSpec acceptance using the built Todoing binary.
