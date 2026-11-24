@@ -68,7 +68,7 @@ All locked tasks are omitted entirely from list/search results, including their 
 Required:
 - task_id: positive integer.
 
-Result: current task fields, labels, commit references, dependency IDs, current outcome, current version number, and baseline version number if one exists.
+Result: current task fields, labels, commit references, dependency IDs, current outcome, current version number, baseline version number if one exists, revision_count, and final_commit_sha.
 
 A locked task is readable only by its lock owner with a valid lock token. Archived tasks remain readable by ID when not locked, but are omitted from the default task.list result.
 
@@ -158,6 +158,68 @@ Required:
 Todoing resolves the revision to a full commit SHA and stores the SHA. Commit references are traceability metadata, not proof of completion.
 
 Result: updated task and new version when a new reference is added. Re-adding an existing SHA is a no-op.
+
+## 5. External references, Review history, and final commit
+
+### task.external_reference.add
+
+Required:
+- task_id
+- namespace: non-empty string, up to 128 characters.
+- value: non-empty string, up to 512 characters.
+- relation: non-empty string, up to 128 characters.
+
+Optional:
+- scope: task (default) or project.
+
+Requires the task lock. Active namespace/value pairs are unique within a task for task scope and across the project for project scope. An identical active reference on the same task is a no-op. Reusing an active pair with different relation/scope or on another task returns external_ref_conflict. Successful changes create a version and history event atomically.
+
+### task.external_reference.list
+
+Required:
+- task_id.
+
+Optional:
+- include_removed: boolean, default false.
+
+Requires read access under the task lock. Returns references ordered by creation time. Removed references are included only when include_removed=true.
+
+### task.external_reference.remove
+
+Required:
+- task_id
+- reference_id
+
+Requires the task lock. Removal is soft: removed_at and removed_by are retained. Repeated removal is a no-op; an unknown reference_id returns external_ref_not_found. A successful removal creates a task version and history event atomically.
+
+### task.review.add
+
+Required:
+- task_id
+- review_id: stable non-empty ID, up to 128 characters.
+- version_no: existing version number of the same task.
+- reviewer: non-empty reviewer label, up to 256 characters.
+- outcome: approved or changes_requested.
+
+Optional:
+- comments: ordered JSON array, default empty.
+
+Requires the task lock. Review records are append-only and linked to the reviewed immutable version. Repeating review_id with the same canonical payload is a no-op; a different payload returns review_id_conflict. A missing version returns review_version_not_found. Each newly accepted changes_requested review increments revision_count exactly once. Approval does not change workflow status or revision_count. Record, counter, task version, and history event are committed atomically.
+
+### task.review.list
+
+Required:
+- task_id.
+
+Requires read access under the task lock. Returns immutable review records in insertion order.
+
+### task.final_commit.set
+
+Required:
+- task_id
+- revision: Git revision expression resolvable to a commit in the project repository.
+
+Requires the task lock. Todoing resolves the revision to a full Git SHA. Repeating the current SHA is a no-op. Replacing an existing SHA requires the task to have been explicitly reopened after the previous assignment; otherwise final_commit_reopen_required is returned. A terminal task must be reopened before changing the marker. The prior SHA remains in immutable task versions and operation history. The marker cannot be cleared.
 
 ## 5. Dependencies
 
