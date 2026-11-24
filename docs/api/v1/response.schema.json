@@ -82,7 +82,9 @@
                 "external_ref_conflict",
                 "external_ref_not_found",
                 "review_id_conflict",
-                "review_version_not_found"
+                "review_version_not_found",
+                "store_already_initialized",
+                "migration_required"
               ]
             },
             "message": {

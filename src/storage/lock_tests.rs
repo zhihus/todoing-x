@@ -48,6 +48,27 @@ fn active_lock_cannot_be_acquired_by_another_owner() {
 }
 
 #[test]
+fn acquire_reports_expired_lock_and_never_takes_it_over_implicitly() {
+    let (_root, _store, service, clock, task_id) = setup();
+    let first = service.acquire(task_id, "session-a", &actor()).unwrap();
+
+    clock.advance(300_001);
+    assert!(matches!(
+        service.acquire(task_id, "session-b", &actor()),
+        Err(StoreError::LockExpired)
+    ));
+
+    clock.advance(60_000);
+    assert!(matches!(
+        service.acquire(task_id, "session-b", &actor()),
+        Err(StoreError::LockExpired)
+    ));
+
+    let recovered = service.recover(task_id, "session-b", &actor()).unwrap();
+    assert_eq!(recovered.fencing_generation, first.fencing_generation + 1);
+}
+
+#[test]
 fn heartbeat_renews_only_the_current_valid_owner() {
     let (_root, _store, service, clock, task_id) = setup();
     let grant = service.acquire(task_id, "session-a", &actor()).unwrap();
