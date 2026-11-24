@@ -65,3 +65,35 @@ jobs:
         run: |
           ajv compile --spec=draft2020 -s docs/api/v1/request.schema.json
           ajv compile --spec=draft2020 -s docs/api/v1/response.schema.json
+
+  archive-completed-change:
+    needs: openspec-validation
+    if: ${{ github.event_name == 'push' && contains(github.event.head_commit.message, '[archive-openspec]') }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Install OpenSpec CLI
+        run: npm install --global @fission-ai/openspec@1.16.0
+      - name: Archive verified change
+        run: openspec archive generic-task-references-review-api --yes
+      - name: Validate archived specifications
+        run: openspec validate --all
+      - name: Commit archive
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add openspec/specs openspec/changes/archive
+          if git diff --cached --quiet; then
+            echo "No OpenSpec archive changes to commit."
+            exit 0
+          fi
+          git commit -m "chore(openspec): archive generic-task-references-review-api"
+          git push origin "HEAD:${{ github.ref_name }}"
