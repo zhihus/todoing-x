@@ -2781,6 +2781,8 @@ impl TaskRepository {
         for (reference_id, existing_task, existing_relation, existing_scope) in existing {
             if existing_task == task_id.get() {
                 if existing_relation == relation.trim() && existing_scope == scope {
+                    record_extension_noop(&tx, task_id, actor, "task.external-ref.add",
+                        &json!({"reference_id": reference_id, "no_op": true}).to_string())?;
                     tx.commit()?;
                     return Ok(json!({"reference_id": reference_id, "task_id": task_id,
                         "namespace": namespace.trim(), "value": value.trim(),
@@ -2845,6 +2847,8 @@ impl TaskRepository {
         ).optional()?;
         let removed_at = state.ok_or_else(|| StoreError::InvalidTask("external_ref_not_found".into()))?;
         if removed_at.is_some() {
+            record_extension_noop(&tx, task_id, actor, "task.external-ref.remove",
+                &json!({"reference_id": reference_id, "no_op": true}).to_string())?;
             tx.commit()?;
             return Ok(json!({"reference_id": reference_id, "no_op": true}));
         }
@@ -2885,6 +2889,8 @@ impl TaskRepository {
         ).optional()?;
         if let Some((v, r, o, c, a, created_at)) = existing {
             if v == version_no && r == reviewer.trim() && o == outcome && c == comments_json && a == actor.actor_id().as_str() {
+                record_extension_noop(&tx, task_id, actor, "task.review.add",
+                    &json!({"review_id": review_id, "no_op": true}).to_string())?;
                 let revision_count: i64 = tx.query_row(
                     "SELECT revision_count FROM tasks WHERE task_id = ?1", params![task_id.get()], |row| row.get(0)
                 )?;
@@ -2972,6 +2978,8 @@ impl TaskRepository {
             "SELECT final_commit_sha FROM tasks WHERE task_id = ?1", params![task_id.get()], |row| row.get(0)
         )?;
         if current.as_deref() == Some(sha.as_str()) {
+            record_extension_noop(&tx, task_id, actor, "task.commit.finalize",
+                &json!({"final_commit_sha": sha, "no_op": true}).to_string())?;
             let task_version_no: i64 = tx.query_row(
                 "SELECT COALESCE(MAX(version_no), 0) FROM task_versions WHERE task_id = ?1",
                 params![task_id.get()], |row| row.get(0)
@@ -3036,6 +3044,16 @@ impl TaskRepository {
 }
 
 
+
+
+fn record_extension_noop(
+    tx: &Transaction<'_>, task_id: TaskId, actor: &ActorContext,
+    operation: &str, details: &str,
+) -> Result<(), StoreError> {
+    let now = now_string();
+    insert_history(tx, Some(task_id), actor.actor_id().as_str(), &now, operation,
+        None, None, HistoryOutcome::Succeeded, None, Some(details), None)
+}
 
 fn extension_error_code(error: &StoreError) -> &'static str {
     match error {
