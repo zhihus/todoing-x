@@ -1922,7 +1922,11 @@ fn run_sqlite(cli: Cli) {
             cli_success(
                 json_output,
                 serde_json::to_value(&report).unwrap(),
-                format!("Snapshot verified: {} ({})", report.path.display(), report.sha256),
+                format!(
+                    "Snapshot verified: {} ({})",
+                    report.path.display(),
+                    report.sha256
+                ),
             );
         }
         Some(Commands::SnapshotRestore(args)) => {
@@ -1933,7 +1937,10 @@ fn run_sqlite(cli: Cli) {
             cli_success(
                 json_output,
                 serde_json::to_value(&report).unwrap(),
-                format!("Store restored; safety snapshot: {}", report.safety_snapshot.path.display()),
+                format!(
+                    "Store restored; safety snapshot: {}",
+                    report.safety_snapshot.path.display()
+                ),
             );
         }
         Some(Commands::Hooks(args)) => match args.command {

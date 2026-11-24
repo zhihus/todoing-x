@@ -1083,7 +1083,9 @@ fn execute(request: Request, root: &Path) -> Result<Value, ApiError> {
                     || expected.len() != 64
                     || !expected.bytes().all(|byte| byte.is_ascii_hexdigit()))
             {
-                return Err(invalid("expected_sha256 does not match the snapshot".into()));
+                return Err(invalid(
+                    "expected_sha256 does not match the snapshot".into(),
+                ));
             }
             Ok(json!({
                 "snapshot_path": report.path,

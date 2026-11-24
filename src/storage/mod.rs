@@ -18,7 +18,9 @@ mod tests;
 
 pub use error::StoreError;
 pub use lock::{Clock, LockGrant, SystemClock, TaskLockService};
-pub use store::{IntegrityReport, RestoreReport, SnapshotReport, SnapshotVerificationReport, Store};
+pub use store::{
+    IntegrityReport, RestoreReport, SnapshotReport, SnapshotVerificationReport, Store,
+};
 pub use task_repository::{
     HistoryEntry, HistoryOutcome, NewTask, Task, TaskBaseline, TaskFieldChange, TaskRepository,
     TaskVersion, TaskVersionDiff,

@@ -378,9 +378,7 @@ impl Store {
                 || expected.len() != 64
                 || !expected.bytes().all(|byte| byte.is_ascii_hexdigit()))
         {
-            return Err(StoreError::InvalidTask(
-                "snapshot_checksum_mismatch".into(),
-            ));
+            return Err(StoreError::InvalidTask("snapshot_checksum_mismatch".into()));
         }
 
         // Keep a verified pre-restore copy. It remains available after success and
