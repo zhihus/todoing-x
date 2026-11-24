@@ -411,8 +411,10 @@ impl Store {
         target.execute_batch("COMMIT;")?;
 
         let restore_result = (|| {
-            let backup = Backup::new(&source, &mut target)?;
-            backup.run_to_completion(5, Duration::from_millis(100), None)?;
+            {
+                let backup = Backup::new(&source, &mut target)?;
+                backup.run_to_completion(5, Duration::from_millis(100), None)?;
+            }
             verify_connection(&target, &self.project_id)
         })();
 
@@ -422,8 +424,10 @@ impl Store {
                 let rollback_result = (|| {
                     let safety_source = Connection::open(&safety_snapshot.path)?;
                     safety_source.busy_timeout(BUSY_TIMEOUT)?;
-                    let backup = Backup::new(&safety_source, &mut target)?;
-                    backup.run_to_completion(5, Duration::from_millis(100), None)?;
+                    {
+                        let backup = Backup::new(&safety_source, &mut target)?;
+                        backup.run_to_completion(5, Duration::from_millis(100), None)?;
+                    }
                     verify_connection(&target, &self.project_id)
                 })();
                 if let Err(rollback_error) = rollback_result {
