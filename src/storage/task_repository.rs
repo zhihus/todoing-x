@@ -1268,6 +1268,9 @@ impl TaskRepository {
         push_change(&mut changes, "dependencies", &before.dependencies, &after.dependencies)?;
         push_change(&mut changes, "archived_at", &before.archived_at, &after.archived_at)?;
         push_change(&mut changes, "archived_by", &before.archived_by, &after.archived_by)?;
+        push_change(&mut changes, "revision_count", &before.revision_count, &after.revision_count)?;
+        push_change(&mut changes, "final_commit_sha", &before.final_commit_sha, &after.final_commit_sha)?;
+        push_change(&mut changes, "external_references", &before.external_references, &after.external_references)?;
 
         Ok(TaskVersionDiff {
             task_id,
