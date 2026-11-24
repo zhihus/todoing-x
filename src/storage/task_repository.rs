@@ -149,6 +149,12 @@ struct TaskSnapshot {
     labels: Vec<String>,
     commit_refs: Vec<String>,
     dependencies: Vec<TaskId>,
+    #[serde(default)]
+    revision_count: i64,
+    #[serde(default)]
+    final_commit_sha: Option<String>,
+    #[serde(default)]
+    external_references: Vec<Value>,
 }
 
 impl TaskRepository {
@@ -1770,7 +1776,26 @@ fn load_task(connection: &Connection, id: TaskId) -> Result<Task, StoreError> {
     })
 }
 
-fn snapshot_json(_connection: &Connection, task: &Task) -> Result<String, StoreError> {
+fn snapshot_json(connection: &Connection, task: &Task) -> Result<String, StoreError> {
+    let revision_count: i64 = connection.query_row(
+        "SELECT revision_count FROM tasks WHERE task_id = ?1", params![task.id.get()], |row| row.get(0)
+    )?;
+    let final_commit_sha: Option<String> = connection.query_row(
+        "SELECT final_commit_sha FROM tasks WHERE task_id = ?1", params![task.id.get()], |row| row.get(0)
+    )?;
+    let external_references = {
+        let mut statement = connection.prepare(
+            "SELECT reference_id, namespace, value, relation, scope, created_at, removed_at, removed_by
+             FROM task_external_references WHERE task_id = ?1 ORDER BY created_at, reference_id"
+        )?;
+        let rows = statement.query_map(params![task.id.get()], |row| Ok(json!({
+            "reference_id": row.get::<_, String>(0)?, "namespace": row.get::<_, String>(1)?,
+            "value": row.get::<_, String>(2)?, "relation": row.get::<_, String>(3)?,
+            "scope": row.get::<_, String>(4)?, "created_at": row.get::<_, String>(5)?,
+            "removed_at": row.get::<_, Option<String>>(6)?, "removed_by": row.get::<_, Option<String>>(7)?
+        })))?;
+        rows.collect::<Result<Vec<_>, _>>()?
+    };
     let snapshot = TaskSnapshot {
         task_id: task.id,
         title: task.title.clone(),
@@ -1784,34 +1809,11 @@ fn snapshot_json(_connection: &Connection, task: &Task) -> Result<String, StoreE
         labels: task.labels.clone(),
         commit_refs: task.commit_refs.clone(),
         dependencies: task.dependencies.clone(),
+        revision_count,
+        final_commit_sha,
+        external_references,
     };
-    let mut value = serde_json::to_value(&snapshot)
-        .map_err(|error| StoreError::InvalidTask(format!("Cannot serialize task snapshot: {error}")))?;
-    let object = value.as_object_mut().expect("task snapshot is an object");
-    let revision_count: i64 = _connection.query_row(
-        "SELECT revision_count FROM tasks WHERE task_id = ?1", params![task.id.get()], |row| row.get(0)
-    )?;
-    let final_commit_sha: Option<String> = _connection.query_row(
-        "SELECT final_commit_sha FROM tasks WHERE task_id = ?1", params![task.id.get()], |row| row.get(0)
-    )?;
-    let mut refs = Vec::new();
-    {
-        let mut statement = _connection.prepare(
-            "SELECT reference_id, namespace, value, relation, scope, created_at, removed_at, removed_by
-             FROM task_external_references WHERE task_id = ?1 ORDER BY created_at, reference_id"
-        )?;
-        let rows = statement.query_map(params![task.id.get()], |row| Ok(json!({
-            "reference_id": row.get::<_, String>(0)?, "namespace": row.get::<_, String>(1)?,
-            "value": row.get::<_, String>(2)?, "relation": row.get::<_, String>(3)?,
-            "scope": row.get::<_, String>(4)?, "created_at": row.get::<_, String>(5)?,
-            "removed_at": row.get::<_, Option<String>>(6)?, "removed_by": row.get::<_, Option<String>>(7)?
-        })))?;
-        refs = rows.collect::<Result<Vec<_>, _>>()?;
-    }
-    object.insert("revision_count".into(), json!(revision_count));
-    object.insert("final_commit_sha".into(), json!(final_commit_sha));
-    object.insert("external_references".into(), json!(refs));
-    serde_json::to_string(&value)
+    serde_json::to_string(&snapshot)
         .map_err(|error| StoreError::InvalidTask(format!("Cannot serialize task snapshot: {error}")))
 }
 
