@@ -221,7 +221,7 @@ Required:
 
 Requires the task lock. Todoing resolves the revision to a full Git SHA. Repeating the current SHA is a no-op. Replacing an existing SHA requires the task to have been explicitly reopened after the previous assignment; otherwise final_commit_reopen_required is returned. A terminal task must be reopened before changing the marker. The prior SHA remains in immutable task versions and operation history. The marker cannot be cleared.
 
-## 5. Dependencies
+## 6. Dependencies
 
 ### task.dependency.add
 
@@ -248,7 +248,7 @@ Required:
 
 Returns dependency IDs and a parallel `states` array containing each dependency's status, outcome, archive state, and lock state. A dependency task locked by another client is represented without protected task fields; its status, outcome, and archive state are null and `locked` is true.
 
-## 6. History and versions
+## 7. History and versions
 
 ### task.history.list
 
@@ -297,7 +297,7 @@ Required:
 
 Sets the user-approved baseline to an existing version belonging to that task. Appends an operation-history event. Does not create a task version. The human CLI command requires interactive confirmation. Todoing does not authenticate a human actor; Manifest MUST call this JSON operation only after explicit user approval.
 
-## 7. Task locks
+## 8. Task locks
 
 ### task.lock.acquire
 
@@ -343,13 +343,13 @@ No lock token is accepted. Recovery succeeds only after lease expiry plus the co
 
 Returns the new owner_id, lock_token, fencing_generation, and expires_at. There is no automatic takeover and no force-recovery operation in the MVP.
 
-## 8. No-op semantics
+## 9. No-op semantics
 
 A successful request that does not change task state (for example, adding an already-present label or commit reference) returns the current task and no_op=true. The accepted operation is recorded in operation history, but no task version is created because no task state was saved.
 
 Lock heartbeat is not a task save. Lock events are recorded in operation history but do not create task versions.
 
-## 9. Contract test requirements
+## 10. Contract test requirements
 
 For every operation, tests must cover:
 - Valid request and exact response schema.
