@@ -62,12 +62,12 @@
         "task.lock.heartbeat",
         "task.lock.release",
         "task.lock.recover",
-        "task.external_reference.add",
-        "task.external_reference.list",
-        "task.external_reference.remove",
+        "task.external-ref.add",
+        "task.external-ref.list",
+        "task.external-ref.remove",
         "task.review.add",
         "task.review.list",
-        "task.final_commit.set"
+        "task.commit.finalize"
       ]
     },
     "args": {
