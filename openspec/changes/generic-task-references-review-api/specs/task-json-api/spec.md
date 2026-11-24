@@ -70,14 +70,15 @@ The JSON API v1 MUST expose `store.snapshot.verify` and
 `store.snapshot.restore`. Both accept a non-empty `snapshot_path`; an optional
 `expected_sha256` binds the operation to a caller-known digest. Verification
 returns project/schema compatibility, integrity diagnostics, file size, and
-SHA-256. Restore returns the restored integrity report and retained safety
-snapshot metadata.
+SHA-256. An expected checksum mismatch MUST return the stable
+`snapshot_checksum_mismatch` error code. Restore returns the restored integrity
+report and retained safety snapshot metadata.
 
 #### Scenario: Verify a snapshot through the API
 
 - **WHEN** a client invokes `store.snapshot.verify` for a valid snapshot
 - **THEN** the API returns the integrity report and SHA-256
-- **AND** rejects an expected checksum mismatch
+- **AND** returns `snapshot_checksum_mismatch` for an expected checksum mismatch
 
 #### Scenario: Restore a snapshot through the API
 
