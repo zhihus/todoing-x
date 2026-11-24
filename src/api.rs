@@ -1163,4 +1163,97 @@ mod contract_tests {
     }
 
 
+
+    #[test]
+    fn extension_operations_require_the_active_lock_owner() {
+        let root = setup_project();
+        let created = execute(request("api-test-project", "task.create", json!({
+            "title": "Locked extension task"
+        })), root.path()).unwrap();
+        let task_id = created["task"]["id"].as_i64().unwrap();
+
+        let grant = execute(request("api-test-project", "task.lock.acquire", json!({
+            "task_id": task_id
+        })), root.path()).unwrap();
+        let token = grant["lock_token"].as_str().unwrap().to_owned();
+        let owner_id = grant["owner_id"].as_str().unwrap().to_owned();
+        let generation = grant["fencing_generation"].as_i64().unwrap();
+
+        let non_owner_add = execute(request("api-test-project", "task.external-ref.add", json!({
+            "task_id": task_id, "namespace": "issue", "value": "locked-1",
+            "relation": "tracks", "scope": "task"
+        })), root.path()).unwrap_err();
+        assert_eq!(non_owner_add.code, "task_locked");
+
+        let mut owner_add = request("api-test-project", "task.external-ref.add", json!({
+            "task_id": task_id, "namespace": "issue", "value": "locked-1",
+            "relation": "tracks", "scope": "task"
+        }));
+        owner_add.lock_token = Some(token.clone());
+        let reference = execute(owner_add, root.path()).unwrap();
+        let reference_id = reference["reference_id"].as_str().unwrap().to_owned();
+
+        let non_owner_list = execute(request("api-test-project", "task.external-ref.list", json!({
+            "task_id": task_id
+        })), root.path()).unwrap_err();
+        assert_eq!(non_owner_list.code, "task_locked");
+
+        let mut owner_review = request("api-test-project", "task.review.add", json!({
+            "task_id": task_id, "review_id": "locked-review", "version_no": 1,
+            "reviewer": "reviewer", "outcome": "approved", "comments": []
+        }));
+        owner_review.lock_token = Some(token.clone());
+        execute(owner_review, root.path()).unwrap();
+
+        let non_owner_review_list = execute(request("api-test-project", "task.review.list", json!({
+            "task_id": task_id
+        })), root.path()).unwrap_err();
+        assert_eq!(non_owner_review_list.code, "task_locked");
+
+        let mut owner_review_list = request("api-test-project", "task.review.list", json!({
+            "task_id": task_id
+        }));
+        owner_review_list.lock_token = Some(token.clone());
+        assert_eq!(
+            execute(owner_review_list, root.path()).unwrap()["reviews"].as_array().unwrap().len(),
+            1
+        );
+
+        assert!(std::process::Command::new("git").current_dir(root.path()).args(["init", "-q"]).status().unwrap().success());
+        assert!(std::process::Command::new("git").current_dir(root.path()).args(["config", "user.email", "todoing-test@example.invalid"]).status().unwrap().success());
+        assert!(std::process::Command::new("git").current_dir(root.path()).args(["config", "user.name", "Todoing Test"]).status().unwrap().success());
+        fs::write(root.path().join("locked-final.txt"), "final").unwrap();
+        assert!(std::process::Command::new("git").current_dir(root.path()).args(["add", "locked-final.txt"]).status().unwrap().success());
+        assert!(std::process::Command::new("git").current_dir(root.path()).args(["commit", "-m", "locked final commit"]).status().unwrap().success());
+
+        let non_owner_finalize = execute(request("api-test-project", "task.commit.finalize", json!({
+            "task_id": task_id, "revision": "HEAD"
+        })), root.path()).unwrap_err();
+        assert_eq!(non_owner_finalize.code, "task_locked");
+
+        let mut owner_finalize = request("api-test-project", "task.commit.finalize", json!({
+            "task_id": task_id, "revision": "HEAD"
+        }));
+        owner_finalize.lock_token = Some(token.clone());
+        execute(owner_finalize, root.path()).unwrap();
+
+        let non_owner_remove = execute(request("api-test-project", "task.external-ref.remove", json!({
+            "task_id": task_id, "reference_id": reference_id
+        })), root.path()).unwrap_err();
+        assert_eq!(non_owner_remove.code, "task_locked");
+
+        let mut owner_remove = request("api-test-project", "task.external-ref.remove", json!({
+            "task_id": task_id, "reference_id": reference_id
+        }));
+        owner_remove.lock_token = Some(token.clone());
+        execute(owner_remove, root.path()).unwrap();
+
+        let mut release = request("api-test-project", "task.lock.release", json!({
+            "task_id": task_id, "owner_id": owner_id,
+            "fencing_generation": generation
+        }));
+        release.lock_token = Some(token);
+        execute(release, root.path()).unwrap();
+    }
+
 }
