@@ -172,7 +172,7 @@ Required:
 Optional:
 - scope: task (default) or project.
 
-Requires the task lock. Active namespace/value pairs are unique within a task for task scope and across the project for project scope. An identical active reference on the same task is a no-op. Reusing an active pair with different relation/scope or on another task returns external_ref_conflict. Successful changes create a version and history event atomically.
+Requires the task lock. Active namespace/value pairs are unique within a task for task scope and across the project for project scope. An identical active reference on the same task is a no-op. Reusing an active pair with different relation/scope on the same task returns external_ref_conflict. A project-scoped pair conflicts with any active reference using that pair anywhere in the project; task-scoped pairs may be reused on different tasks. Successful changes create a version and history event atomically.
 
 ### task.external-ref.list
 
@@ -204,7 +204,7 @@ Required:
 Optional:
 - comments: ordered JSON array, default empty.
 
-Requires the task lock. Review records are append-only and linked to the reviewed immutable version. Repeating review_id with the same canonical payload is a no-op; a different payload returns review_id_conflict. A missing version returns review_version_not_found. Each newly accepted changes_requested review increments revision_count exactly once. Approval does not change workflow status or revision_count. Record, counter, task version, and history event are committed atomically.
+Requires the task lock. Review records are append-only and linked to the reviewed immutable version. Repeating review_id with the same canonical payload is a no-op; a different payload returns review_id_conflict. A missing version returns review_version_not_found. Each newly accepted changes_requested review increments revision_count exactly once. Approval does not change workflow status or revision_count. Record, counter, task version, and history event are committed atomically. Result: the Review record, reviewed_version_no, task_version_no, revision_count, and no_op.
 
 ### task.review.list
 
@@ -223,7 +223,7 @@ Required:
 - task_id
 - revision: Git revision expression resolvable to a commit in the project repository.
 
-Requires the task lock. Todoing resolves the revision to a full Git SHA. Repeating the current SHA is a no-op. Replacing an existing SHA requires the task to have been explicitly reopened after the previous assignment; otherwise task_terminal is returned. A terminal task must be reopened before changing the marker. The prior SHA remains in immutable task versions and operation history. The marker cannot be cleared.
+Requires the task lock. Todoing resolves the revision to a full Git SHA. Repeating the current SHA is a no-op. Replacing an existing SHA requires the task to have been explicitly reopened after the previous assignment; otherwise task_terminal is returned. A terminal task must be reopened before changing the marker. The prior SHA remains in immutable task versions and operation history. The marker cannot be cleared. Result: task_id, resolved final_commit_sha, task_version_no, and no_op.
 
 ## 6. Dependencies
 
