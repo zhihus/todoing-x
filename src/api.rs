@@ -1179,6 +1179,15 @@ mod contract_tests {
         let owner_id = grant["owner_id"].as_str().unwrap().to_owned();
         let generation = grant["fencing_generation"].as_i64().unwrap();
 
+        let non_owner_get = execute(request("api-test-project", "task.get", json!({
+            "task_id": task_id
+        })), root.path()).unwrap_err();
+        assert_eq!(non_owner_get.code, "task_locked");
+        let listed = execute(request("api-test-project", "task.list", json!({})), root.path()).unwrap();
+        assert!(!listed["tasks"].as_array().unwrap().iter().any(|task| {
+            task["id"].as_i64() == Some(task_id)
+        }));
+
         let non_owner_add = execute(request("api-test-project", "task.external-ref.add", json!({
             "task_id": task_id, "namespace": "issue", "value": "locked-1",
             "relation": "tracks", "scope": "task"
