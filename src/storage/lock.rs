@@ -130,26 +130,33 @@ impl TaskLockService {
         let connection = self.store.connection()?;
         let record = load_lock(&connection, task_id)?.ok_or(StoreError::StaleLock)?;
         if record.state != "active"
-            || !record.token_hash.as_deref().is_some_and(|stored| {
-                constant_time_equal(stored, &token_hash(token))
-            })
+            || !record
+                .token_hash
+                .as_deref()
+                .is_some_and(|stored| constant_time_equal(stored, &token_hash(token)))
         {
             return Err(StoreError::StaleLock);
         }
-        let expires_at = record.expires_at.ok_or_else(|| {
-            StoreError::InvalidMetadata("active lock has no expiry".into())
-        })?;
+        let expires_at = record
+            .expires_at
+            .ok_or_else(|| StoreError::InvalidMetadata("active lock has no expiry".into()))?;
         let now = self.clock.now_millis();
         if expires_at <= now {
             return Err(StoreError::LockExpired);
         }
         Ok(LockGrant {
             task_id,
-            owner_id: record.owner_id.ok_or_else(|| StoreError::InvalidMetadata("active lock has no owner".into()))?,
+            owner_id: record
+                .owner_id
+                .ok_or_else(|| StoreError::InvalidMetadata("active lock has no owner".into()))?,
             token: token.to_owned(),
             fencing_generation: record.fencing_generation,
-            acquired_at: record.acquired_at.ok_or_else(|| StoreError::InvalidMetadata("active lock has no acquisition time".into()))?,
-            heartbeat_at: record.heartbeat_at.ok_or_else(|| StoreError::InvalidMetadata("active lock has no heartbeat time".into()))?,
+            acquired_at: record.acquired_at.ok_or_else(|| {
+                StoreError::InvalidMetadata("active lock has no acquisition time".into())
+            })?,
+            heartbeat_at: record.heartbeat_at.ok_or_else(|| {
+                StoreError::InvalidMetadata("active lock has no heartbeat time".into())
+            })?,
             expires_at,
         })
     }
@@ -172,8 +179,7 @@ impl TaskLockService {
         }
 
         let mut connection = self.store.connection()?;
-        let transaction =
-            connection.transaction_with_behavior(TransactionBehavior::Exclusive)?;
+        let transaction = connection.transaction_with_behavior(TransactionBehavior::Exclusive)?;
         let task_exists: bool = transaction.query_row(
             "SELECT EXISTS(SELECT 1 FROM tasks WHERE task_id = ?1)",
             params![task_id.get()],
@@ -211,11 +217,10 @@ impl TaskLockService {
         let existing = load_lock(&transaction, task_id)?;
         let generation = match existing {
             None => 1,
-            Some(record) if record.state == "released" => {
-                record.fencing_generation.checked_add(1).ok_or_else(|| {
-                    StoreError::InvalidMetadata("fencing_generation overflow".into())
-                })?
-            }
+            Some(record) if record.state == "released" => record
+                .fencing_generation
+                .checked_add(1)
+                .ok_or_else(|| StoreError::InvalidMetadata("fencing_generation overflow".into()))?,
             Some(_) => {
                 drop(transaction);
                 return self.reject(
@@ -284,8 +289,7 @@ impl TaskLockService {
         actor: &ActorContext,
     ) -> Result<LockGrant, StoreError> {
         let mut connection = self.store.connection()?;
-        let transaction =
-            connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
         let record = match load_lock(&transaction, grant.task_id)? {
             Some(record) => record,
             None => {
@@ -315,7 +319,12 @@ impl TaskLockService {
         transaction.execute(
             "UPDATE task_locks SET heartbeat_at = ?1, expires_at = ?2
              WHERE task_id = ?3 AND state = 'active' AND fencing_generation = ?4",
-            params![now, expires_at, grant.task_id.get(), grant.fencing_generation],
+            params![
+                now,
+                expires_at,
+                grant.task_id.get(),
+                grant.fencing_generation
+            ],
         )?;
         insert_lock_history(
             &transaction,
@@ -339,14 +348,9 @@ impl TaskLockService {
         })
     }
 
-    pub fn release(
-        &self,
-        grant: &LockGrant,
-        actor: &ActorContext,
-    ) -> Result<(), StoreError> {
+    pub fn release(&self, grant: &LockGrant, actor: &ActorContext) -> Result<(), StoreError> {
         let mut connection = self.store.connection()?;
-        let transaction =
-            connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
         let record = match load_lock(&transaction, grant.task_id)? {
             Some(record) => record,
             None => {
@@ -362,13 +366,7 @@ impl TaskLockService {
         };
         if let Err(error) = validate_grant(&record, grant, self.clock.now_millis()) {
             drop(transaction);
-            return self.reject_grant(
-                grant,
-                actor,
-                "task.lock.release",
-                error_code(&error),
-                error,
-            );
+            return self.reject_grant(grant, actor, "task.lock.release", error_code(&error), error);
         }
 
         let now = self.clock.now_millis();
@@ -410,8 +408,7 @@ impl TaskLockService {
         }
 
         let mut connection = self.store.connection()?;
-        let transaction =
-            connection.transaction_with_behavior(TransactionBehavior::Exclusive)?;
+        let transaction = connection.transaction_with_behavior(TransactionBehavior::Exclusive)?;
         let record = match load_lock(&transaction, task_id)? {
             Some(record) => record,
             None => {
@@ -439,9 +436,9 @@ impl TaskLockService {
         }
 
         let now = self.clock.now_millis();
-        let expires_at = record.expires_at.ok_or_else(|| {
-            StoreError::InvalidMetadata("active lock has no expiry".into())
-        })?;
+        let expires_at = record
+            .expires_at
+            .ok_or_else(|| StoreError::InvalidMetadata("active lock has no expiry".into()))?;
         if now < expires_at {
             drop(transaction);
             return self.reject(
@@ -466,9 +463,10 @@ impl TaskLockService {
             );
         }
 
-        let generation = record.fencing_generation.checked_add(1).ok_or_else(|| {
-            StoreError::InvalidMetadata("fencing_generation overflow".into())
-        })?;
+        let generation = record
+            .fencing_generation
+            .checked_add(1)
+            .ok_or_else(|| StoreError::InvalidMetadata("fencing_generation overflow".into()))?;
         let token = generate_token()?;
         let token_hash = token_hash(&token);
         let new_expiry = self.expiry_from(now)?;
@@ -512,8 +510,9 @@ impl TaskLockService {
 
     fn expiry_from(&self, now: i64) -> Result<i64, StoreError> {
         let lease_ms = seconds_to_millis(self.config.locking.lease_seconds)?;
-        now.checked_add(lease_ms)
-            .ok_or_else(|| StoreError::InvalidConfig("lock expiry overflows epoch milliseconds".into()))
+        now.checked_add(lease_ms).ok_or_else(|| {
+            StoreError::InvalidConfig("lock expiry overflows epoch milliseconds".into())
+        })
     }
 
     fn reject<T>(
@@ -540,7 +539,8 @@ impl TaskLockService {
         let details = serde_json::json!({
             "owner_id": grant.owner_id,
             "fencing_generation": grant.fencing_generation
-        }).to_string();
+        })
+        .to_string();
         self.reject(
             Some(grant.task_id),
             actor,
@@ -593,14 +593,13 @@ pub(crate) fn check_lock_access(
             }
             Ok(Some(record.fencing_generation))
         }
-        _ => Err(StoreError::InvalidMetadata("unknown task lock state".into())),
+        _ => Err(StoreError::InvalidMetadata(
+            "unknown task lock state".into(),
+        )),
     }
 }
 
-fn load_lock(
-    connection: &Connection,
-    task_id: TaskId,
-) -> Result<Option<LockRecord>, StoreError> {
+fn load_lock(connection: &Connection, task_id: TaskId) -> Result<Option<LockRecord>, StoreError> {
     connection
         .query_row(
             "SELECT state, owner_id, token_hash, acquired_at, heartbeat_at, expires_at, fencing_generation
@@ -678,22 +677,23 @@ fn record_rejected(
     requested_json: Option<&str>,
 ) -> Result<(), StoreError> {
     let mut connection = store.connection()?;
-    let transaction =
-        connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
-    transaction.execute(
-        "INSERT INTO operation_history(
+    let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+    transaction
+        .execute(
+            "INSERT INTO operation_history(
             task_id, actor_id, occurred_at, operation, requested_json,
             outcome, error_code
          ) VALUES (?1, ?2, ?3, ?4, ?5, 'rejected', ?6)",
-        params![
-            task_id.map(TaskId::get),
-            actor.actor_id().as_str(),
-            timestamp(SystemClock.now_millis()),
-            operation,
-            requested_json,
-            code
-        ],
-    ).map_err(|error| StoreError::HistoryRecordFailed(error.to_string()))?;
+            params![
+                task_id.map(TaskId::get),
+                actor.actor_id().as_str(),
+                timestamp(SystemClock.now_millis()),
+                operation,
+                requested_json,
+                code
+            ],
+        )
+        .map_err(|error| StoreError::HistoryRecordFailed(error.to_string()))?;
     transaction
         .commit()
         .map_err(|error| StoreError::HistoryRecordFailed(error.to_string()))

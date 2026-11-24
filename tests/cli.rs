@@ -1,12 +1,14 @@
 use serde_json::Value;
-use std::{fs, path::Path, process::Command};
 use std::io::Write;
+use std::{fs, path::Path, process::Command};
 use tempfile::tempdir;
 
 fn run(root: &Path, args: &[&str]) -> std::process::Output {
     let binary = Path::new(env!("CARGO_BIN_EXE_todoing"));
     let mut paths = vec![binary.parent().unwrap().to_path_buf()];
-    paths.extend(std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default()));
+    paths.extend(std::env::split_paths(
+        &std::env::var_os("PATH").unwrap_or_default(),
+    ));
     let path = std::env::join_paths(paths).unwrap();
     Command::new(binary)
         .current_dir(root)
@@ -60,7 +62,10 @@ fn json_interface_covers_task_reads_and_mutations() {
 fn json_interface_covers_remaining_commands() {
     let dir = tempdir().unwrap();
     git(dir.path(), &["init", "-q"]);
-    git(dir.path(), &["config", "user.email", "todoing-test@example.invalid"]);
+    git(
+        dir.path(),
+        &["config", "user.email", "todoing-test@example.invalid"],
+    );
     git(dir.path(), &["config", "user.name", "Todoing Test"]);
     fs::write(dir.path().join("tracked.txt"), "initial").unwrap();
     git(dir.path(), &["add", "tracked.txt"]);
@@ -106,10 +111,18 @@ fn list_scan_rebuilds_index_from_markdown_files() {
     let dir = tempdir().unwrap();
     let tasks = dir.path().join(".todoing/tasks");
     fs::create_dir_all(&tasks).unwrap();
-    fs::write(tasks.join("7.md"), "---\nid: 7\ntitle: scanned task\nstatus: todo\nlabels: []\n---\n").unwrap();
+    fs::write(
+        tasks.join("7.md"),
+        "---\nid: 7\ntitle: scanned task\nstatus: todo\nlabels: []\n---\n",
+    )
+    .unwrap();
 
     let listed = run(dir.path(), &["ls", "--scan", "--json"]);
-    assert!(listed.status.success(), "{}", String::from_utf8_lossy(&listed.stderr));
+    assert!(
+        listed.status.success(),
+        "{}",
+        String::from_utf8_lossy(&listed.stderr)
+    );
     let tasks: Value = serde_json::from_slice(&listed.stdout).unwrap();
     assert_eq!(tasks.as_array().unwrap().len(), 1);
     assert_eq!(tasks[0]["id"], 7);
@@ -119,13 +132,28 @@ fn list_scan_rebuilds_index_from_markdown_files() {
 #[test]
 fn status_arguments_are_case_insensitive_like_python() {
     let dir = tempdir().unwrap();
-    let added = run(dir.path(), &["add", "case insensitive", "--status", "IN_PROGRESS"]);
-    assert!(added.status.success(), "{}", String::from_utf8_lossy(&added.stderr));
+    let added = run(
+        dir.path(),
+        &["add", "case insensitive", "--status", "IN_PROGRESS"],
+    );
+    assert!(
+        added.status.success(),
+        "{}",
+        String::from_utf8_lossy(&added.stderr)
+    );
 
     let changed = run(dir.path(), &["status", "1", "CANCELLED"]);
-    assert!(changed.status.success(), "{}", String::from_utf8_lossy(&changed.stderr));
+    assert!(
+        changed.status.success(),
+        "{}",
+        String::from_utf8_lossy(&changed.stderr)
+    );
     let filtered = run(dir.path(), &["ls", "--status", "CANCELLED", "--json"]);
-    assert!(filtered.status.success(), "{}", String::from_utf8_lossy(&filtered.stderr));
+    assert!(
+        filtered.status.success(),
+        "{}",
+        String::from_utf8_lossy(&filtered.stderr)
+    );
     let filtered_tasks: Value = serde_json::from_slice(&filtered.stdout).unwrap();
     assert_eq!(filtered_tasks.as_array().unwrap().len(), 1);
     let shown = run(dir.path(), &["see", "1", "--json"]);
@@ -137,7 +165,10 @@ fn status_arguments_are_case_insensitive_like_python() {
 fn commit_links_store_full_sha_and_deduplicate_resolved_refs() {
     let dir = tempdir().unwrap();
     git(dir.path(), &["init", "-q"]);
-    git(dir.path(), &["config", "user.email", "todoing-test@example.invalid"]);
+    git(
+        dir.path(),
+        &["config", "user.email", "todoing-test@example.invalid"],
+    );
     git(dir.path(), &["config", "user.name", "Todoing Test"]);
     fs::write(dir.path().join("tracked.txt"), "initial").unwrap();
     git(dir.path(), &["add", "tracked.txt"]);
@@ -145,14 +176,21 @@ fn commit_links_store_full_sha_and_deduplicate_resolved_refs() {
 
     let added = run(dir.path(), &["add", "linked task"]);
     assert!(added.status.success());
-    let head = Command::new("git").current_dir(dir.path()).args(["rev-parse", "HEAD"])
-        .output().unwrap();
+    let head = Command::new("git")
+        .current_dir(dir.path())
+        .args(["rev-parse", "HEAD"])
+        .output()
+        .unwrap();
     assert!(head.status.success());
     let full_sha = String::from_utf8(head.stdout).unwrap().trim().to_string();
 
     for reference in ["HEAD", "HEAD"] {
         let linked = run(dir.path(), &["commit", "1", reference, "--json"]);
-        assert!(linked.status.success(), "{}", String::from_utf8_lossy(&linked.stderr));
+        assert!(
+            linked.status.success(),
+            "{}",
+            String::from_utf8_lossy(&linked.stderr)
+        );
         let task: Value = serde_json::from_slice(&linked.stdout).unwrap();
         assert_eq!(task["commits"].as_array().unwrap().len(), 1);
         assert_eq!(task["commits"][0], full_sha);
@@ -168,7 +206,10 @@ fn commit_links_store_full_sha_and_deduplicate_resolved_refs() {
 fn reindex_restores_commit_refs_after_python_style_index_rewrite() {
     let dir = tempdir().unwrap();
     git(dir.path(), &["init", "-q"]);
-    git(dir.path(), &["config", "user.email", "todoing-test@example.invalid"]);
+    git(
+        dir.path(),
+        &["config", "user.email", "todoing-test@example.invalid"],
+    );
     git(dir.path(), &["config", "user.name", "Todoing Test"]);
     fs::write(dir.path().join("tracked.txt"), "initial").unwrap();
     git(dir.path(), &["add", "tracked.txt"]);
@@ -188,10 +229,19 @@ fn reindex_restores_commit_refs_after_python_style_index_rewrite() {
     let listed = run(dir.path(), &["ls", "--json"]);
     assert!(listed.status.success());
     let tasks: Value = serde_json::from_slice(&listed.stdout).unwrap();
-    assert!(tasks[0].get("commits").and_then(Value::as_array).is_none_or(Vec::is_empty));
+    assert!(
+        tasks[0]
+            .get("commits")
+            .and_then(Value::as_array)
+            .is_none_or(Vec::is_empty)
+    );
 
     let rebuilt = run(dir.path(), &["reindex", "--json"]);
-    assert!(rebuilt.status.success(), "{}", String::from_utf8_lossy(&rebuilt.stderr));
+    assert!(
+        rebuilt.status.success(),
+        "{}",
+        String::from_utf8_lossy(&rebuilt.stderr)
+    );
     let tasks: Value = serde_json::from_slice(&rebuilt.stdout).unwrap();
     assert_eq!(tasks[0]["commits"].as_array().unwrap().len(), 1);
 }
@@ -215,7 +265,11 @@ fn edit_json_returns_updated_task_after_editor_and_reindex() {
         .args(["edit", "1", "--json"])
         .output()
         .unwrap();
-    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
     let task: Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(task["id"], 1);
     assert_eq!(task["title"], "editable");
@@ -225,9 +279,16 @@ fn edit_json_returns_updated_task_after_editor_and_reindex() {
 fn completion_requires_git_commit_and_all_active_openspec_tasks() {
     let dir = tempdir().unwrap();
     let installed = run(dir.path(), &["hooks", "install", "all"]);
-    assert!(installed.status.success(), "{}", String::from_utf8_lossy(&installed.stderr));
+    assert!(
+        installed.status.success(),
+        "{}",
+        String::from_utf8_lossy(&installed.stderr)
+    );
     git(dir.path(), &["init", "-q"]);
-    git(dir.path(), &["config", "user.email", "todoing-test@example.invalid"]);
+    git(
+        dir.path(),
+        &["config", "user.email", "todoing-test@example.invalid"],
+    );
     git(dir.path(), &["config", "user.name", "Todoing Test"]);
     let direct_done = run(dir.path(), &["add", "direct done", "--status", "done"]);
     assert!(!direct_done.status.success());
@@ -256,15 +317,25 @@ fn completion_requires_git_commit_and_all_active_openspec_tasks() {
 fn commit_rejects_tree_object_without_mutating_task() {
     let dir = tempdir().unwrap();
     git(dir.path(), &["init", "-q"]);
-    git(dir.path(), &["config", "user.email", "todoing-test@example.invalid"]);
+    git(
+        dir.path(),
+        &["config", "user.email", "todoing-test@example.invalid"],
+    );
     git(dir.path(), &["config", "user.name", "Todoing Test"]);
     fs::write(dir.path().join("tracked.txt"), "initial").unwrap();
     git(dir.path(), &["add", "tracked.txt"]);
     git(dir.path(), &["commit", "-m", "initial"]);
 
-    assert!(run(dir.path(), &["add", "commit validation"]).status.success());
-    let tree = Command::new("git").current_dir(dir.path()).args(["rev-parse", "HEAD^{tree}"])
-        .output().unwrap();
+    assert!(
+        run(dir.path(), &["add", "commit validation"])
+            .status
+            .success()
+    );
+    let tree = Command::new("git")
+        .current_dir(dir.path())
+        .args(["rev-parse", "HEAD^{tree}"])
+        .output()
+        .unwrap();
     assert!(tree.status.success());
     let tree_sha = String::from_utf8(tree.stdout).unwrap().trim().to_string();
 
@@ -281,10 +352,18 @@ fn commit_rejects_tree_object_without_mutating_task() {
 fn missing_completion_hooks_allow_done_without_linked_commits() {
     let dir = tempdir().unwrap();
     git(dir.path(), &["init", "-q"]);
-    assert!(run(dir.path(), &["add", "task without commit"]).status.success());
+    assert!(
+        run(dir.path(), &["add", "task without commit"])
+            .status
+            .success()
+    );
 
     let completed = run(dir.path(), &["status", "1", "done"]);
-    assert!(completed.status.success(), "{}", String::from_utf8_lossy(&completed.stderr));
+    assert!(
+        completed.status.success(),
+        "{}",
+        String::from_utf8_lossy(&completed.stderr)
+    );
 
     let shown = run(dir.path(), &["see", "1", "--json"]);
     let task: Value = serde_json::from_slice(&shown.stdout).unwrap();
@@ -293,14 +372,22 @@ fn missing_completion_hooks_allow_done_without_linked_commits() {
 #[test]
 fn missing_openspec_hook_does_not_block_done() {
     let dir = tempdir().unwrap();
-    assert!(run(dir.path(), &["add", "task with open checklist"]).status.success());
+    assert!(
+        run(dir.path(), &["add", "task with open checklist"])
+            .status
+            .success()
+    );
 
     let changes = dir.path().join("openspec/changes");
     fs::create_dir_all(changes.join("active")).unwrap();
     fs::write(changes.join("active/tasks.md"), "- [ ] unfinished task\n").unwrap();
 
     let completed = run(dir.path(), &["status", "1", "done"]);
-    assert!(completed.status.success(), "{}", String::from_utf8_lossy(&completed.stderr));
+    assert!(
+        completed.status.success(),
+        "{}",
+        String::from_utf8_lossy(&completed.stderr)
+    );
 }
 #[test]
 fn standard_hooks_can_be_installed_selectively_and_status_is_machine_readable() {
@@ -316,7 +403,11 @@ fn standard_hooks_can_be_installed_selectively_and_status_is_machine_readable() 
     assert_eq!(value["data"]["agent_action"], "ask_user_before_install");
 
     let installed = run(dir.path(), &["hooks", "install", "git", "--json"]);
-    assert!(installed.status.success(), "{}", String::from_utf8_lossy(&installed.stderr));
+    assert!(
+        installed.status.success(),
+        "{}",
+        String::from_utf8_lossy(&installed.stderr)
+    );
     let value: Value = serde_json::from_slice(&installed.stdout).unwrap();
     assert_eq!(value["data"]["installed"][0], "before-done-git");
 
@@ -333,8 +424,15 @@ fn standard_hooks_can_be_installed_selectively_and_status_is_machine_readable() 
 
     fs::write(&git_hook, "user-customized hook").unwrap();
     let all = run(dir.path(), &["hooks", "install", "all"]);
-    assert!(all.status.success(), "{}", String::from_utf8_lossy(&all.stderr));
-    assert_eq!(fs::read_to_string(&git_hook).unwrap(), "user-customized hook");
+    assert!(
+        all.status.success(),
+        "{}",
+        String::from_utf8_lossy(&all.stderr)
+    );
+    assert_eq!(
+        fs::read_to_string(&git_hook).unwrap(),
+        "user-customized hook"
+    );
     assert!(openspec_hook.is_file());
     let status = run(dir.path(), &["hooks", "status", "--json"]);
     let value: Value = serde_json::from_slice(&status.stdout).unwrap();
@@ -369,7 +467,11 @@ fn before_done_openspec_hook_can_reject_completion() {
     use std::os::unix::fs::PermissionsExt;
 
     let dir = tempdir().unwrap();
-    assert!(run(dir.path(), &["add", "openspec hook task"]).status.success());
+    assert!(
+        run(dir.path(), &["add", "openspec hook task"])
+            .status
+            .success()
+    );
     let hooks = dir.path().join(".todoing/hooks");
     fs::create_dir_all(&hooks).unwrap();
     let hook = hooks.join("before-done-openspec");
@@ -380,7 +482,9 @@ fn before_done_openspec_hook_can_reject_completion() {
 
     let rejected = run(dir.path(), &["status", "1", "done"]);
     assert!(!rejected.status.success());
-    assert!(String::from_utf8_lossy(&rejected.stderr).contains("before-done-openspec hook rejected"));
+    assert!(
+        String::from_utf8_lossy(&rejected.stderr).contains("before-done-openspec hook rejected")
+    );
 }
 
 #[cfg(windows)]
@@ -402,7 +506,10 @@ fn on_create_cmd_hook_can_reject_task_creation() {
 fn before_done_cmd_hook_can_reject_transition_without_mutating_task() {
     let dir = tempdir().unwrap();
     git(dir.path(), &["init", "-q"]);
-    git(dir.path(), &["config", "user.email", "todoing-test@example.invalid"]);
+    git(
+        dir.path(),
+        &["config", "user.email", "todoing-test@example.invalid"],
+    );
     git(dir.path(), &["config", "user.name", "Todoing Test"]);
     fs::write(dir.path().join("tracked.txt"), "initial").unwrap();
     git(dir.path(), &["add", "tracked.txt"]);
@@ -411,7 +518,11 @@ fn before_done_cmd_hook_can_reject_transition_without_mutating_task() {
     let added = run(dir.path(), &["add", "guarded task", "-s", "in_progress"]);
     assert!(added.status.success());
     let linked = run(dir.path(), &["commit", "1", "HEAD"]);
-    assert!(linked.status.success(), "{}", String::from_utf8_lossy(&linked.stderr));
+    assert!(
+        linked.status.success(),
+        "{}",
+        String::from_utf8_lossy(&linked.stderr)
+    );
 
     let hooks = dir.path().join(".todoing/hooks");
     fs::create_dir_all(&hooks).unwrap();
@@ -433,13 +544,20 @@ fn before_done_hook_can_reject_transition_without_mutating_task() {
 
     let dir = tempdir().unwrap();
     git(dir.path(), &["init", "-q"]);
-    git(dir.path(), &["config", "user.email", "todoing-test@example.invalid"]);
+    git(
+        dir.path(),
+        &["config", "user.email", "todoing-test@example.invalid"],
+    );
     git(dir.path(), &["config", "user.name", "Todoing Test"]);
     fs::write(dir.path().join("tracked.txt"), "initial").unwrap();
     git(dir.path(), &["add", "tracked.txt"]);
     git(dir.path(), &["commit", "-m", "initial"]);
 
-    assert!(run(dir.path(), &["add", "guarded task", "-s", "in_progress"]).status.success());
+    assert!(
+        run(dir.path(), &["add", "guarded task", "-s", "in_progress"])
+            .status
+            .success()
+    );
     assert!(run(dir.path(), &["commit", "1", "HEAD"]).status.success());
 
     let hooks = dir.path().join(".todoing/hooks");
@@ -478,7 +596,6 @@ fn on_create_hook_can_reject_task_creation() {
     assert!(!dir.path().join(".todoing/tasks/1.md").exists());
 }
 
-
 fn run_with_input(root: &Path, args: &[&str], input: &str) -> std::process::Output {
     use std::process::Stdio;
     let mut child = Command::new(env!("CARGO_BIN_EXE_todoing"))
@@ -489,19 +606,32 @@ fn run_with_input(root: &Path, args: &[&str], input: &str) -> std::process::Outp
         .stderr(Stdio::piped())
         .spawn()
         .expect("todoing binary should run");
-    child.stdin.take().unwrap().write_all(input.as_bytes()).unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(input.as_bytes())
+        .unwrap();
     child.wait_with_output().unwrap()
 }
-
 
 #[test]
 fn init_creates_a_new_store_and_refuses_reinitialization() {
     let dir = tempdir().unwrap();
     let initialized = run(dir.path(), &["init", "--json"]);
-    assert!(initialized.status.success(), "{}", String::from_utf8_lossy(&initialized.stderr));
+    assert!(
+        initialized.status.success(),
+        "{}",
+        String::from_utf8_lossy(&initialized.stderr)
+    );
     let response: Value = serde_json::from_slice(&initialized.stdout).unwrap();
     assert_eq!(response["ok"], true);
-    assert!(response["data"]["project_id"].as_str().unwrap().starts_with("p-"));
+    assert!(
+        response["data"]["project_id"]
+            .as_str()
+            .unwrap()
+            .starts_with("p-")
+    );
     assert_eq!(response["data"]["schema_version"], 3);
     assert!(dir.path().join(".todoing/todoing.db").is_file());
     assert!(dir.path().join(".todoing/config.toml").is_file());
@@ -518,10 +648,15 @@ fn init_preserves_valid_config_and_rejects_invalid_config() {
     let config_dir = dir.path().join(".todoing");
     fs::create_dir_all(&config_dir).unwrap();
     let config_path = config_dir.join("config.toml");
-    let source = "format_version = 1\n\n[[statuses]]\nid = \"todo\"\nlabel = \"To Do\"\nenabled = true\n";
+    let source =
+        "format_version = 1\n\n[[statuses]]\nid = \"todo\"\nlabel = \"To Do\"\nenabled = true\n";
     fs::write(&config_path, source).unwrap();
     let initialized = run(dir.path(), &["init", "--project-id", "custom-project"]);
-    assert!(initialized.status.success(), "{}", String::from_utf8_lossy(&initialized.stderr));
+    assert!(
+        initialized.status.success(),
+        "{}",
+        String::from_utf8_lossy(&initialized.stderr)
+    );
     assert_eq!(fs::read_to_string(config_path).unwrap(), source);
 
     let invalid = tempdir().unwrap();
@@ -546,7 +681,11 @@ fn json_api_store_init_creates_a_project_store() {
         "args": {}
     });
     let output = run_with_input(dir.path(), &["api"], &request.to_string());
-    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
     let response: Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(response["request_id"], "bootstrap-1");
     assert_eq!(response["data"]["project_id"], "api-project");
@@ -600,10 +739,21 @@ fn help_preserves_original_command_surface_and_adds_only_commit_extension() {
     let output = run(dir.path(), &["--help"]);
     assert!(output.status.success());
     let help = String::from_utf8_lossy(&output.stdout);
-    for command in ["add", "ls", "see", "edit", "body", "append", "status", "label", "delete", "reindex", "version", "commit"] {
-        assert!(help.lines().any(|line| line.trim_start().starts_with(command)), "missing {command} in help: {help}");
+    for command in [
+        "add", "ls", "see", "edit", "body", "append", "status", "label", "delete", "reindex",
+        "version", "commit",
+    ] {
+        assert!(
+            help.lines()
+                .any(|line| line.trim_start().starts_with(command)),
+            "missing {command} in help: {help}"
+        );
     }
-    assert!(!help.lines().any(|line| line.trim_start().starts_with("search ")));
+    assert!(
+        !help
+            .lines()
+            .any(|line| line.trim_start().starts_with("search "))
+    );
     assert!(help.contains("--json"));
 }
 
@@ -611,14 +761,29 @@ fn help_preserves_original_command_surface_and_adds_only_commit_extension() {
 fn legacy_cli_keeps_original_output_order_and_filters() {
     let dir = tempdir().unwrap();
     git(dir.path(), &["init", "-q"]);
-    git(dir.path(), &["config", "user.email", "todoing-test@example.invalid"]);
+    git(
+        dir.path(),
+        &["config", "user.email", "todoing-test@example.invalid"],
+    );
     git(dir.path(), &["config", "user.name", "Todoing Test"]);
     fs::write(dir.path().join("tracked.txt"), "initial").unwrap();
     git(dir.path(), &["add", "tracked.txt"]);
     git(dir.path(), &["commit", "-m", "initial"]);
-    assert!(run(dir.path(), &["add", "first", "-l", "bug", "-l", "api"]).status.success());
-    assert!(run(dir.path(), &["add", "second", "-s", "in_progress"]).status.success());
-    assert!(run(dir.path(), &["add", "third", "-l", "bug"]).status.success());
+    assert!(
+        run(dir.path(), &["add", "first", "-l", "bug", "-l", "api"])
+            .status
+            .success()
+    );
+    assert!(
+        run(dir.path(), &["add", "second", "-s", "in_progress"])
+            .status
+            .success()
+    );
+    assert!(
+        run(dir.path(), &["add", "third", "-l", "bug"])
+            .status
+            .success()
+    );
     assert!(run(dir.path(), &["commit", "3", "HEAD"]).status.success());
     assert!(run(dir.path(), &["status", "3", "done"]).status.success());
 
@@ -664,7 +829,11 @@ fn edit_opens_existing_task_file_even_if_frontmatter_is_malformed() {
         .args(["edit", "1"])
         .output()
         .unwrap();
-    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
 }
 
 #[test]
@@ -700,22 +869,49 @@ fn scan_rebuilds_index_from_task_markdown_files() {
 #[test]
 fn query_searches_body_labels_and_status() {
     let dir = tempdir().unwrap();
-    assert!(run(dir.path(), &["add", "alpha", "-b", "needle in body"]).status.success());
-    assert!(run(dir.path(), &["add", "beta", "-l", "special-label"]).status.success());
-    assert!(run(dir.path(), &["add", "gamma", "-s", "in_progress"]).status.success());
+    assert!(
+        run(dir.path(), &["add", "alpha", "-b", "needle in body"])
+            .status
+            .success()
+    );
+    assert!(
+        run(dir.path(), &["add", "beta", "-l", "special-label"])
+            .status
+            .success()
+    );
+    assert!(
+        run(dir.path(), &["add", "gamma", "-s", "in_progress"])
+            .status
+            .success()
+    );
 
     for query in ["needle", "special-label", "in_progress"] {
         let result = run(dir.path(), &["ls", "-q", query]);
         assert!(result.status.success());
-        assert_eq!(String::from_utf8_lossy(&result.stdout).lines().count(), 1, "query: {query}");
+        assert_eq!(
+            String::from_utf8_lossy(&result.stdout).lines().count(),
+            1,
+            "query: {query}"
+        );
     }
 }
 
 #[test]
 fn combined_query_and_label_filters_use_and_semantics() {
     let dir = tempdir().unwrap();
-    assert!(run(dir.path(), &["add", "auth bug", "-l", "bug", "-s", "in_progress"]).status.success());
-    assert!(run(dir.path(), &["add", "ui bug", "-l", "bug"]).status.success());
+    assert!(
+        run(
+            dir.path(),
+            &["add", "auth bug", "-l", "bug", "-s", "in_progress"]
+        )
+        .status
+        .success()
+    );
+    assert!(
+        run(dir.path(), &["add", "ui bug", "-l", "bug"])
+            .status
+            .success()
+    );
     let result = run(dir.path(), &["ls", "-q", "auth", "-l", "bug"]);
     let output = String::from_utf8_lossy(&result.stdout);
     assert!(result.status.success());
@@ -726,7 +922,19 @@ fn combined_query_and_label_filters_use_and_semantics() {
 #[test]
 fn add_with_body_and_labels_is_readable() {
     let dir = tempdir().unwrap();
-    let added = run(dir.path(), &["add", "documented", "-l", "urgent", "-l", "p0", "-b", "details"]);
+    let added = run(
+        dir.path(),
+        &[
+            "add",
+            "documented",
+            "-l",
+            "urgent",
+            "-l",
+            "p0",
+            "-b",
+            "details",
+        ],
+    );
     assert!(added.status.success());
     assert!(String::from_utf8_lossy(&added.stdout).contains("(#1) documented"));
 
@@ -739,10 +947,29 @@ fn add_with_body_and_labels_is_readable() {
 #[test]
 fn body_append_and_label_operations_persist() {
     let dir = tempdir().unwrap();
-    assert!(run(dir.path(), &["add", "mutable", "-l", "old", "-b", "line one"]).status.success());
-    assert!(run(dir.path(), &["body", "1", "replacement"]).status.success());
-    assert!(run(dir.path(), &["append", "1", "second paragraph"]).status.success());
-    assert!(run(dir.path(), &["label", "1", "+new", "--", "-old"]).status.success());
+    assert!(
+        run(
+            dir.path(),
+            &["add", "mutable", "-l", "old", "-b", "line one"]
+        )
+        .status
+        .success()
+    );
+    assert!(
+        run(dir.path(), &["body", "1", "replacement"])
+            .status
+            .success()
+    );
+    assert!(
+        run(dir.path(), &["append", "1", "second paragraph"])
+            .status
+            .success()
+    );
+    assert!(
+        run(dir.path(), &["label", "1", "+new", "--", "-old"])
+            .status
+            .success()
+    );
 
     let shown = run(dir.path(), &["see", "1"]);
     let text = String::from_utf8_lossy(&shown.stdout);
@@ -751,13 +978,14 @@ fn body_append_and_label_operations_persist() {
     assert!(!text.contains("line one"));
 }
 
-
-
 #[test]
 fn delete_is_rejected_and_preserves_all_tasks_commit_metadata() {
     let dir = tempdir().unwrap();
     git(dir.path(), &["init", "-q"]);
-    git(dir.path(), &["config", "user.email", "todoing-test@example.invalid"]);
+    git(
+        dir.path(),
+        &["config", "user.email", "todoing-test@example.invalid"],
+    );
     git(dir.path(), &["config", "user.name", "Todoing Test"]);
     fs::write(dir.path().join("tracked.txt"), "initial").unwrap();
     git(dir.path(), &["add", "tracked.txt"]);
@@ -772,7 +1000,11 @@ fn delete_is_rejected_and_preserves_all_tasks_commit_metadata() {
     assert!(String::from_utf8_lossy(&deleted.stderr).contains("Physical deletion is disabled"));
 
     let listed = run(dir.path(), &["ls", "--json"]);
-    assert!(listed.status.success(), "{}", String::from_utf8_lossy(&listed.stderr));
+    assert!(
+        listed.status.success(),
+        "{}",
+        String::from_utf8_lossy(&listed.stderr)
+    );
     let tasks: Value = serde_json::from_slice(&listed.stdout).unwrap();
     assert_eq!(tasks.as_array().unwrap().len(), 2);
     assert_eq!(tasks[0]["id"], 2);
@@ -788,21 +1020,51 @@ fn delete_is_rejected_and_preserves_all_tasks_commit_metadata() {
 fn commit_metadata_survives_body_label_and_status_mutations() {
     let dir = tempdir().unwrap();
     git(dir.path(), &["init", "-q"]);
-    git(dir.path(), &["config", "user.email", "todoing-test@example.invalid"]);
+    git(
+        dir.path(),
+        &["config", "user.email", "todoing-test@example.invalid"],
+    );
     git(dir.path(), &["config", "user.name", "Todoing Test"]);
     fs::write(dir.path().join("tracked.txt"), "initial").unwrap();
     git(dir.path(), &["add", "tracked.txt"]);
     git(dir.path(), &["commit", "-m", "initial"]);
 
-    assert!(run(dir.path(), &["add", "mutable linked task", "-b", "initial body"]).status.success());
+    assert!(
+        run(
+            dir.path(),
+            &["add", "mutable linked task", "-b", "initial body"]
+        )
+        .status
+        .success()
+    );
     assert!(run(dir.path(), &["commit", "1", "HEAD"]).status.success());
-    assert!(run(dir.path(), &["body", "1", "replacement body"]).status.success());
-    assert!(run(dir.path(), &["append", "1", "appended body"]).status.success());
-    assert!(run(dir.path(), &["label", "1", "+verified"]).status.success());
-    assert!(run(dir.path(), &["status", "1", "in_progress"]).status.success());
+    assert!(
+        run(dir.path(), &["body", "1", "replacement body"])
+            .status
+            .success()
+    );
+    assert!(
+        run(dir.path(), &["append", "1", "appended body"])
+            .status
+            .success()
+    );
+    assert!(
+        run(dir.path(), &["label", "1", "+verified"])
+            .status
+            .success()
+    );
+    assert!(
+        run(dir.path(), &["status", "1", "in_progress"])
+            .status
+            .success()
+    );
 
     let shown = run(dir.path(), &["see", "1", "--json"]);
-    assert!(shown.status.success(), "{}", String::from_utf8_lossy(&shown.stderr));
+    assert!(
+        shown.status.success(),
+        "{}",
+        String::from_utf8_lossy(&shown.stderr)
+    );
     let task: Value = serde_json::from_slice(&shown.stdout).unwrap();
     assert_eq!(task["body"], "replacement body\n\nappended body");
     assert_eq!(task["labels"], serde_json::json!(["verified"]));
@@ -817,7 +1079,11 @@ fn commit_metadata_survives_body_label_and_status_mutations() {
 fn creating_done_task_runs_without_optional_completion_hooks() {
     let dir = tempdir().unwrap();
     let created = run(dir.path(), &["add", "directly done", "--status", "done"]);
-    assert!(created.status.success(), "{}", String::from_utf8_lossy(&created.stderr));
+    assert!(
+        created.status.success(),
+        "{}",
+        String::from_utf8_lossy(&created.stderr)
+    );
     assert!(dir.path().join(".todoing/tasks/1.md").exists());
 }
 #[test]
@@ -837,7 +1103,11 @@ fn task_creation_rejects_blank_required_title_without_writing_files() {
 #[test]
 fn label_no_clear_option_preserves_existing_labels() {
     let dir = tempdir().unwrap();
-    assert!(run(dir.path(), &["add", "labels", "-l", "existing"]).status.success());
+    assert!(
+        run(dir.path(), &["add", "labels", "-l", "existing"])
+            .status
+            .success()
+    );
     let changed = run(dir.path(), &["label", "1", "+new", "--no-clear"]);
     assert!(changed.status.success());
     let shown = run(dir.path(), &["see", "1"]);
@@ -914,31 +1184,48 @@ fn reindex_recovers_missing_index_from_markdown() {
 #[test]
 fn special_title_and_multiline_body_round_trip() {
     let dir = tempdir().unwrap();
-    assert!(run(dir.path(), &["add", "123", "-b", "line one\nline two"]).status.success());
+    assert!(
+        run(dir.path(), &["add", "123", "-b", "line one\nline two"])
+            .status
+            .success()
+    );
     let shown = run(dir.path(), &["see", "#1"]);
     let text = String::from_utf8_lossy(&shown.stdout);
     assert!(text.contains("title: '123'") || text.contains("title: \"123\""));
     assert!(text.contains("line one\nline two"));
 }
 
-
 #[test]
 fn label_clear_flags_follow_last_option_like_click() {
     let dir = tempdir().unwrap();
-    assert!(run(dir.path(), &["add", "labels", "-l", "existing"]).status.success());
+    assert!(
+        run(dir.path(), &["add", "labels", "-l", "existing"])
+            .status
+            .success()
+    );
 
     let clear_last = run(dir.path(), &["label", "1", "+new", "--no-clear", "--clear"]);
-    assert!(clear_last.status.success(), "{}", String::from_utf8_lossy(&clear_last.stderr));
+    assert!(
+        clear_last.status.success(),
+        "{}",
+        String::from_utf8_lossy(&clear_last.stderr)
+    );
     let shown = run(dir.path(), &["see", "1"]);
     assert!(String::from_utf8_lossy(&shown.stdout).contains("labels: [new]"));
 
-    let no_clear_last = run(dir.path(), &["label", "1", "+another", "--clear", "--no-clear"]);
-    assert!(no_clear_last.status.success(), "{}", String::from_utf8_lossy(&no_clear_last.stderr));
+    let no_clear_last = run(
+        dir.path(),
+        &["label", "1", "+another", "--clear", "--no-clear"],
+    );
+    assert!(
+        no_clear_last.status.success(),
+        "{}",
+        String::from_utf8_lossy(&no_clear_last.stderr)
+    );
     let shown = run(dir.path(), &["see", "1"]);
     let output = String::from_utf8_lossy(&shown.stdout);
     assert!(output.contains("labels: [new, another]"));
 }
-
 
 #[test]
 fn legacy_cli_preserves_missing_task_errors_and_version_output() {
@@ -952,7 +1239,10 @@ fn legacy_cli_preserves_missing_task_errors_and_version_output() {
         vec!["label", "99", "+label"],
     ] {
         let result = run(dir.path(), &args);
-        assert!(!result.status.success(), "command unexpectedly succeeded: {args:?}");
+        assert!(
+            !result.status.success(),
+            "command unexpectedly succeeded: {args:?}"
+        );
         assert!(
             String::from_utf8_lossy(&result.stderr).contains("not found"),
             "unexpected error for {args:?}: {}",
@@ -974,7 +1264,10 @@ fn legacy_cli_preserves_missing_task_errors_and_version_output() {
 fn legacy_cli_accepts_every_original_status_value() {
     let dir = tempdir().unwrap();
     git(dir.path(), &["init", "-q"]);
-    git(dir.path(), &["config", "user.email", "todoing-test@example.invalid"]);
+    git(
+        dir.path(),
+        &["config", "user.email", "todoing-test@example.invalid"],
+    );
     git(dir.path(), &["config", "user.name", "Todoing Test"]);
     fs::write(dir.path().join("tracked.txt"), "initial").unwrap();
     git(dir.path(), &["add", "tracked.txt"]);
@@ -993,9 +1286,17 @@ fn legacy_cli_accepts_every_original_status_value() {
     }
 
     let linked = run(dir.path(), &["commit", "1", "HEAD"]);
-    assert!(linked.status.success(), "{}", String::from_utf8_lossy(&linked.stderr));
+    assert!(
+        linked.status.success(),
+        "{}",
+        String::from_utf8_lossy(&linked.stderr)
+    );
     let done = run(dir.path(), &["status", "1", "done"]);
-    assert!(done.status.success(), "{}", String::from_utf8_lossy(&done.stderr));
+    assert!(
+        done.status.success(),
+        "{}",
+        String::from_utf8_lossy(&done.stderr)
+    );
 
     let shown = run(dir.path(), &["see", "1", "--json"]);
     assert!(shown.status.success());
@@ -1018,7 +1319,11 @@ fn add_done_runs_on_create_after_optional_completion_hooks() {
     fs::set_permissions(&hook, permissions).unwrap();
 
     let created = run(dir.path(), &["add", "directly done", "--status", "done"]);
-    assert!(created.status.success(), "{}", String::from_utf8_lossy(&created.stderr));
+    assert!(
+        created.status.success(),
+        "{}",
+        String::from_utf8_lossy(&created.stderr)
+    );
     assert!(marker.exists());
 }
 #[cfg(windows)]
@@ -1029,21 +1334,35 @@ fn add_done_cmd_runs_on_create_after_optional_completion_hooks() {
     fs::create_dir_all(&hooks).unwrap();
     let marker = dir.path().join("hook-ran");
     let hook = hooks.join("on-create.cmd");
-    fs::write(&hook, format!("@echo off\necho ran > \"{}\"\r\n", marker.display())).unwrap();
+    fs::write(
+        &hook,
+        format!("@echo off\necho ran > \"{}\"\r\n", marker.display()),
+    )
+    .unwrap();
 
     let created = run(dir.path(), &["add", "directly done", "--status", "done"]);
-    assert!(created.status.success(), "{}", String::from_utf8_lossy(&created.stderr));
+    assert!(
+        created.status.success(),
+        "{}",
+        String::from_utf8_lossy(&created.stderr)
+    );
     assert!(marker.exists());
 }
-
 
 #[test]
 fn explicit_migration_switches_human_cli_to_sqlite_lifecycle() {
     let dir = tempdir().unwrap();
     assert!(run(dir.path(), &["add", "legacy task"]).status.success());
 
-    let migrated = run(dir.path(), &["migrate", "--project-id", "cli-integration", "--json"]);
-    assert!(migrated.status.success(), "{}", String::from_utf8_lossy(&migrated.stderr));
+    let migrated = run(
+        dir.path(),
+        &["migrate", "--project-id", "cli-integration", "--json"],
+    );
+    assert!(
+        migrated.status.success(),
+        "{}",
+        String::from_utf8_lossy(&migrated.stderr)
+    );
     let report: Value = serde_json::from_slice(&migrated.stdout).unwrap();
     assert_eq!(report["api_version"], 1);
     assert_eq!(report["data"]["activated"], true);
@@ -1051,37 +1370,68 @@ fn explicit_migration_switches_human_cli_to_sqlite_lifecycle() {
     assert!(dir.path().join(".todoing/todoing.db").is_file());
 
     let listed = run(dir.path(), &["ls", "--json"]);
-    assert!(listed.status.success(), "{}", String::from_utf8_lossy(&listed.stderr));
+    assert!(
+        listed.status.success(),
+        "{}",
+        String::from_utf8_lossy(&listed.stderr)
+    );
     let listed: Value = serde_json::from_slice(&listed.stdout).unwrap();
     assert_eq!(listed["api_version"], 1);
     assert_eq!(listed["data"][0]["id"], 1);
     assert_eq!(listed["data"][0]["title"], "legacy task");
 
     let added = run(dir.path(), &["add", "SQLite task", "--json"]);
-    assert!(added.status.success(), "{}", String::from_utf8_lossy(&added.stderr));
+    assert!(
+        added.status.success(),
+        "{}",
+        String::from_utf8_lossy(&added.stderr)
+    );
     let added: Value = serde_json::from_slice(&added.stdout).unwrap();
     assert_eq!(added["data"]["id"], 2);
 
     let body = run(dir.path(), &["body", "2", "updated body", "--json"]);
-    assert!(body.status.success(), "{}", String::from_utf8_lossy(&body.stderr));
+    assert!(
+        body.status.success(),
+        "{}",
+        String::from_utf8_lossy(&body.stderr)
+    );
     let body: Value = serde_json::from_slice(&body.stdout).unwrap();
     assert_eq!(body["data"]["body"], "updated body");
 
     let dependency = run(dir.path(), &["depends", "add", "2", "1", "--json"]);
-    assert!(dependency.status.success(), "{}", String::from_utf8_lossy(&dependency.stderr));
+    assert!(
+        dependency.status.success(),
+        "{}",
+        String::from_utf8_lossy(&dependency.stderr)
+    );
 
     let completed = run(dir.path(), &["complete", "1", "--json"]);
-    assert!(completed.status.success(), "{}", String::from_utf8_lossy(&completed.stderr));
+    assert!(
+        completed.status.success(),
+        "{}",
+        String::from_utf8_lossy(&completed.stderr)
+    );
     let completed: Value = serde_json::from_slice(&completed.stdout).unwrap();
     assert_eq!(completed["data"]["outcome"], "completed");
 
     let reopened = run(dir.path(), &["reopen", "1", "--json"]);
-    assert!(reopened.status.success(), "{}", String::from_utf8_lossy(&reopened.stderr));
+    assert!(
+        reopened.status.success(),
+        "{}",
+        String::from_utf8_lossy(&reopened.stderr)
+    );
     let reopened: Value = serde_json::from_slice(&reopened.stdout).unwrap();
     assert_eq!(reopened["data"]["outcome"], Value::Null);
 
-    let cancelled = run(dir.path(), &["cancel", "2", "--reason", "obsolete", "--json"]);
-    assert!(cancelled.status.success(), "{}", String::from_utf8_lossy(&cancelled.stderr));
+    let cancelled = run(
+        dir.path(),
+        &["cancel", "2", "--reason", "obsolete", "--json"],
+    );
+    assert!(
+        cancelled.status.success(),
+        "{}",
+        String::from_utf8_lossy(&cancelled.stderr)
+    );
     let cancelled: Value = serde_json::from_slice(&cancelled.stdout).unwrap();
     assert_eq!(cancelled["data"]["outcome"], "cancelled");
 
@@ -1092,32 +1442,51 @@ fn explicit_migration_switches_human_cli_to_sqlite_lifecycle() {
     assert_eq!(deleted["error"]["code"], "invalid_request");
 
     let history = run(dir.path(), &["history", "1", "--json"]);
-    assert!(history.status.success(), "{}", String::from_utf8_lossy(&history.stderr));
+    assert!(
+        history.status.success(),
+        "{}",
+        String::from_utf8_lossy(&history.stderr)
+    );
     let history: Value = serde_json::from_slice(&history.stdout).unwrap();
     assert!(history["data"].as_array().unwrap().len() >= 3);
 
     let versions = run(dir.path(), &["version", "1", "--json"]);
-    assert!(versions.status.success(), "{}", String::from_utf8_lossy(&versions.stderr));
+    assert!(
+        versions.status.success(),
+        "{}",
+        String::from_utf8_lossy(&versions.stderr)
+    );
     let versions: Value = serde_json::from_slice(&versions.stdout).unwrap();
     assert!(versions["data"].as_array().unwrap().len() >= 2);
 
     let verified = run(dir.path(), &["verify", "--json"]);
-    assert!(verified.status.success(), "{}", String::from_utf8_lossy(&verified.stderr));
+    assert!(
+        verified.status.success(),
+        "{}",
+        String::from_utf8_lossy(&verified.stderr)
+    );
     let verified: Value = serde_json::from_slice(&verified.stdout).unwrap();
     assert_eq!(verified["data"]["integrity_check"], "ok");
 
     let snapshot = run(dir.path(), &["snapshot", "cli-backup.db", "--json"]);
-    assert!(snapshot.status.success(), "{}", String::from_utf8_lossy(&snapshot.stderr));
+    assert!(
+        snapshot.status.success(),
+        "{}",
+        String::from_utf8_lossy(&snapshot.stderr)
+    );
     let snapshot: Value = serde_json::from_slice(&snapshot.stdout).unwrap();
-    assert_eq!(snapshot["data"]["size_bytes"].as_u64().unwrap() > 0, true);
+    assert!(snapshot["data"]["size_bytes"].as_u64().unwrap() > 0);
     assert!(dir.path().join("cli-backup.db").is_file());
 }
-
 
 #[test]
 fn json_api_transport_covers_migration_snapshot_response_and_exit_contract() {
     let dir = tempdir().unwrap();
-    assert!(run(dir.path(), &["add", "legacy API task"]).status.success());
+    assert!(
+        run(dir.path(), &["add", "legacy API task"])
+            .status
+            .success()
+    );
 
     let dry_run_request = serde_json::json!({
         "api_version": 1,
@@ -1132,7 +1501,11 @@ fn json_api_transport_covers_migration_snapshot_response_and_exit_contract() {
         &["api"],
         &serde_json::to_string(&dry_run_request).unwrap(),
     );
-    assert!(dry_run.status.success(), "{}", String::from_utf8_lossy(&dry_run.stderr));
+    assert!(
+        dry_run.status.success(),
+        "{}",
+        String::from_utf8_lossy(&dry_run.stderr)
+    );
     let dry_run_output = String::from_utf8_lossy(&dry_run.stdout).into_owned();
     let dry_run_lines: Vec<_> = dry_run_output.lines().collect();
     assert_eq!(dry_run_lines.len(), 1);
@@ -1156,7 +1529,11 @@ fn json_api_transport_covers_migration_snapshot_response_and_exit_contract() {
         &["api"],
         &serde_json::to_string(&migrate_request).unwrap(),
     );
-    assert!(migrated.status.success(), "{}", String::from_utf8_lossy(&migrated.stderr));
+    assert!(
+        migrated.status.success(),
+        "{}",
+        String::from_utf8_lossy(&migrated.stderr)
+    );
     let migrated_response: Value = serde_json::from_slice(&migrated.stdout).unwrap();
     assert_eq!(migrated_response["data"]["activated"], true);
     assert_eq!(migrated_response["data"]["task_count"], 1);
@@ -1174,10 +1551,17 @@ fn json_api_transport_covers_migration_snapshot_response_and_exit_contract() {
         &["api"],
         &serde_json::to_string(&snapshot_request).unwrap(),
     );
-    assert!(snapshot.status.success(), "{}", String::from_utf8_lossy(&snapshot.stderr));
+    assert!(
+        snapshot.status.success(),
+        "{}",
+        String::from_utf8_lossy(&snapshot.stderr)
+    );
     let snapshot_response: Value = serde_json::from_slice(&snapshot.stdout).unwrap();
     assert_eq!(snapshot_response["ok"], true);
-    assert_eq!(snapshot_response["data"]["sha256"].as_str().unwrap().len(), 64);
+    assert_eq!(
+        snapshot_response["data"]["sha256"].as_str().unwrap().len(),
+        64
+    );
     assert!(dir.path().join("api-backup.db").is_file());
 
     let info_request = serde_json::json!({
@@ -1222,24 +1606,49 @@ fn json_api_transport_covers_migration_snapshot_response_and_exit_contract() {
     let rejected_response: Value = serde_json::from_str(rejected_lines[0]).unwrap();
     assert_eq!(rejected_response["request_id"], "unsupported");
     assert_eq!(rejected_response["ok"], false);
-    assert_eq!(rejected_response["error"]["code"], "unsupported_api_version");
+    assert_eq!(
+        rejected_response["error"]["code"],
+        "unsupported_api_version"
+    );
     assert!(!rejected.stderr.is_empty());
 }
-
 
 #[test]
 fn sqlite_cli_archive_restore_is_explicit_non_destructive_and_versioned() {
     let dir = tempdir().unwrap();
-    assert!(run(dir.path(), &["add", "archive prerequisite"]).status.success());
-    assert!(run(dir.path(), &["add", "active dependent"]).status.success());
-    let migrated = run(dir.path(), &["migrate", "--project-id", "archive-cli-project", "--json"]);
-    assert!(migrated.status.success(), "{}", String::from_utf8_lossy(&migrated.stderr));
+    assert!(
+        run(dir.path(), &["add", "archive prerequisite"])
+            .status
+            .success()
+    );
+    assert!(
+        run(dir.path(), &["add", "active dependent"])
+            .status
+            .success()
+    );
+    let migrated = run(
+        dir.path(),
+        &["migrate", "--project-id", "archive-cli-project", "--json"],
+    );
+    assert!(
+        migrated.status.success(),
+        "{}",
+        String::from_utf8_lossy(&migrated.stderr)
+    );
 
     let dependency = run(dir.path(), &["depends", "add", "2", "1", "--json"]);
-    assert!(dependency.status.success(), "{}", String::from_utf8_lossy(&dependency.stderr));
+    assert!(
+        dependency.status.success(),
+        "{}",
+        String::from_utf8_lossy(&dependency.stderr)
+    );
 
     let archived = run(dir.path(), &["archive", "1", "--json"]);
-    assert!(archived.status.success(), "{}", String::from_utf8_lossy(&archived.stderr));
+    assert!(
+        archived.status.success(),
+        "{}",
+        String::from_utf8_lossy(&archived.stderr)
+    );
     let archived: Value = serde_json::from_slice(&archived.stdout).unwrap();
     assert_eq!(archived["data"]["no_op"], false);
     assert!(archived["data"]["task"]["archived_at"].is_string());
@@ -1284,10 +1693,17 @@ fn sqlite_cli_archive_restore_is_explicit_non_destructive_and_versioned() {
     assert_eq!(repeated["data"]["no_op"], true);
     let version_after = run(dir.path(), &["version", "1", "--json"]);
     let version_after: Value = serde_json::from_slice(&version_after.stdout).unwrap();
-    assert_eq!(version_after["data"].as_array().unwrap().len(), version_count);
+    assert_eq!(
+        version_after["data"].as_array().unwrap().len(),
+        version_count
+    );
 
     let restored = run(dir.path(), &["restore", "1", "--json"]);
-    assert!(restored.status.success(), "{}", String::from_utf8_lossy(&restored.stderr));
+    assert!(
+        restored.status.success(),
+        "{}",
+        String::from_utf8_lossy(&restored.stderr)
+    );
     let restored: Value = serde_json::from_slice(&restored.stdout).unwrap();
     assert_eq!(restored["data"]["no_op"], false);
     assert!(restored["data"]["task"]["archived_at"].is_null());
@@ -1300,8 +1716,16 @@ fn sqlite_cli_archive_restore_is_explicit_non_destructive_and_versioned() {
     let history_after: Value = serde_json::from_slice(&history_after.stdout).unwrap();
     let events = history_after["data"].as_array().unwrap();
     assert!(events.len() > history_before["data"].as_array().unwrap().len());
-    assert!(events.iter().any(|event| event["operation"] == "task.archive"));
-    assert!(events.iter().any(|event| event["operation"] == "task.restore"));
+    assert!(
+        events
+            .iter()
+            .any(|event| event["operation"] == "task.archive")
+    );
+    assert!(
+        events
+            .iter()
+            .any(|event| event["operation"] == "task.restore")
+    );
 
     let dependencies = run(dir.path(), &["depends", "list", "2", "--json"]);
     assert!(dependencies.status.success());

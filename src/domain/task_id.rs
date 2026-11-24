@@ -35,7 +35,12 @@ impl FromStr for TaskId {
             .strip_prefix('#')
             .unwrap_or(value)
             .parse::<i64>()
-            .map_err(|_| AppError::new(ErrorCode::InvalidRequest, "Task ID must be a positive integer"))?;
+            .map_err(|_| {
+                AppError::new(
+                    ErrorCode::InvalidRequest,
+                    "Task ID must be a positive integer",
+                )
+            })?;
         Self::new(parsed)
     }
 }

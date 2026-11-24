@@ -43,8 +43,8 @@ impl Default for ProjectConfig {
 
 impl ProjectConfig {
     pub fn from_toml(source: &str) -> Result<Self, ConfigError> {
-        let config: Self = toml::from_str(source)
-            .map_err(|error| ConfigError::Parse(error.to_string()))?;
+        let config: Self =
+            toml::from_str(source).map_err(|error| ConfigError::Parse(error.to_string()))?;
         config.validate()?;
         Ok(config)
     }
@@ -65,8 +65,7 @@ impl ProjectConfig {
 
         if self.locking.lease_seconds < 60
             || self.locking.heartbeat_seconds == 0
-            || (self.locking.heartbeat_seconds as u128) * 3
-                >= self.locking.lease_seconds as u128
+            || (self.locking.heartbeat_seconds as u128) * 3 >= self.locking.lease_seconds as u128
         {
             return Err(ConfigError::InvalidLockSettings(
                 "lease must be at least 60 seconds and heartbeat must be positive and less than one third of the lease".into(),
@@ -123,10 +122,14 @@ impl ProjectConfig {
 
     pub fn is_transition_allowed(&self, from: &str, to: &str) -> bool {
         self.statuses.iter().any(|status| status.id == from)
-            && self.statuses.iter().any(|status| status.id == to && status.enabled)
-            && self.transitions.iter().any(|transition| {
-                transition.from == from && transition.to == to
-            })
+            && self
+                .statuses
+                .iter()
+                .any(|status| status.id == to && status.enabled)
+            && self
+                .transitions
+                .iter()
+                .any(|transition| transition.from == from && transition.to == to)
     }
 
     pub fn outcome_for_status(&self, status_id: &str) -> Option<TaskOutcome> {
@@ -162,9 +165,15 @@ impl Default for LockConfig {
     }
 }
 
-fn default_lease_seconds() -> u64 { 300 }
-fn default_heartbeat_seconds() -> u64 { 60 }
-fn default_recovery_grace_seconds() -> u64 { 60 }
+fn default_lease_seconds() -> u64 {
+    300
+}
+fn default_heartbeat_seconds() -> u64 {
+    60
+}
+fn default_recovery_grace_seconds() -> u64 {
+    60
+}
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -238,18 +247,30 @@ impl fmt::Display for ConfigError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Parse(message) => write!(formatter, "Invalid TOML configuration: {message}"),
-            Self::Serialize(message) => write!(formatter, "Cannot serialize configuration: {message}"),
-            Self::UnsupportedFormatVersion(version) => write!(formatter, "Unsupported config format version: {version}"),
+            Self::Serialize(message) => {
+                write!(formatter, "Cannot serialize configuration: {message}")
+            }
+            Self::UnsupportedFormatVersion(version) => {
+                write!(formatter, "Unsupported config format version: {version}")
+            }
             Self::NoStatuses => formatter.write_str("At least one status must be configured"),
             Self::NoEnabledStatuses => formatter.write_str("At least one status must be enabled"),
             Self::DuplicateStatusId(id) => write!(formatter, "Duplicate status ID: {id}"),
             Self::InvalidStatusId(id) => write!(formatter, "Invalid status ID: {id}"),
             Self::EmptyStatusLabel(id) => write!(formatter, "Status label cannot be empty: {id}"),
-            Self::UnknownTransitionEndpoint { from, to } => write!(formatter, "Unknown transition endpoint: {from} -> {to}"),
-            Self::DisabledTransitionTarget(id) => write!(formatter, "Transition target is disabled: {id}"),
+            Self::UnknownTransitionEndpoint { from, to } => {
+                write!(formatter, "Unknown transition endpoint: {from} -> {to}")
+            }
+            Self::DisabledTransitionTarget(id) => {
+                write!(formatter, "Transition target is disabled: {id}")
+            }
             Self::SelfTransition(id) => write!(formatter, "Self-transitions are not allowed: {id}"),
-            Self::DuplicateTransition { from, to } => write!(formatter, "Duplicate transition: {from} -> {to}"),
-            Self::InvalidLockSettings(message) => write!(formatter, "Invalid lock settings: {message}"),
+            Self::DuplicateTransition { from, to } => {
+                write!(formatter, "Duplicate transition: {from} -> {to}")
+            }
+            Self::InvalidLockSettings(message) => {
+                write!(formatter, "Invalid lock settings: {message}")
+            }
         }
     }
 }

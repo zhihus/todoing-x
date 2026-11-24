@@ -169,13 +169,13 @@ impl Store {
         let project_id_raw = metadata_value(&connection, "project_id")?;
         let project_id = ProjectId::new(project_id_raw.clone())
             .map_err(|_| StoreError::InvalidMetadata("project_id".into()))?;
-        if let Some(expected) = expected_project_id {
-            if expected != &project_id {
-                return Err(StoreError::ProjectIdMismatch {
-                    expected: expected.as_str().to_owned(),
-                    actual: project_id_raw,
-                });
-            }
+        if let Some(expected) = expected_project_id
+            && expected != &project_id
+        {
+            return Err(StoreError::ProjectIdMismatch {
+                expected: expected.as_str().to_owned(),
+                actual: project_id_raw,
+            });
         }
         migrate_schema(&mut connection)?;
         drop(connection);
@@ -222,10 +222,16 @@ impl Store {
             self.root.join(requested)
         };
         let parent = requested.parent().ok_or_else(|| {
-            StoreError::Io(std::io::Error::new(std::io::ErrorKind::InvalidInput, "Snapshot path has no parent directory"))
+            StoreError::Io(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "Snapshot path has no parent directory",
+            ))
         })?;
         let file_name = requested.file_name().ok_or_else(|| {
-            StoreError::Io(std::io::Error::new(std::io::ErrorKind::InvalidInput, "Snapshot path has no file name"))
+            StoreError::Io(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "Snapshot path has no file name",
+            ))
         })?;
         let canonical_parent = parent.canonicalize()?;
         let destination = canonical_parent.join(file_name);
@@ -236,13 +242,18 @@ impl Store {
         };
         let active_database = self.database_path.canonicalize()?;
         if destination == active_database {
-            return Err(StoreError::InvalidTask("Snapshot destination must differ from the active database".into()));
+            return Err(StoreError::InvalidTask(
+                "Snapshot destination must differ from the active database".into(),
+            ));
         }
         if destination.exists() && !overwrite {
             return Err(StoreError::AlreadyExists(destination));
         }
         if destination.is_dir() {
-            return Err(StoreError::Io(std::io::Error::new(std::io::ErrorKind::InvalidInput, "Snapshot destination is a directory")));
+            return Err(StoreError::Io(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "Snapshot destination is a directory",
+            )));
         }
 
         let temporary = NamedTempFile::new_in(&canonical_parent)?;
@@ -277,15 +288,19 @@ impl Store {
         drop(snapshot_connection);
 
         if overwrite {
-            temporary_path.persist(&destination).map_err(|error| StoreError::Io(error.error))?;
+            temporary_path
+                .persist(&destination)
+                .map_err(|error| StoreError::Io(error.error))?;
         } else {
-            temporary_path.persist_noclobber(&destination).map_err(|error| {
-                if error.error.kind() == std::io::ErrorKind::AlreadyExists {
-                    StoreError::AlreadyExists(destination.clone())
-                } else {
-                    StoreError::Io(error.error)
-                }
-            })?;
+            temporary_path
+                .persist_noclobber(&destination)
+                .map_err(|error| {
+                    if error.error.kind() == std::io::ErrorKind::AlreadyExists {
+                        StoreError::AlreadyExists(destination.clone())
+                    } else {
+                        StoreError::Io(error.error)
+                    }
+                })?;
         }
 
         let metadata = fs::metadata(&destination)?;
@@ -294,7 +309,9 @@ impl Store {
         let mut buffer = [0u8; 64 * 1024];
         loop {
             let read = file.read(&mut buffer)?;
-            if read == 0 { break; }
+            if read == 0 {
+                break;
+            }
             digest.update(&buffer[..read]);
         }
         Ok(SnapshotReport {
@@ -397,26 +414,22 @@ fn configure_connection(connection: &Connection) -> Result<(), StoreError> {
     connection.busy_timeout(BUSY_TIMEOUT)?;
     connection.execute_batch("PRAGMA foreign_keys = ON; PRAGMA synchronous = FULL;")?;
 
-    let journal_mode: String =
-        connection.query_row("PRAGMA journal_mode", [], |row| row.get(0))?;
+    let journal_mode: String = connection.query_row("PRAGMA journal_mode", [], |row| row.get(0))?;
     if !journal_mode.eq_ignore_ascii_case("delete") {
         return Err(StoreError::InvalidMetadata("journal_mode".into()));
     }
 
-    let foreign_keys: i64 =
-        connection.query_row("PRAGMA foreign_keys", [], |row| row.get(0))?;
+    let foreign_keys: i64 = connection.query_row("PRAGMA foreign_keys", [], |row| row.get(0))?;
     if foreign_keys != 1 {
         return Err(StoreError::InvalidMetadata("foreign_keys".into()));
     }
 
-    let synchronous: i64 =
-        connection.query_row("PRAGMA synchronous", [], |row| row.get(0))?;
+    let synchronous: i64 = connection.query_row("PRAGMA synchronous", [], |row| row.get(0))?;
     if synchronous != 2 {
         return Err(StoreError::InvalidMetadata("synchronous".into()));
     }
 
-    let busy_timeout: i64 =
-        connection.query_row("PRAGMA busy_timeout", [], |row| row.get(0))?;
+    let busy_timeout: i64 = connection.query_row("PRAGMA busy_timeout", [], |row| row.get(0))?;
     if busy_timeout != BUSY_TIMEOUT.as_millis() as i64 {
         return Err(StoreError::InvalidMetadata("busy_timeout".into()));
     }
@@ -458,7 +471,10 @@ fn migrate_schema(connection: &mut Connection) -> Result<(), StoreError> {
             )?;
             transaction.execute(
                 "INSERT INTO schema_migrations(version, checksum, applied_at) VALUES (2, ?1, ?2)",
-                params![archive_schema_checksum(), Utc::now().to_rfc3339_opts(SecondsFormat::Micros, true)],
+                params![
+                    archive_schema_checksum(),
+                    Utc::now().to_rfc3339_opts(SecondsFormat::Micros, true)
+                ],
             )?;
         } else if locked_version > SCHEMA_VERSION {
             return Err(StoreError::UnsupportedSchemaVersion(locked_version));
@@ -480,7 +496,10 @@ fn migrate_schema(connection: &mut Connection) -> Result<(), StoreError> {
             )?;
             transaction.execute(
                 "INSERT INTO schema_migrations(version, checksum, applied_at) VALUES (3, ?1, ?2)",
-                params![extensions_schema_checksum(), Utc::now().to_rfc3339_opts(SecondsFormat::Micros, true)],
+                params![
+                    extensions_schema_checksum(),
+                    Utc::now().to_rfc3339_opts(SecondsFormat::Micros, true)
+                ],
             )?;
         } else if locked_version > SCHEMA_VERSION {
             return Err(StoreError::UnsupportedSchemaVersion(locked_version));

@@ -63,10 +63,7 @@ impl ErrorCode {
             | Self::StaleLock
             | Self::InvalidStatusTransition
             | Self::DependencyCycle => 4,
-            Self::StoreBusy
-            | Self::StoreCorrupt
-            | Self::IoError
-            | Self::HistoryRecordFailed => 5,
+            Self::StoreBusy | Self::StoreCorrupt | Self::IoError | Self::HistoryRecordFailed => 5,
             Self::MigrationConflict => 6,
             Self::InternalError => 70,
         }

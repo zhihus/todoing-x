@@ -1,14 +1,19 @@
 pub mod api;
-pub mod migration;
-pub mod initialization;
 pub mod config;
 pub mod domain;
+pub mod initialization;
+pub mod migration;
 pub mod storage;
 
 use chrono::{DateTime, FixedOffset, Local, NaiveDateTime, Timelike};
-use serde::{de, Deserializer, Serializer};
 use serde::{Deserialize, Serialize};
-use std::{collections::HashSet, fs, io::Write, path::{Path, PathBuf}};
+use serde::{Deserializer, Serializer, de};
+use std::{
+    collections::HashSet,
+    fs,
+    io::Write,
+    path::{Path, PathBuf},
+};
 use tempfile::NamedTempFile;
 
 pub const TODOING_DIR: &str = ".todoing";
@@ -18,28 +23,51 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum TaskStatus { #[default] Todo, InProgress, Done, Cancelled }
+pub enum TaskStatus {
+    #[default]
+    Todo,
+    InProgress,
+    Done,
+    Cancelled,
+}
 
 impl TaskStatus {
     pub fn parse(s: &str) -> Result<Self, String> {
         match s.to_lowercase().as_str() {
-            "todo" => Ok(Self::Todo), "in_progress" => Ok(Self::InProgress),
-            "done" => Ok(Self::Done), "cancelled" => Ok(Self::Cancelled),
-            _ => Err(format!("Invalid status '{}'. Valid: todo, in_progress, done, cancelled", s)),
+            "todo" => Ok(Self::Todo),
+            "in_progress" => Ok(Self::InProgress),
+            "done" => Ok(Self::Done),
+            "cancelled" => Ok(Self::Cancelled),
+            _ => Err(format!(
+                "Invalid status '{}'. Valid: todo, in_progress, done, cancelled",
+                s
+            )),
         }
     }
     fn parse_stored(s: &str) -> Result<Self, String> {
         match s {
-            "todo" => Ok(Self::Todo), "in_progress" => Ok(Self::InProgress),
-            "done" => Ok(Self::Done), "cancelled" => Ok(Self::Cancelled),
+            "todo" => Ok(Self::Todo),
+            "in_progress" => Ok(Self::InProgress),
+            "done" => Ok(Self::Done),
+            "cancelled" => Ok(Self::Cancelled),
             _ => Err(format!("Invalid stored status '{}'.", s)),
         }
     }
     pub fn as_str(self) -> &'static str {
-        match self { Self::Todo => "todo", Self::InProgress => "in_progress", Self::Done => "done", Self::Cancelled => "cancelled" }
+        match self {
+            Self::Todo => "todo",
+            Self::InProgress => "in_progress",
+            Self::Done => "done",
+            Self::Cancelled => "cancelled",
+        }
     }
     pub fn icon(self) -> &'static str {
-        match self { Self::Todo => "⏳", Self::InProgress => "🏃", Self::Done => "✅", Self::Cancelled => "❌" }
+        match self {
+            Self::Todo => "⏳",
+            Self::InProgress => "🏃",
+            Self::Done => "✅",
+            Self::Cancelled => "❌",
+        }
     }
 }
 
@@ -64,30 +92,47 @@ fn parse_decimal_datetime_timestamp(value: &str) -> Option<f64> {
             index += 1;
         }
     }
-    if digits == 0 || index != bytes.len() { return None; }
-    value.parse::<f64>().ok().filter(|number| number.is_finite())
+    if digits == 0 || index != bytes.len() {
+        return None;
+    }
+    value
+        .parse::<f64>()
+        .ok()
+        .filter(|number| number.is_finite())
 }
 
 impl TaskDateTime {
     fn from_unix_timestamp(timestamp: f64) -> Option<Self> {
-        if !timestamp.is_finite() { return None; }
-        let seconds = if timestamp.abs() <= 20_000_000_000.0 { timestamp } else { timestamp / 1_000.0 };
+        if !timestamp.is_finite() {
+            return None;
+        }
+        let seconds = if timestamp.abs() <= 20_000_000_000.0 {
+            timestamp
+        } else {
+            timestamp / 1_000.0
+        };
         let whole = seconds.floor();
         let nanos = ((seconds - whole) * 1_000_000_000.0).round() as u32;
         let (whole, nanos) = if nanos >= 1_000_000_000 {
             (whole + 1.0, nanos - 1_000_000_000)
-        } else { (whole, nanos) };
-        if whole >= i64::MIN as f64 && whole < -(i64::MIN as f64) {
-            if let Some(value) = DateTime::from_timestamp(whole as i64, nanos) {
-                let utc = FixedOffset::east_opt(0).expect("UTC offset is valid");
-                return Some(Self::Offset(value.with_timezone(&utc)));
-            }
+        } else {
+            (whole, nanos)
+        };
+        if whole >= i64::MIN as f64
+            && whole < -(i64::MIN as f64)
+            && let Some(value) = DateTime::from_timestamp(whole as i64, nanos)
+        {
+            let utc = FixedOffset::east_opt(0).expect("UTC offset is valid");
+            return Some(Self::Offset(value.with_timezone(&utc)));
         }
         None
     }
 
     pub fn parse_iso(value: &str) -> Result<Self, String> {
-        let normalized = if matches!(value.as_bytes().get(10), Some(b' ') | Some(b't') | Some(b'T')) {
+        let normalized = if matches!(
+            value.as_bytes().get(10),
+            Some(b' ') | Some(b't') | Some(b'T')
+        ) {
             format!("{}T{}", &value[..10], &value[11..])
         } else {
             value.to_string()
@@ -98,7 +143,8 @@ impl TaskDateTime {
             normalized
         };
         if let Some(timestamp) = parse_decimal_datetime_timestamp(&normalized) {
-            return Self::from_unix_timestamp(timestamp).ok_or_else(|| "timestamp is out of range".to_string());
+            return Self::from_unix_timestamp(timestamp)
+                .ok_or_else(|| "timestamp is out of range".to_string());
         }
         if let Ok(value) = NaiveDateTime::parse_from_str(&normalized, "%Y-%m-%dT%H:%M:%S%.f") {
             return Ok(Self::Naive(value));
@@ -106,10 +152,10 @@ impl TaskDateTime {
         if let Ok(value) = NaiveDateTime::parse_from_str(&normalized, "%Y-%m-%dT%H:%M:%S") {
             return Ok(Self::Naive(value));
         }
-        if let Ok(date) = chrono::NaiveDate::parse_from_str(&normalized, "%Y-%m-%d") {
-            if let Some(value) = date.and_hms_opt(0, 0, 0) {
-                return Ok(Self::Naive(value));
-            }
+        if let Ok(date) = chrono::NaiveDate::parse_from_str(&normalized, "%Y-%m-%d")
+            && let Some(value) = date.and_hms_opt(0, 0, 0)
+        {
+            return Ok(Self::Naive(value));
         }
         if let Ok(value) = DateTime::parse_from_str(&normalized, "%Y-%m-%dT%H:%M:%S%.f%z") {
             return Ok(Self::Offset(value));
@@ -127,29 +173,40 @@ impl TaskDateTime {
             Self::Naive(value) => {
                 let base = value.format("%Y-%m-%dT%H:%M:%S").to_string();
                 let micros = value.and_utc().timestamp_subsec_micros();
-                if micros == 0 { base } else { format!("{}.{:06}", base, micros) }
+                if micros == 0 {
+                    base
+                } else {
+                    format!("{}.{:06}", base, micros)
+                }
             }
             Self::Offset(value) => {
                 let base = value.format("%Y-%m-%dT%H:%M:%S").to_string();
                 let micros = value.timestamp_subsec_micros();
                 let offset = value.format("%:z").to_string();
-                if micros == 0 { format!("{}{}", base, offset) }
-                else { format!("{}.{:06}{}", base, micros, offset) }
-            },
+                if micros == 0 {
+                    format!("{}{}", base, offset)
+                } else {
+                    format!("{}.{:06}{}", base, micros, offset)
+                }
+            }
         }
     }
 }
 
 impl Serialize for TaskDateTime {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where S: Serializer {
+    where
+        S: Serializer,
+    {
         serializer.serialize_str(&self.isoformat())
     }
 }
 
 impl<'de> Deserialize<'de> for TaskDateTime {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where D: Deserializer<'de> {
+    where
+        D: Deserializer<'de>,
+    {
         struct TaskDateTimeVisitor;
         impl<'de> de::Visitor<'de> for TaskDateTimeVisitor {
             type Value = TaskDateTime;
@@ -158,24 +215,37 @@ impl<'de> Deserialize<'de> for TaskDateTime {
                 formatter.write_str("an ISO datetime string or Unix timestamp")
             }
             fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
-            where E: de::Error {
+            where
+                E: de::Error,
+            {
                 TaskDateTime::parse_iso(value).map_err(E::custom)
             }
             fn visit_string<E>(self, value: String) -> Result<Self::Value, E>
-            where E: de::Error {
+            where
+                E: de::Error,
+            {
                 self.visit_str(&value)
             }
             fn visit_i64<E>(self, value: i64) -> Result<Self::Value, E>
-            where E: de::Error {
-                TaskDateTime::from_unix_timestamp(value as f64).ok_or_else(|| E::custom("timestamp is out of range"))
+            where
+                E: de::Error,
+            {
+                TaskDateTime::from_unix_timestamp(value as f64)
+                    .ok_or_else(|| E::custom("timestamp is out of range"))
             }
             fn visit_u64<E>(self, value: u64) -> Result<Self::Value, E>
-            where E: de::Error {
-                TaskDateTime::from_unix_timestamp(value as f64).ok_or_else(|| E::custom("timestamp is out of range"))
+            where
+                E: de::Error,
+            {
+                TaskDateTime::from_unix_timestamp(value as f64)
+                    .ok_or_else(|| E::custom("timestamp is out of range"))
             }
             fn visit_f64<E>(self, value: f64) -> Result<Self::Value, E>
-            where E: de::Error {
-                TaskDateTime::from_unix_timestamp(value).ok_or_else(|| E::custom("timestamp is out of range"))
+            where
+                E: de::Error,
+            {
+                TaskDateTime::from_unix_timestamp(value)
+                    .ok_or_else(|| E::custom("timestamp is out of range"))
             }
         }
         deserializer.deserialize_any(TaskDateTimeVisitor)
@@ -183,7 +253,9 @@ impl<'de> Deserialize<'de> for TaskDateTime {
 }
 
 impl From<NaiveDateTime> for TaskDateTime {
-    fn from(value: NaiveDateTime) -> Self { Self::Naive(value) }
+    fn from(value: NaiveDateTime) -> Self {
+        Self::Naive(value)
+    }
 }
 
 fn parse_python_json_integer(value: &str) -> Option<i64> {
@@ -191,31 +263,53 @@ fn parse_python_json_integer(value: &str) -> Option<i64> {
 }
 
 fn deserialize_python_int<'de, D>(deserializer: D) -> Result<i64, D::Error>
-where D: Deserializer<'de> {
+where
+    D: Deserializer<'de>,
+{
     struct PythonIntVisitor;
     impl<'de> de::Visitor<'de> for PythonIntVisitor {
         type Value = i64;
         fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
             formatter.write_str("an integer compatible with Python/Pydantic int coercion")
         }
-        fn visit_i64<E>(self, value: i64) -> Result<i64, E> where E: de::Error { Ok(value) }
-        fn visit_u64<E>(self, value: u64) -> Result<i64, E> where E: de::Error {
+        fn visit_i64<E>(self, value: i64) -> Result<i64, E>
+        where
+            E: de::Error,
+        {
+            Ok(value)
+        }
+        fn visit_u64<E>(self, value: u64) -> Result<i64, E>
+        where
+            E: de::Error,
+        {
             i64::try_from(value).map_err(E::custom)
         }
-        fn visit_f64<E>(self, value: f64) -> Result<i64, E> where E: de::Error {
+        fn visit_f64<E>(self, value: f64) -> Result<i64, E>
+        where
+            E: de::Error,
+        {
             if value.is_finite() && value >= i64::MIN as f64 && value < -(i64::MIN as f64) {
                 Ok(value.trunc() as i64)
             } else {
                 Err(E::custom("float must be finite and within the i64 range"))
             }
         }
-        fn visit_str<E>(self, value: &str) -> Result<i64, E> where E: de::Error {
+        fn visit_str<E>(self, value: &str) -> Result<i64, E>
+        where
+            E: de::Error,
+        {
             parse_python_json_integer(value).ok_or_else(|| E::custom("invalid integer string"))
         }
-        fn visit_string<E>(self, value: String) -> Result<i64, E> where E: de::Error {
+        fn visit_string<E>(self, value: String) -> Result<i64, E>
+        where
+            E: de::Error,
+        {
             self.visit_str(&value)
         }
-        fn visit_bool<E>(self, value: bool) -> Result<i64, E> where E: de::Error {
+        fn visit_bool<E>(self, value: bool) -> Result<i64, E>
+        where
+            E: de::Error,
+        {
             Ok(i64::from(value))
         }
     }
@@ -239,21 +333,46 @@ pub struct Task {
     pub commits: Vec<String>,
 }
 
-fn default_added_at() -> TaskDateTime { TaskDateTime::Naive(Local::now().naive_local()) }
+fn default_added_at() -> TaskDateTime {
+    TaskDateTime::Naive(Local::now().naive_local())
+}
 
 impl Task {
-    pub fn new(id: i64, title: String, status: TaskStatus, labels: Vec<String>, body: String) -> Self {
+    pub fn new(
+        id: i64,
+        title: String,
+        status: TaskStatus,
+        labels: Vec<String>,
+        body: String,
+    ) -> Self {
         let mut seen = HashSet::new();
-        let labels = labels.into_iter().filter(|s| seen.insert(s.clone())).collect();
+        let labels = labels
+            .into_iter()
+            .filter(|s| seen.insert(s.clone()))
+            .collect();
         let now = Local::now().naive_local();
-        let added_at = now.with_nanosecond((now.nanosecond() / 1_000) * 1_000).unwrap_or(now);
-        Self { id, title, added_at: TaskDateTime::Naive(added_at), status, labels, body, commits: Vec::new() }
+        let added_at = now
+            .with_nanosecond((now.nanosecond() / 1_000) * 1_000)
+            .unwrap_or(now);
+        Self {
+            id,
+            title,
+            added_at: TaskDateTime::Naive(added_at),
+            status,
+            labels,
+            body,
+            commits: Vec::new(),
+        }
     }
     pub fn validate_for_creation(&self) -> Result<(), String> {
         if python_strip(&self.title).is_empty() {
             return Err("Task title cannot be empty".into());
         }
-        if self.labels.iter().any(|label| python_strip(label).is_empty()) {
+        if self
+            .labels
+            .iter()
+            .any(|label| python_strip(label).is_empty())
+        {
             return Err("Task labels cannot be empty".into());
         }
         Ok(())
@@ -267,17 +386,50 @@ impl Task {
     }
 
     pub fn format_list(&self) -> String {
-        format!("(#{}) [{}] {{{}}} {}", self.id, self.labels.join(","), self.status.icon(), self.title)
+        format!(
+            "(#{}) [{}] {{{}}} {}",
+            self.id,
+            self.labels.join(","),
+            self.status.icon(),
+            self.title
+        )
     }
     pub fn format_see(&self) -> String {
         // Match PyYAML's sorted frontmatter key order and inline scalar-list representation.
         let dt = self.added_at.isoformat();
-        let labels = self.labels.iter().map(|s| yaml_scalar(s)).collect::<Vec<_>>().join(", ");
-        let commits = if self.commits.is_empty() { String::new() } else { format!("commits: [{}]\n", self.commits.iter().map(|s| yaml_scalar(s)).collect::<Vec<_>>().join(", ")) };
-        let mut out = format!("---\nadded_at: '{}'\n{}id: {}\nlabels: [{}]\n", dt, commits, self.id, labels);
-        out.push_str(&format!("status: {}\ntitle: {}\n---\n", self.status.as_str(), yaml_scalar(&self.title)));
+        let labels = self
+            .labels
+            .iter()
+            .map(|s| yaml_scalar(s))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let commits = if self.commits.is_empty() {
+            String::new()
+        } else {
+            format!(
+                "commits: [{}]\n",
+                self.commits
+                    .iter()
+                    .map(|s| yaml_scalar(s))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )
+        };
+        let mut out = format!(
+            "---\nadded_at: '{}'\n{}id: {}\nlabels: [{}]\n",
+            dt, commits, self.id, labels
+        );
+        out.push_str(&format!(
+            "status: {}\ntitle: {}\n---\n",
+            self.status.as_str(),
+            yaml_scalar(&self.title)
+        ));
         let body = python_strip(&self.body);
-        if !body.is_empty() { out.push_str("\n"); out.push_str(body); out.push('\n'); }
+        if !body.is_empty() {
+            out.push('\n');
+            out.push_str(body);
+            out.push('\n');
+        }
         out
     }
 }
@@ -287,8 +439,12 @@ fn python_strip(value: &str) -> &str {
 }
 
 fn yaml11_numeric(s: &str) -> bool {
-    let unsigned = s.strip_prefix('+').or_else(|| s.strip_prefix('-')).unwrap_or(s);
-    let digits = |value: &str| !value.is_empty() && value.bytes().all(|b| b.is_ascii_digit() || b == b'_');
+    let unsigned = s
+        .strip_prefix('+')
+        .or_else(|| s.strip_prefix('-'))
+        .unwrap_or(s);
+    let digits =
+        |value: &str| !value.is_empty() && value.bytes().all(|b| b.is_ascii_digit() || b == b'_');
     let sexagesimal = || {
         let parts: Vec<&str> = unsigned.split(':').collect();
         if parts.len() < 2 || !digits(parts[0]) {
@@ -304,8 +460,10 @@ fn yaml11_numeric(s: &str) -> bool {
         }
         parts[1..].iter().enumerate().all(|(index, part)| {
             let last = index == parts.len() - 2;
-            let (whole, fraction) = if last { part.split_once('.') } else { None }.unwrap_or((part, ""));
-            let valid_whole = !whole.is_empty() && whole.len() <= 2
+            let (whole, fraction) =
+                if last { part.split_once('.') } else { None }.unwrap_or((part, ""));
+            let valid_whole = !whole.is_empty()
+                && whole.len() <= 2
                 && whole.bytes().all(|b| b.is_ascii_digit())
                 && whole.parse::<u8>().is_ok_and(|n| n <= 59);
             let valid_fraction = fraction.is_empty()
@@ -313,26 +471,40 @@ fn yaml11_numeric(s: &str) -> bool {
             valid_whole && valid_fraction
         })
     };
-    if sexagesimal() { return true; }
+    if sexagesimal() {
+        return true;
+    }
     let integer = unsigned == "0"
-        || (unsigned.starts_with('0') && unsigned.len() > 1
+        || (unsigned.starts_with('0')
+            && unsigned.len() > 1
             && unsigned.bytes().all(|b| matches!(b, b'0'..=b'7' | b'_')))
-        || unsigned.strip_prefix("0x")
-            .is_some_and(|v| !v.is_empty() && v.bytes().all(|b| b.is_ascii_hexdigit() || b == b'_'))
-        || unsigned.strip_prefix("0b")
+        || unsigned.strip_prefix("0x").is_some_and(|v| {
+            !v.is_empty() && v.bytes().all(|b| b.is_ascii_hexdigit() || b == b'_')
+        })
+        || unsigned
+            .strip_prefix("0b")
             .is_some_and(|v| !v.is_empty() && v.bytes().all(|b| matches!(b, b'0' | b'1' | b'_')))
-        || (unsigned.as_bytes().first().is_some_and(|b| (b'1'..=b'9').contains(b))
+        || (unsigned
+            .as_bytes()
+            .first()
+            .is_some_and(|b| (b'1'..=b'9').contains(b))
             && digits(unsigned));
-    if integer { return true; }
+    if integer {
+        return true;
+    }
 
     let float = |value: &str| {
-        let value = value.strip_prefix('+').or_else(|| value.strip_prefix('-')).unwrap_or(value);
+        let value = value
+            .strip_prefix('+')
+            .or_else(|| value.strip_prefix('-'))
+            .unwrap_or(value);
         let mantissa = match value.find('e').or_else(|| value.find('E')) {
             Some(i) => {
                 let exp = &value[i + 1..];
                 if !(exp.starts_with('+') || exp.starts_with('-'))
                     || exp[1..].is_empty()
-                    || !exp[1..].bytes().all(|b| b.is_ascii_digit()) {
+                    || !exp[1..].bytes().all(|b| b.is_ascii_digit())
+                {
                     return false;
                 }
                 &value[..i]
@@ -340,7 +512,10 @@ fn yaml11_numeric(s: &str) -> bool {
             None => value,
         };
         if let Some(fraction) = mantissa.strip_prefix('.') {
-            return fraction.as_bytes().first().is_some_and(|b| b.is_ascii_digit())
+            return fraction
+                .as_bytes()
+                .first()
+                .is_some_and(|b| b.is_ascii_digit())
                 && fraction.bytes().all(|b| b.is_ascii_digit() || b == b'_');
         }
         match mantissa.split_once('.') {
@@ -356,36 +531,58 @@ fn yaml11_numeric(s: &str) -> bool {
 }
 
 fn yaml11_date(s: &str) -> bool {
-    let Some((year, rest)) = s.split_once('-') else { return false };
-    let Some((month, day)) = rest.split_once('-') else { return false };
-    year.len() == 4 && year.bytes().all(|b| b.is_ascii_digit())
-        && month.len() == 2 && month.bytes().all(|b| b.is_ascii_digit())
-        && day.len() == 2 && day.bytes().all(|b| b.is_ascii_digit())
+    let Some((year, rest)) = s.split_once('-') else {
+        return false;
+    };
+    let Some((month, day)) = rest.split_once('-') else {
+        return false;
+    };
+    year.len() == 4
+        && year.bytes().all(|b| b.is_ascii_digit())
+        && month.len() == 2
+        && month.bytes().all(|b| b.is_ascii_digit())
+        && day.len() == 2
+        && day.bytes().all(|b| b.is_ascii_digit())
 }
 
 fn yaml11_timestamp(s: &str) -> bool {
-    if yaml11_date(s) { return true; }
-    let Some((date, time)) = s.split_once(|c| c == 'T' || c == 't' || c == ' ' || c == '\t') else {
+    if yaml11_date(s) {
+        return true;
+    }
+    let Some((date, time)) = s.split_once(['T', 't', ' ', '\t']) else {
         return false;
     };
-    let Some((year, rest)) = date.split_once('-') else { return false };
-    let Some((month, day)) = rest.split_once('-') else { return false };
-    if year.len() != 4 || !year.bytes().all(|b| b.is_ascii_digit())
-        || !(1..=2).contains(&month.len()) || !month.bytes().all(|b| b.is_ascii_digit())
-        || !(1..=2).contains(&day.len()) || !day.bytes().all(|b| b.is_ascii_digit()) {
+    let Some((year, rest)) = date.split_once('-') else {
+        return false;
+    };
+    let Some((month, day)) = rest.split_once('-') else {
+        return false;
+    };
+    if year.len() != 4
+        || !year.bytes().all(|b| b.is_ascii_digit())
+        || !(1..=2).contains(&month.len())
+        || !month.bytes().all(|b| b.is_ascii_digit())
+        || !(1..=2).contains(&day.len())
+        || !day.bytes().all(|b| b.is_ascii_digit())
+    {
         return false;
     }
     let time = time.trim_start_matches([' ', '\t']);
     let time_end = time.find(['.', 'Z', 'z', '+', '-']).unwrap_or(time.len());
     let clock = &time[..time_end];
     let mut parts = clock.split(':');
-    let (Some(hour), Some(minute), Some(second)) = (parts.next(), parts.next(), parts.next()) else {
+    let (Some(hour), Some(minute), Some(second)) = (parts.next(), parts.next(), parts.next())
+    else {
         return false;
     };
-    if parts.next().is_some() || !(1..=2).contains(&hour.len())
+    if parts.next().is_some()
+        || !(1..=2).contains(&hour.len())
         || !hour.bytes().all(|b| b.is_ascii_digit())
-        || minute.len() != 2 || !minute.bytes().all(|b| b.is_ascii_digit())
-        || second.len() != 2 || !second.bytes().all(|b| b.is_ascii_digit()) {
+        || minute.len() != 2
+        || !minute.bytes().all(|b| b.is_ascii_digit())
+        || second.len() != 2
+        || !second.bytes().all(|b| b.is_ascii_digit())
+    {
         return false;
     }
     let mut suffix = &time[time_end..];
@@ -394,13 +591,20 @@ fn yaml11_timestamp(s: &str) -> bool {
         suffix = &fraction[digits..];
     }
     suffix = suffix.trim_start_matches([' ', '\t']);
-    if suffix.is_empty() || suffix == "Z" { return true; }
-    let Some(offset) = suffix.strip_prefix('+').or_else(|| suffix.strip_prefix('-')) else {
+    if suffix.is_empty() || suffix == "Z" {
+        return true;
+    }
+    let Some(offset) = suffix
+        .strip_prefix('+')
+        .or_else(|| suffix.strip_prefix('-'))
+    else {
         return false;
     };
     let (hours, minutes) = offset.split_once(':').unwrap_or((offset, ""));
-    (1..=2).contains(&hours.len()) && hours.bytes().all(|b| b.is_ascii_digit())
-        && (minutes.is_empty() || (minutes.len() == 2 && minutes.bytes().all(|b| b.is_ascii_digit())))
+    (1..=2).contains(&hours.len())
+        && hours.bytes().all(|b| b.is_ascii_digit())
+        && (minutes.is_empty()
+            || (minutes.len() == 2 && minutes.bytes().all(|b| b.is_ascii_digit())))
 }
 
 fn yaml_scalar(s: &str) -> String {
@@ -409,21 +613,41 @@ fn yaml_scalar(s: &str) -> String {
     let lower = s.to_ascii_lowercase();
     let yaml11_boolean_or_null = matches!(
         lower.as_str(),
-        "yes" | "no" | "true" | "false" | "on" | "off" | "null" | "~"
-            | ".inf" | "+.inf" | "-.inf" | ".nan"
+        "yes"
+            | "no"
+            | "true"
+            | "false"
+            | "on"
+            | "off"
+            | "null"
+            | "~"
+            | ".inf"
+            | "+.inf"
+            | "-.inf"
+            | ".nan"
     );
     let exponent_looks_like_string = s.find('e').or_else(|| s.find('E')).is_some_and(|i| {
         let mantissa = &s[..i];
         let exponent = &s[i + 1..];
-        let exponent_digits = exponent.strip_prefix('+').or_else(|| exponent.strip_prefix('-')).unwrap_or(exponent);
+        let exponent_digits = exponent
+            .strip_prefix('+')
+            .or_else(|| exponent.strip_prefix('-'))
+            .unwrap_or(exponent);
         !exponent_digits.is_empty()
             && exponent_digits.bytes().all(|b| b.is_ascii_digit())
             && !mantissa.is_empty()
-            && mantissa.bytes().all(|b| b.is_ascii_digit() || b == b'.' || b == b'_' || b == b'+' || b == b'-')
-            && (!mantissa.contains('.') || !matches!(exponent.as_bytes().first(), Some(b'+') | Some(b'-')))
+            && mantissa
+                .bytes()
+                .all(|b| b.is_ascii_digit() || b == b'.' || b == b'_' || b == b'+' || b == b'-')
+            && (!mantissa.contains('.')
+                || !matches!(exponent.as_bytes().first(), Some(b'+') | Some(b'-')))
     });
-    let unsigned = s.strip_prefix('+').or_else(|| s.strip_prefix('-')).unwrap_or(s);
-    let leading_zero_non_octal = unsigned.starts_with('0') && unsigned.len() > 1
+    let unsigned = s
+        .strip_prefix('+')
+        .or_else(|| s.strip_prefix('-'))
+        .unwrap_or(s);
+    let leading_zero_non_octal = unsigned.starts_with('0')
+        && unsigned.len() > 1
         && unsigned.bytes().all(|b| b.is_ascii_digit() || b == b'_')
         && unsigned.bytes().any(|b| b == b'8' || b == b'9');
     if exponent_looks_like_string || leading_zero_non_octal {
@@ -438,7 +662,9 @@ fn yaml_scalar(s: &str) -> String {
 }
 
 fn atomic_write(path: &Path, content: &[u8]) -> Result<(), String> {
-    let parent = path.parent().ok_or_else(|| format!("Invalid file path: {}", path.display()))?;
+    let parent = path
+        .parent()
+        .ok_or_else(|| format!("Invalid file path: {}", path.display()))?;
     fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     let mut temp = NamedTempFile::new_in(parent).map_err(|e| e.to_string())?;
     temp.write_all(content).map_err(|e| e.to_string())?;
@@ -447,25 +673,35 @@ fn atomic_write(path: &Path, content: &[u8]) -> Result<(), String> {
     Ok(())
 }
 
-
 fn parse_decimal_digits(value: &str) -> Option<i64> {
     const ZEROES: &[u32] = &[
-        0x0030,0x0660,0x06F0,0x07C0,0x0966,0x09E6,0x0A66,0x0AE6,0x0B66,0x0BE6,
-        0x0C66,0x0CE6,0x0D66,0x0DE6,0x0E50,0x0ED0,0x0F20,0x1040,0x1090,0x17E0,
-        0x1810,0x1946,0x19D0,0x1A80,0x1A90,0x1B50,0x1BB0,0x1C40,0x1C50,0xA620,
-        0xA8D0,0xA900,0xA9D0,0xA9F0,0xAA50,0xABF0,0xFF10,0x104A0,0x10D30,0x11066,
-        0x110F0,0x11136,0x111D0,0x112F0,0x11450,0x114D0,0x11650,0x116C0,0x11730,
-        0x118E0,0x11950,0x11C50,0x11D50,0x11DA0,0x11F50,0x16A60,0x16AC0,0x16B50,
-        0x1D7CE,0x1E140,0x1E2F0,0x1E4F0,0x1E950,0x1FBF0,
+        0x0030, 0x0660, 0x06F0, 0x07C0, 0x0966, 0x09E6, 0x0A66, 0x0AE6, 0x0B66, 0x0BE6, 0x0C66,
+        0x0CE6, 0x0D66, 0x0DE6, 0x0E50, 0x0ED0, 0x0F20, 0x1040, 0x1090, 0x17E0, 0x1810, 0x1946,
+        0x19D0, 0x1A80, 0x1A90, 0x1B50, 0x1BB0, 0x1C40, 0x1C50, 0xA620, 0xA8D0, 0xA900, 0xA9D0,
+        0xA9F0, 0xAA50, 0xABF0, 0xFF10, 0x104A0, 0x10D30, 0x11066, 0x110F0, 0x11136, 0x111D0,
+        0x112F0, 0x11450, 0x114D0, 0x11650, 0x116C0, 0x11730, 0x118E0, 0x11950, 0x11C50, 0x11D50,
+        0x11DA0, 0x11F50, 0x16A60, 0x16AC0, 0x16B50, 0x1D7CE, 0x1E140, 0x1E2F0, 0x1E4F0, 0x1E950,
+        0x1FBF0,
     ];
     let mut result = 0i64;
-    if value.is_empty() { return None; }
+    if value.is_empty() {
+        return None;
+    }
     for c in value.chars() {
         let code = c as u32;
-        let digit = ZEROES.iter().flat_map(|zero| if *zero == 0x1D7CE { vec![*zero, *zero + 10, *zero + 20, *zero + 30, *zero + 40] } else { vec![*zero] }).find_map(|zero| {
-            let n = code.checked_sub(zero)?;
-            (n < 10).then_some(n as i64)
-        })?;
+        let digit = ZEROES
+            .iter()
+            .flat_map(|zero| {
+                if *zero == 0x1D7CE {
+                    vec![*zero, *zero + 10, *zero + 20, *zero + 30, *zero + 40]
+                } else {
+                    vec![*zero]
+                }
+            })
+            .find_map(|zero| {
+                let n = code.checked_sub(zero)?;
+                (n < 10).then_some(n as i64)
+            })?;
         result = result.checked_mul(10)?.checked_add(digit)?;
     }
     Some(result)
@@ -484,23 +720,36 @@ fn parse_python_integer_string(value: &str) -> Option<i64> {
     let chars: Vec<char> = digits.chars().collect();
     for (index, ch) in chars.iter().enumerate() {
         if *ch == '_' {
-            if index == 0 || index + 1 == chars.len()
+            if index == 0
+                || index + 1 == chars.len()
                 || parse_decimal_digits(&chars[index - 1].to_string()).is_none()
                 || parse_decimal_digits(&chars[index + 1].to_string()).is_none()
-            { return None; }
+            {
+                return None;
+            }
         } else {
             normalized.push(*ch);
         }
     }
     let number = parse_decimal_digits(&normalized)?;
-    if negative { number.checked_neg() } else { Some(number) }
+    if negative {
+        number.checked_neg()
+    } else {
+        Some(number)
+    }
 }
 
 fn parse_yaml_python_integer(value: &serde_yaml::Value) -> Option<i64> {
     match value {
-        serde_yaml::Value::Number(number) => number.as_i64()
+        serde_yaml::Value::Number(number) => number
+            .as_i64()
             .or_else(|| number.as_u64().and_then(|n| i64::try_from(n).ok()))
-            .or_else(|| number.as_f64().filter(|n| n.is_finite() && *n >= i64::MIN as f64 && *n < -(i64::MIN as f64)).map(|n| n.trunc() as i64)),
+            .or_else(|| {
+                number
+                    .as_f64()
+                    .filter(|n| n.is_finite() && *n >= i64::MIN as f64 && *n < -(i64::MIN as f64))
+                    .map(|n| n.trunc() as i64)
+            }),
         serde_yaml::Value::String(value) => parse_python_integer_string(value),
         serde_yaml::Value::Bool(value) => Some(i64::from(*value)),
         _ => None,
@@ -508,21 +757,20 @@ fn parse_yaml_python_integer(value: &serde_yaml::Value) -> Option<i64> {
 }
 
 pub struct Store {
-    root: PathBuf,
-    todoing: PathBuf,
     tasks: PathBuf,
     index: PathBuf,
 }
 
 impl Store {
     pub fn new(root: impl AsRef<Path>) -> Self {
-        let root = root.as_ref().to_path_buf();
-        let todoing = root.join(TODOING_DIR);
+        let todoing = root.as_ref().join(TODOING_DIR);
         let tasks = todoing.join(TASKS_DIR);
         let index = todoing.join(INDEX_FILE);
-        Self { root, todoing, tasks, index }
+        Self { tasks, index }
     }
-    pub fn current() -> Self { Self::new(std::env::current_dir().unwrap_or_default()) }
+    pub fn current() -> Self {
+        Self::new(std::env::current_dir().unwrap_or_default())
+    }
     pub fn ensure(&self) -> Result<(), String> {
         fs::create_dir_all(&self.tasks).map_err(|e| e.to_string())
     }
@@ -531,10 +779,11 @@ impl Store {
         if let Ok(entries) = fs::read_dir(&self.tasks) {
             for entry in entries.flatten() {
                 let p = entry.path();
-                if p.extension().and_then(|x| x.to_str()) == Some("md") {
-                    if let Some(stem) = p.file_stem().and_then(|x| x.to_str()) {
-                        if let Some(n) = parse_decimal_digits(stem) { max_id = max_id.max(n); }
-                    }
+                if p.extension().and_then(|x| x.to_str()) == Some("md")
+                    && let Some(stem) = p.file_stem().and_then(|x| x.to_str())
+                    && let Some(n) = parse_decimal_digits(stem)
+                {
+                    max_id = max_id.max(n);
                 }
             }
         }
@@ -545,14 +794,18 @@ impl Store {
         if value.is_empty() {
             return Err(format!("Invalid task ID: {}", value));
         }
-        let id = parse_decimal_digits(value)
-            .ok_or_else(|| format!("Invalid task ID: {}", value))?;
+        let id =
+            parse_decimal_digits(value).ok_or_else(|| format!("Invalid task ID: {}", value))?;
         Ok(id)
     }
-    fn task_path(&self, id: i64) -> PathBuf { self.tasks.join(format!("{}.md", id)) }
+    fn task_path(&self, id: i64) -> PathBuf {
+        self.tasks.join(format!("{}.md", id))
+    }
     pub fn read_task(&self, id: i64) -> Result<Option<Task>, String> {
         let p = self.task_path(id);
-        if !p.exists() { return Ok(None); }
+        if !p.exists() {
+            return Ok(None);
+        }
         self.parse_task_file(&p)
     }
     pub fn write_task(&self, task: &Task) -> Result<(), String> {
@@ -562,11 +815,16 @@ impl Store {
     }
     pub fn delete_task_file(&self, id: i64) -> Result<bool, String> {
         let p = self.task_path(id);
-        if !p.exists() { return Ok(false); }
-        fs::remove_file(p).map_err(|e| e.to_string())?; Ok(true)
+        if !p.exists() {
+            return Ok(false);
+        }
+        fs::remove_file(p).map_err(|e| e.to_string())?;
+        Ok(true)
     }
     pub fn read_index(&self) -> Result<Vec<Task>, String> {
-        if !self.index.exists() { return self.rebuild_index(); }
+        if !self.index.exists() {
+            return self.rebuild_index();
+        }
         let raw = fs::read_to_string(&self.index).map_err(|e| e.to_string())?;
         let data: serde_json::Value = match serde_json::from_str(&raw) {
             Ok(value) => value,
@@ -576,7 +834,8 @@ impl Store {
             return self.rebuild_index();
         };
         if items.iter().any(|item| {
-            item.as_object().is_none_or(|object| !object.contains_key("id") || !object.contains_key("title"))
+            item.as_object()
+                .is_none_or(|object| !object.contains_key("id") || !object.contains_key("title"))
         }) {
             return self.rebuild_index();
         }
@@ -591,7 +850,9 @@ impl Store {
     }
     pub fn write_index(&self, tasks: &[Task]) -> Result<(), String> {
         self.ensure()?;
-        for task in tasks { task.validate()?; }
+        for task in tasks {
+            task.validate()?;
+        }
         let raw = serde_json::to_string_pretty(tasks).map_err(|e| e.to_string())?;
         atomic_write(&self.index, format!("{}\n", raw).as_bytes())
     }
@@ -600,14 +861,17 @@ impl Store {
         if !self.tasks.exists() {
             return Ok((Vec::new(), Vec::new()));
         }
-        let mut paths: Vec<PathBuf> = fs::read_dir(&self.tasks).map_err(|error| error.to_string())?
+        let mut paths: Vec<PathBuf> = fs::read_dir(&self.tasks)
+            .map_err(|error| error.to_string())?
             .flatten()
             .map(|entry| entry.path())
             .filter(|path| path.extension().and_then(|value| value.to_str()) == Some("md"))
             .collect();
         paths.sort_by_key(|path| {
-            path.file_stem().and_then(|value| value.to_str())
-                .and_then(parse_decimal_digits).unwrap_or(0)
+            path.file_stem()
+                .and_then(|value| value.to_str())
+                .and_then(parse_decimal_digits)
+                .unwrap_or(0)
         });
 
         let mut tasks = Vec::new();
@@ -615,7 +879,10 @@ impl Store {
         for path in paths {
             match self.parse_task_file(&path)? {
                 Some(task) => tasks.push(task),
-                None => warnings.push(format!("Skipped malformed Markdown task file: {}", path.display())),
+                None => warnings.push(format!(
+                    "Skipped malformed Markdown task file: {}",
+                    path.display()
+                )),
             }
         }
         Ok((tasks, warnings))
@@ -623,23 +890,34 @@ impl Store {
 
     pub fn rebuild_index(&self) -> Result<Vec<Task>, String> {
         self.ensure()?;
-        let mut paths: Vec<PathBuf> = fs::read_dir(&self.tasks).map_err(|e| e.to_string())?
-            .flatten().map(|e| e.path())
-            .filter(|p| p.extension().and_then(|x| x.to_str()) == Some("md")).collect();
-        paths.sort_by_key(|p| p.file_stem().and_then(|s| s.to_str()).and_then(|s| parse_decimal_digits(s)).unwrap_or(0));
+        let mut paths: Vec<PathBuf> = fs::read_dir(&self.tasks)
+            .map_err(|e| e.to_string())?
+            .flatten()
+            .map(|e| e.path())
+            .filter(|p| p.extension().and_then(|x| x.to_str()) == Some("md"))
+            .collect();
+        paths.sort_by_key(|p| {
+            p.file_stem()
+                .and_then(|s| s.to_str())
+                .and_then(parse_decimal_digits)
+                .unwrap_or(0)
+        });
         let mut tasks = Vec::new();
         for p in paths {
-            match self.parse_task_file(&p)? {
-                Some(task) => tasks.push(task),
-                None => {}
+            if let Some(task) = self.parse_task_file(&p)? {
+                tasks.push(task);
             }
         }
-        self.write_index(&tasks)?; Ok(tasks)
+        self.write_index(&tasks)?;
+        Ok(tasks)
     }
     pub fn sync_mutation(&self, task: &Task) -> Result<(), String> {
         let mut items = self.read_index()?;
-        if let Some(pos) = items.iter().position(|t| t.id == task.id) { items[pos] = task.clone(); }
-        else { items.push(task.clone()); }
+        if let Some(pos) = items.iter().position(|t| t.id == task.id) {
+            items[pos] = task.clone();
+        } else {
+            items.push(task.clone());
+        }
         self.write_index(&items)
     }
     pub fn sync_delete(&self, id: i64) -> Result<(), String> {
@@ -647,63 +925,108 @@ impl Store {
         items.retain(|t| t.id != id);
         self.write_index(&items)
     }
-    pub fn filter(&self, status: Option<TaskStatus>, labels: &[String], limit: i64, q: Option<&str>, reverse: bool) -> Result<Vec<Task>, String> {
+    pub fn filter(
+        &self,
+        status: Option<TaskStatus>,
+        labels: &[String],
+        limit: i64,
+        q: Option<&str>,
+        reverse: bool,
+    ) -> Result<Vec<Task>, String> {
         let mut tasks = self.read_index()?;
-        if let Some(s) = status { tasks.retain(|t| t.status == s); }
+        if let Some(s) = status {
+            tasks.retain(|t| t.status == s);
+        }
         if !labels.is_empty() {
             let wanted: HashSet<String> = labels.iter().map(|x| x.to_lowercase()).collect();
-            tasks.retain(|t| wanted.is_subset(&t.labels.iter().map(|x| x.to_lowercase()).collect()));
+            tasks
+                .retain(|t| wanted.is_subset(&t.labels.iter().map(|x| x.to_lowercase()).collect()));
         }
         if let Some(query) = q.filter(|s| !s.is_empty()) {
             let q = query.to_lowercase();
-            tasks.retain(|t| t.title.to_lowercase().contains(&q) || t.body.to_lowercase().contains(&q)
-                || t.labels.join(" ").to_lowercase().contains(&q) || q == t.status.as_str());
+            tasks.retain(|t| {
+                t.title.to_lowercase().contains(&q)
+                    || t.body.to_lowercase().contains(&q)
+                    || t.labels.join(" ").to_lowercase().contains(&q)
+                    || q == t.status.as_str()
+            });
         }
         tasks.sort_by_key(|t| t.id);
-        if !reverse { tasks.reverse(); }
-        if limit > 0 { tasks.truncate(limit as usize); }
+        if !reverse {
+            tasks.reverse();
+        }
+        if limit > 0 {
+            tasks.truncate(limit as usize);
+        }
         Ok(tasks)
     }
     fn parse_task_file(&self, path: &Path) -> Result<Option<Task>, String> {
         let text = match fs::read_to_string(path) {
             Ok(s) => s.replace("\r\n", "\n").replace('\r', "\n"),
             Err(error) if error.kind() == std::io::ErrorKind::InvalidData => {
-                return Err(format!("Cannot decode task file {}: {}", path.display(), error));
+                return Err(format!(
+                    "Cannot decode task file {}: {}",
+                    path.display(),
+                    error
+                ));
             }
             Err(_) => return Ok(None),
         };
-        if !text.starts_with("---") { eprintln!("Warning: Task file {} has no frontmatter, skipping", path.display()); return Ok(None); }
+        if !text.starts_with("---") {
+            eprintln!(
+                "Warning: Task file {} has no frontmatter, skipping",
+                path.display()
+            );
+            return Ok(None);
+        }
         let parts: Vec<&str> = text.splitn(3, "---").collect();
-        if parts.len() < 3 { return Ok(None); }
-        let fm: serde_yaml::Value = match serde_yaml::from_str(parts[1]) { Ok(v) => v, Err(_) => return Ok(None) };
+        if parts.len() < 3 {
+            return Ok(None);
+        }
+        let fm: serde_yaml::Value = match serde_yaml::from_str(parts[1]) {
+            Ok(v) => v,
+            Err(_) => return Ok(None),
+        };
         if !fm.is_mapping() {
             return Err(format!("Invalid task frontmatter in {}", path.display()));
         }
         let get = |key: &str| fm.get(key);
-        let id = get("id").and_then(parse_yaml_python_integer)
+        let id = get("id")
+            .and_then(parse_yaml_python_integer)
             .ok_or_else(|| format!("Invalid or missing task ID in {}", path.display()))?;
-        let title = get("title").and_then(|v| v.as_str()).map(str::to_owned)
+        let title = get("title")
+            .and_then(|v| v.as_str())
+            .map(str::to_owned)
             .ok_or_else(|| format!("Invalid or missing task title in {}", path.display()))?;
         let status = match get("status") {
             None => "todo",
-            Some(value) => value.as_str().ok_or_else(|| format!("Invalid task status in {}", path.display()))?,
+            Some(value) => value
+                .as_str()
+                .ok_or_else(|| format!("Invalid task status in {}", path.display()))?,
         };
         let status = TaskStatus::parse_stored(status)
             .map_err(|_| format!("Invalid task status in {}", path.display()))?;
         let labels = match get("labels") {
             None => Vec::new(),
-            Some(value) if value.is_null()
-                || value.as_bool() == Some(false)
-                || value.as_str() == Some("")
-                || value.as_f64() == Some(0.0)
-                || value.as_sequence().is_some_and(Vec::is_empty)
-                || value.as_mapping().is_some_and(|mapping| mapping.is_empty()) => Vec::new(),
+            Some(value)
+                if value.is_null()
+                    || value.as_bool() == Some(false)
+                    || value.as_str() == Some("")
+                    || value.as_f64() == Some(0.0)
+                    || value.as_sequence().is_some_and(Vec::is_empty)
+                    || value.as_mapping().is_some_and(|mapping| mapping.is_empty()) =>
+            {
+                Vec::new()
+            }
             Some(value) => match value.as_sequence() {
                 Some(items) => {
                     let mut parsed = Vec::new();
                     for item in items {
-                        if let Some(label) = item.as_str() { parsed.push(label.to_owned()); }
-                        else { return Err(format!("Invalid task label in {}", path.display())); }
+                        if let Some(label) = item.as_str() {
+                            parsed.push(label.to_owned());
+                        } else {
+                            return Err(format!("Invalid task label in {}", path.display()));
+                        }
                     }
                     parsed
                 }
@@ -717,8 +1040,14 @@ impl Store {
                 Some(items) => {
                     let mut parsed = Vec::new();
                     for item in items {
-                        if let Some(sha) = item.as_str() { parsed.push(sha.to_owned()); }
-                        else { return Err(format!("Invalid task commit reference in {}", path.display())); }
+                        if let Some(sha) = item.as_str() {
+                            parsed.push(sha.to_owned());
+                        } else {
+                            return Err(format!(
+                                "Invalid task commit reference in {}",
+                                path.display()
+                            ));
+                        }
                     }
                     parsed
                 }
@@ -730,18 +1059,28 @@ impl Store {
             Some(serde_yaml::Value::String(raw)) => TaskDateTime::parse_iso(raw)
                 .map_err(|_| format!("Invalid task added_at in {}", path.display()))?,
             Some(serde_yaml::Value::Number(number)) => {
-                let timestamp = number.as_i64().map(|n| n as f64)
+                let timestamp = number
+                    .as_i64()
+                    .map(|n| n as f64)
                     .or_else(|| number.as_u64().map(|n| n as f64))
                     .or_else(|| number.as_f64());
-                timestamp.and_then(TaskDateTime::from_unix_timestamp)
+                timestamp
+                    .and_then(TaskDateTime::from_unix_timestamp)
                     .ok_or_else(|| format!("Invalid task added_at in {}", path.display()))?
-            },
+            }
             Some(_) => return Err(format!("Invalid task added_at in {}", path.display())),
         };
-        Ok(Some(Task { id, title, added_at, status, labels, body: python_strip(parts[2]).to_string(), commits }))
+        Ok(Some(Task {
+            id,
+            title,
+            added_at,
+            status,
+            labels,
+            body: python_strip(parts[2]).to_string(),
+            commits,
+        }))
     }
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -750,9 +1089,15 @@ mod tests {
 
     fn task(id: i64, title: &str) -> Task {
         Task {
-            id, title: title.into(), commits: Vec::new(),
-            added_at: TaskDateTime::Naive(NaiveDateTime::parse_from_str("2026-05-01T10:00:00", "%Y-%m-%dT%H:%M:%S").unwrap()),
-            status: TaskStatus::Todo, labels: vec!["p1".into()], body: "details".into(),
+            id,
+            title: title.into(),
+            commits: Vec::new(),
+            added_at: TaskDateTime::Naive(
+                NaiveDateTime::parse_from_str("2026-05-01T10:00:00", "%Y-%m-%dT%H:%M:%S").unwrap(),
+            ),
+            status: TaskStatus::Todo,
+            labels: vec!["p1".into()],
+            body: "details".into(),
         }
     }
 
@@ -766,7 +1111,11 @@ mod tests {
 
         assert_eq!(fs::read_to_string(&target).unwrap(), "new contents");
         let entries: Vec<_> = fs::read_dir(dir.path()).unwrap().collect();
-        assert_eq!(entries.len(), 1, "temporary file should be removed after persist");
+        assert_eq!(
+            entries.len(),
+            1,
+            "temporary file should be removed after persist"
+        );
     }
 
     #[test]
@@ -779,10 +1128,12 @@ mod tests {
         assert!(atomic_write(&target, b"replacement").is_err());
 
         assert!(target.is_dir());
-        assert_eq!(fs::read_to_string(target.join("keep.txt")).unwrap(), "original");
+        assert_eq!(
+            fs::read_to_string(target.join("keep.txt")).unwrap(),
+            "original"
+        );
         assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 1);
     }
-
 
     #[test]
     fn unicode_decimal_ids_match_python() {
@@ -796,18 +1147,33 @@ mod tests {
         let dir = tempdir().unwrap();
         let store = Store::new(dir.path());
         store.ensure().unwrap();
-        fs::write(store.tasks.join("١٢.md"), "---\\nid: 12\\ntitle: twelve\\n---\\n").unwrap();
+        fs::write(
+            store.tasks.join("١٢.md"),
+            "---\\nid: 12\\ntitle: twelve\\n---\\n",
+        )
+        .unwrap();
         assert_eq!(store.next_id(), 13);
     }
 
     #[test]
     fn yaml_id_conversion_matches_python_int() {
-        assert_eq!(parse_yaml_python_integer(&serde_yaml::from_str::<serde_yaml::Value>("'+12'").unwrap()), Some(12));
-        assert_eq!(parse_yaml_python_integer(&serde_yaml::from_str::<serde_yaml::Value>("'١٢'").unwrap()), Some(12));
-        assert_eq!(parse_yaml_python_integer(&serde_yaml::from_str::<serde_yaml::Value>("12.9").unwrap()), Some(12));
-        assert_eq!(parse_yaml_python_integer(&serde_yaml::from_str::<serde_yaml::Value>("true").unwrap()), Some(1));
+        assert_eq!(
+            parse_yaml_python_integer(&serde_yaml::from_str::<serde_yaml::Value>("'+12'").unwrap()),
+            Some(12)
+        );
+        assert_eq!(
+            parse_yaml_python_integer(&serde_yaml::from_str::<serde_yaml::Value>("'١٢'").unwrap()),
+            Some(12)
+        );
+        assert_eq!(
+            parse_yaml_python_integer(&serde_yaml::from_str::<serde_yaml::Value>("12.9").unwrap()),
+            Some(12)
+        );
+        assert_eq!(
+            parse_yaml_python_integer(&serde_yaml::from_str::<serde_yaml::Value>("true").unwrap()),
+            Some(1)
+        );
     }
-
 
     #[test]
     fn yaml_integer_strings_accept_python_underscore_syntax() {
@@ -832,11 +1198,22 @@ mod tests {
         let store = Store::new(dir.path());
         store.ensure().unwrap();
 
-        for (id, labels) in [(1, "null"), (2, "false"), (3, "0"), (4, "''"), (5, "{}"), (6, "[]")] {
-            let contents = format!("---\nid: {id}\ntitle: task\nstatus: todo\nlabels: {labels}\n---\n");
+        for (id, labels) in [
+            (1, "null"),
+            (2, "false"),
+            (3, "0"),
+            (4, "''"),
+            (5, "{}"),
+            (6, "[]"),
+        ] {
+            let contents =
+                format!("---\nid: {id}\ntitle: task\nstatus: todo\nlabels: {labels}\n---\n");
             fs::write(store.task_path(id), contents).unwrap();
             let task = store.read_task(id).unwrap().unwrap();
-            assert!(task.labels.is_empty(), "labels value {labels} should become []");
+            assert!(
+                task.labels.is_empty(),
+                "labels value {labels} should become []"
+            );
         }
     }
 
@@ -848,9 +1225,15 @@ mod tests {
         fs::write(
             store.task_path(1),
             "---\nid: 1\ntitle: task\nstatus: todo\nlabels: []\ncommits: [123]\n---\n",
-        ).unwrap();
+        )
+        .unwrap();
 
-        assert!(store.read_task(1).unwrap_err().contains("Invalid task commit reference"));
+        assert!(
+            store
+                .read_task(1)
+                .unwrap_err()
+                .contains("Invalid task commit reference")
+        );
     }
 
     #[test]
@@ -858,7 +1241,11 @@ mod tests {
         let dir = tempdir().unwrap();
         let store = Store::new(dir.path());
         store.ensure().unwrap();
-        fs::write(store.task_path(1), "---\nid: 1\ntitle: task\nstatus: TODO\n---\n").unwrap();
+        fs::write(
+            store.task_path(1),
+            "---\nid: 1\ntitle: task\nstatus: TODO\n---\n",
+        )
+        .unwrap();
         assert!(store.read_task(1).is_err());
     }
 
@@ -867,10 +1254,13 @@ mod tests {
         let dir = tempdir().unwrap();
         let store = Store::new(dir.path());
         store.ensure().unwrap();
-        fs::write(store.task_path(1), "---\nid: 1\ntitle: task\nstatus: null\n---\n").unwrap();
+        fs::write(
+            store.task_path(1),
+            "---\nid: 1\ntitle: task\nstatus: null\n---\n",
+        )
+        .unwrap();
         assert!(store.read_task(1).is_err());
     }
-
 
     #[test]
     fn json_index_id_coercion_matches_pydantic_v2() {
@@ -889,12 +1279,12 @@ mod tests {
             let tasks = store.read_index().unwrap();
             assert_eq!(tasks[0].id, expected, "input: {raw}");
         }
-        for raw in [
-            r#"[{"id":null,"title":"task"}]"#,
-        ] {
-            fs::write(&store.index, raw).unwrap();
-            assert!(store.read_index().is_err(), "input should be rejected: {raw}");
-        }
+        let raw = r#"[{"id":null,"title":"task"}]"#;
+        fs::write(&store.index, raw).unwrap();
+        assert!(
+            store.read_index().is_err(),
+            "input should be rejected: {raw}"
+        );
     }
 
     #[test]
@@ -920,20 +1310,43 @@ mod tests {
         let dir = tempdir().unwrap();
         let store = Store::new(dir.path());
         store.write_task(&task(4, "from markdown")).unwrap();
-        fs::write(&store.index, r#"[{"id":4,"title":"bad","status":"blocked"}]"#).unwrap();
+        fs::write(
+            &store.index,
+            r#"[{"id":4,"title":"bad","status":"blocked"}]"#,
+        )
+        .unwrap();
         assert!(store.read_index().is_err());
     }
 
     #[test]
     fn list_format_matches_reference() {
-        assert_eq!(task(5, "write docs").format_list(), "(#5) [p1] {⏳} write docs");
+        assert_eq!(
+            task(5, "write docs").format_list(),
+            "(#5) [p1] {⏳} write docs"
+        );
     }
 
     #[test]
     fn yaml_scalar_preserves_python_yaml_11_string_types() {
-        for value in ["123", "01", "yes", "NO", "on", "off", "null", "~", "2026-05-01", ".5", "+.5", "-.5"] {
+        for value in [
+            "123",
+            "01",
+            "yes",
+            "NO",
+            "on",
+            "off",
+            "null",
+            "~",
+            "2026-05-01",
+            ".5",
+            "+.5",
+            "-.5",
+        ] {
             let serialized = yaml_scalar(value);
-            assert!(serialized.starts_with('\''), "{value:?} was not quoted: {serialized}");
+            assert!(
+                serialized.starts_with('\''),
+                "{value:?} was not quoted: {serialized}"
+            );
         }
         assert_eq!(yaml_scalar("123abc"), "123abc");
         for value in ["1e3", "1e+3", "1.0e3", "12e34"] {
@@ -954,15 +1367,24 @@ mod tests {
             "2026-05-01 1:02:03Z",
             "2026-05-01 01:02:03+03:00",
         ] {
-            assert!(yaml_scalar(value).starts_with('\''), "{value:?} was not quoted");
+            assert!(
+                yaml_scalar(value).starts_with('\''),
+                "{value:?} was not quoted"
+            );
         }
-        assert_eq!(yaml_scalar("2026-05-01 01:02:03+0300"), "2026-05-01 01:02:03+0300");
+        assert_eq!(
+            yaml_scalar("2026-05-01 01:02:03+0300"),
+            "2026-05-01 01:02:03+0300"
+        );
         assert_eq!(yaml_scalar("2026-05-01 01:02:03z"), "2026-05-01 01:02:03z");
         for value in ["y", "Y", "n", "N"] {
             assert_eq!(yaml_scalar(value), value);
         }
         for value in ["12:34", "1:20.5", "0:12.5", "0x10", "0b10"] {
-            assert!(yaml_scalar(value).starts_with('\''), "{value:?} was not quoted");
+            assert!(
+                yaml_scalar(value).starts_with('\''),
+                "{value:?} was not quoted"
+            );
         }
         for value in ["0X10", "0B10"] {
             assert_eq!(yaml_scalar(value), value);
@@ -1006,7 +1428,10 @@ mod tests {
         assert_eq!(task.body, "Create a proper packaging story.");
         assert_eq!(
             task.added_at,
-            TaskDateTime::Naive(NaiveDateTime::parse_from_str("2026-05-01T17:15:52.337350", "%Y-%m-%dT%H:%M:%S%.f").unwrap())
+            TaskDateTime::Naive(
+                NaiveDateTime::parse_from_str("2026-05-01T17:15:52.337350", "%Y-%m-%dT%H:%M:%S%.f")
+                    .unwrap()
+            )
         );
     }
 
@@ -1030,7 +1455,8 @@ mod tests {
         fs::write(
             store.task_path(1),
             "---\nadded_at: 1700000000\nid: 1\ntitle: timestamp\nstatus: todo\nlabels: []\n---\n",
-        ).unwrap();
+        )
+        .unwrap();
 
         let task = store.read_task(1).unwrap().unwrap();
         assert_eq!(task.added_at.isoformat(), "2023-11-14T22:13:20+00:00");
@@ -1044,8 +1470,11 @@ mod tests {
         let fixture = "---\nadded_at: '2026-05-01T17:15:52.337350+03:00'\nid: 7\nlabels: []\nstatus: todo\ntitle: zoned task\n---\n";
         fs::write(store.task_path(7), fixture).unwrap();
         let task = store.read_task(7).unwrap().unwrap();
-        assert_eq!(task.added_at.isoformat(), "2026-05-01T17:15:52.337350+03:00");
-        store.write_index(&[task.clone()]).unwrap();
+        assert_eq!(
+            task.added_at.isoformat(),
+            "2026-05-01T17:15:52.337350+03:00"
+        );
+        store.write_index(std::slice::from_ref(&task)).unwrap();
         let raw = fs::read_to_string(&store.index).unwrap();
         assert!(raw.contains("2026-05-01T17:15:52.337350+03:00"));
         assert_eq!(store.read_index().unwrap()[0], task);
@@ -1074,7 +1503,8 @@ mod tests {
         fs::write(
             store.task_path(1),
             "---\nadded_at: 2026-05-01\nid: 1\ntitle: date-only\nstatus: todo\nlabels: []\n---\n",
-        ).unwrap();
+        )
+        .unwrap();
 
         let task = store.read_task(1).unwrap().unwrap();
         assert_eq!(task.added_at.isoformat(), "2026-05-01T00:00:00");
@@ -1088,8 +1518,14 @@ mod tests {
 
     #[test]
     fn numeric_datetime_strings_match_pydantic_timestamp_syntax() {
-        assert_eq!(TaskDateTime::parse_iso(".5").unwrap().isoformat(), "1970-01-01T00:00:00.500000+00:00");
-        assert_eq!(TaskDateTime::parse_iso("+1.5").unwrap().isoformat(), "1970-01-01T00:00:01.500000+00:00");
+        assert_eq!(
+            TaskDateTime::parse_iso(".5").unwrap().isoformat(),
+            "1970-01-01T00:00:00.500000+00:00"
+        );
+        assert_eq!(
+            TaskDateTime::parse_iso("+1.5").unwrap().isoformat(),
+            "1970-01-01T00:00:01.500000+00:00"
+        );
         assert!(TaskDateTime::parse_iso("1e3").is_err());
         assert!(TaskDateTime::parse_iso("1,5").is_err());
         assert!(TaskDateTime::parse_iso(" 1 ").is_err());
@@ -1131,7 +1567,11 @@ mod tests {
         let dir = tempdir().unwrap();
         let store = Store::new(dir.path());
         store.ensure().unwrap();
-        fs::write(store.task_path(88), "---\nid: 88\ntitle: body\nstatus: todo\n---\n\u{001c}body\u{001f}").unwrap();
+        fs::write(
+            store.task_path(88),
+            "---\nid: 88\ntitle: body\nstatus: todo\n---\n\u{001c}body\u{001f}",
+        )
+        .unwrap();
         let restored = store.read_task(88).unwrap().unwrap();
         assert_eq!(restored.body, "body");
 
@@ -1168,7 +1608,7 @@ mod tests {
         let dir = tempdir().unwrap();
         let store = Store::new(dir.path());
         let original = task(1, "sample task");
-        store.write_index(&[original.clone()]).unwrap();
+        store.write_index(std::slice::from_ref(&original)).unwrap();
         let raw = fs::read_to_string(&store.index).unwrap();
         assert!(raw.contains("2026-05-01T10:00:00"));
         assert!(!raw.contains("+00:00"));
@@ -1179,9 +1619,14 @@ mod tests {
     fn negative_limit_matches_original_unlimited_behavior() {
         let dir = tempdir().unwrap();
         let store = Store::new(dir.path());
-        store.write_index(&[task(1, "one"), task(2, "two"), task(3, "three")]).unwrap();
+        store
+            .write_index(&[task(1, "one"), task(2, "two"), task(3, "three")])
+            .unwrap();
         let found = store.filter(None, &[], -1, None, false).unwrap();
-        assert_eq!(found.iter().map(|t| t.id).collect::<Vec<_>>(), vec![3, 2, 1]);
+        assert_eq!(
+            found.iter().map(|t| t.id).collect::<Vec<_>>(),
+            vec![3, 2, 1]
+        );
     }
 
     #[test]
@@ -1193,7 +1638,15 @@ mod tests {
         a.labels = vec!["p1".into(), "bug".into()];
         let b = task(2, "second");
         store.write_index(&[a, b]).unwrap();
-        let found = store.filter(Some(TaskStatus::Done), &["BUG".into()], 0, Some("fir"), false).unwrap();
+        let found = store
+            .filter(
+                Some(TaskStatus::Done),
+                &["BUG".into()],
+                0,
+                Some("fir"),
+                false,
+            )
+            .unwrap();
         assert_eq!(found.len(), 1);
         assert_eq!(found[0].id, 1);
     }
@@ -1203,11 +1656,18 @@ mod tests {
         let dir = tempdir().unwrap();
         let store = Store::new(dir.path());
         store.ensure().unwrap();
-        fs::write(&store.index, include_str!("../tests/fixtures/python-index.json")).unwrap();
+        fs::write(
+            &store.index,
+            include_str!("../tests/fixtures/python-index.json"),
+        )
+        .unwrap();
 
         let original = store.read_index().unwrap();
         assert_eq!(original.len(), 8);
-        assert_eq!(original.iter().map(|task| task.id).collect::<Vec<_>>(), (2..=9).collect::<Vec<_>>());
+        assert_eq!(
+            original.iter().map(|task| task.id).collect::<Vec<_>>(),
+            (2..=9).collect::<Vec<_>>()
+        );
         assert!(original[3].body.contains("Added __version__"));
         assert!(original[7].body.contains("SKILL.md"));
 
@@ -1262,7 +1722,12 @@ mod tests {
         store.ensure().unwrap();
         fs::write(store.task_path(1), [0xff, 0xfe]).unwrap();
 
-        assert!(store.read_task(1).unwrap_err().contains("Cannot decode task file"));
+        assert!(
+            store
+                .read_task(1)
+                .unwrap_err()
+                .contains("Cannot decode task file")
+        );
     }
 
     #[test]
@@ -1382,7 +1847,9 @@ mod tests {
     fn sync_delete_removes_existing_and_ignores_missing_ids() {
         let dir = tempdir().unwrap();
         let store = Store::new(dir.path());
-        store.write_index(&[task(1, "one"), task(2, "two")]).unwrap();
+        store
+            .write_index(&[task(1, "one"), task(2, "two")])
+            .unwrap();
         store.sync_delete(1).unwrap();
         store.sync_delete(999).unwrap();
         let index = store.read_index().unwrap();
@@ -1399,7 +1866,10 @@ mod tests {
 
         let original = store.read_task(2).unwrap().unwrap();
         assert_eq!(original.title, "skill: package for distribution");
-        assert_eq!(original.body, "Create a proper packaging story — pypi, uv tool install, or similar.");
+        assert_eq!(
+            original.body,
+            "Create a proper packaging story — pypi, uv tool install, or similar."
+        );
         assert_eq!(original.labels, vec!["enhancement"]);
 
         store.write_task(&original).unwrap();
@@ -1451,11 +1921,26 @@ mod tests {
         store.ensure().unwrap();
 
         let fixtures = [
-            (4, "---\nadded_at: '2026-05-01T17:15:52.618668'\nid: 4\nlabels: [docs]\nstatus: done\ntitle: 'docs: write README with usage examples'\n---\n"),
-            (5, "---\nadded_at: '2026-05-01T17:59:21.359817'\nid: 5\nlabels: []\nstatus: done\ntitle: implement version subcommand\n---\n\nAdd a version subcommand that prints the current package version from pyproject.toml. Read version via importlib.metadata.version(\"todoing\"). Output format: \"todoing v1.0.2\". Handle case where package metadata is unavailable (fallback to \"unknown\").\n\nImplementation notes:\\n- Added __version__ to src/todoing/__init__.py using importlib.metadata.version()\\n- Added version command to CLI in src/todoing/main.py\\n- Added TestVersion test class in tests/test_cli.py\\n- Verified: runs via both 'todoing version' and 'uv run todoing version'\n"),
-            (6, "---\nadded_at: '2026-05-01T18:02:50.275015'\nid: 6\nlabels: []\nstatus: done\ntitle: improve skill and add a new skill called todoing-install (a guide to install\n  todoing)\n---\n"),
-            (7, "---\nadded_at: '2026-05-01T18:02:51.364129'\nid: 7\nlabels: []\nstatus: todo\ntitle: better rendering — maybe drop brackets like {} and [] around status and labels\n---\n"),
-            (9, "---\nadded_at: '2026-05-02T23:22:26.868559'\nid: 9\nlabels: [enhancement]\nstatus: in_progress\ntitle: Improve ls, remove search\n---\n\n## Plan\n\n### 1. `main.py` — add flags to `ls`, drop `search`\n- Add `-q / --query` param to `ls()` — pass it to `store.filter(q=)`\n- Add `-r / --reverse` param — flip sort to `reverse=not reverse`\n- Remove the `search` command entirely (function + decorator)\n- Merge the `--scan` path into the filtered flow so query/reverse apply consistently\n\n### 2. `task.py` — update `Store.filter()`\n- Add `reverse: bool = False` parameter\n- Change `tasks.sort(key=lambda t: t.id, reverse=True)` to `tasks.sort(key=lambda t: t.id, reverse=not reverse)`\n\n### 3. Tests\n- Remove search-specific tests\n- Add tests for:\n  - `ls -q` filtering\n  - `ls -r` sort order\n  - `ls -q` combined with `-s`, `-l`, `-r`\n\n### 4. `SKILL.md`\n- Replace `search` examples with `ls -q` equivalents\n- Remove `search` from command reference table\n")
+            (
+                4,
+                "---\nadded_at: '2026-05-01T17:15:52.618668'\nid: 4\nlabels: [docs]\nstatus: done\ntitle: 'docs: write README with usage examples'\n---\n",
+            ),
+            (
+                5,
+                "---\nadded_at: '2026-05-01T17:59:21.359817'\nid: 5\nlabels: []\nstatus: done\ntitle: implement version subcommand\n---\n\nAdd a version subcommand that prints the current package version from pyproject.toml. Read version via importlib.metadata.version(\"todoing\"). Output format: \"todoing v1.0.2\". Handle case where package metadata is unavailable (fallback to \"unknown\").\n\nImplementation notes:\\n- Added __version__ to src/todoing/__init__.py using importlib.metadata.version()\\n- Added version command to CLI in src/todoing/main.py\\n- Added TestVersion test class in tests/test_cli.py\\n- Verified: runs via both 'todoing version' and 'uv run todoing version'\n",
+            ),
+            (
+                6,
+                "---\nadded_at: '2026-05-01T18:02:50.275015'\nid: 6\nlabels: []\nstatus: done\ntitle: improve skill and add a new skill called todoing-install (a guide to install\n  todoing)\n---\n",
+            ),
+            (
+                7,
+                "---\nadded_at: '2026-05-01T18:02:51.364129'\nid: 7\nlabels: []\nstatus: todo\ntitle: better rendering — maybe drop brackets like {} and [] around status and labels\n---\n",
+            ),
+            (
+                9,
+                "---\nadded_at: '2026-05-02T23:22:26.868559'\nid: 9\nlabels: [enhancement]\nstatus: in_progress\ntitle: Improve ls, remove search\n---\n\n## Plan\n\n### 1. `main.py` — add flags to `ls`, drop `search`\n- Add `-q / --query` param to `ls()` — pass it to `store.filter(q=)`\n- Add `-r / --reverse` param — flip sort to `reverse=not reverse`\n- Remove the `search` command entirely (function + decorator)\n- Merge the `--scan` path into the filtered flow so query/reverse apply consistently\n\n### 2. `task.py` — update `Store.filter()`\n- Add `reverse: bool = False` parameter\n- Change `tasks.sort(key=lambda t: t.id, reverse=True)` to `tasks.sort(key=lambda t: t.id, reverse=not reverse)`\n\n### 3. Tests\n- Remove search-specific tests\n- Add tests for:\n  - `ls -q` filtering\n  - `ls -r` sort order\n  - `ls -q` combined with `-s`, `-l`, `-r`\n\n### 4. `SKILL.md`\n- Replace `search` examples with `ls -q` equivalents\n- Remove `search` from command reference table\n",
+            ),
         ];
 
         for (id, fixture) in fixtures {
@@ -1467,7 +1952,10 @@ mod tests {
         }
 
         let folded = store.read_task(6).unwrap().unwrap();
-        assert_eq!(folded.title, "improve skill and add a new skill called todoing-install (a guide to install todoing)");
+        assert_eq!(
+            folded.title,
+            "improve skill and add a new skill called todoing-install (a guide to install todoing)"
+        );
         let literal_newlines = store.read_task(5).unwrap().unwrap();
         assert!(literal_newlines.body.contains("\\n- Added __version__"));
         let markdown_body = store.read_task(9).unwrap().unwrap();
@@ -1484,7 +1972,10 @@ mod tests {
         fs::write(store.task_path(8), fixture).unwrap();
 
         let original = store.read_task(8).unwrap().unwrap();
-        assert_eq!(original.title, "support table rendering for todoing ls --table");
+        assert_eq!(
+            original.title,
+            "support table rendering for todoing ls --table"
+        );
         assert_eq!(original.body, "");
         store.write_task(&original).unwrap();
         assert_eq!(store.read_task(8).unwrap().unwrap(), original);
@@ -1511,9 +2002,10 @@ mod tests {
         let mut item = task(1, "task");
         item.status = TaskStatus::InProgress;
         store.write_index(&[item]).unwrap();
-        let found = store.filter(None, &[], 0, Some("IN_PROGRESS"), false).unwrap();
+        let found = store
+            .filter(None, &[], 0, Some("IN_PROGRESS"), false)
+            .unwrap();
         assert_eq!(found.len(), 1);
         assert_eq!(found[0].id, 1);
     }
-
 }

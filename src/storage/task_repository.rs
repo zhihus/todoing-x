@@ -1,12 +1,14 @@
+use super::lock::{
+    Clock, LockCredential, LockGrant, SystemClock, TaskLockService, check_lock_access,
+};
 use super::{Store, StoreError};
-use super::lock::{Clock, LockCredential, LockGrant, SystemClock, TaskLockService, check_lock_access};
 use crate::config::ProjectConfig;
-use sha2::{Digest, Sha256};
 use crate::domain::{ActorContext, ActorId, StatusId, TaskId, TaskOutcome};
 use chrono::{SecondsFormat, Utc};
 use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior, params};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
+use sha2::{Digest, Sha256};
 use std::{collections::HashSet, path::Path};
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -164,7 +166,11 @@ impl TaskRepository {
         config
             .validate()
             .map_err(|error| StoreError::InvalidConfig(error.to_string()))?;
-        Ok(Self { store, config, lock_credential: None })
+        Ok(Self {
+            store,
+            config,
+            lock_credential: None,
+        })
     }
 
     pub fn open(
@@ -202,25 +208,31 @@ impl TaskRepository {
         )
     }
 
-    pub fn create(
-        &self,
-        mut new_task: NewTask,
-        actor: &ActorContext,
-    ) -> Result<Task, StoreError> {
+    pub fn create(&self, mut new_task: NewTask, actor: &ActorContext) -> Result<Task, StoreError> {
         if let Err(error) =
             validate_task_input(&new_task.title, &new_task.labels, &new_task.commit_refs)
         {
             return self.reject_operation(
-                None, actor, "task.create", "invalid_request",
-                serde_json::to_string(&new_task).ok(), error,
+                None,
+                actor,
+                "task.create",
+                "invalid_request",
+                serde_json::to_string(&new_task).ok(),
+                error,
             );
         }
 
-        if !self.config.statuses.iter().any(|status| {
-            status.id == new_task.status_id.as_str() && status.enabled
-        }) {
+        if !self
+            .config
+            .statuses
+            .iter()
+            .any(|status| status.id == new_task.status_id.as_str() && status.enabled)
+        {
             return self.reject_operation(
-                None, actor, "task.create", "invalid_status_transition",
+                None,
+                actor,
+                "task.create",
+                "invalid_status_transition",
                 serde_json::to_string(&new_task).ok(),
                 StoreError::InvalidStatusTransition(format!(
                     "Status '{}' is missing or disabled",
@@ -242,8 +254,7 @@ impl TaskRepository {
         new_task.outcome = mapped_outcome;
 
         let mut connection = self.store.connection()?;
-        let transaction =
-            connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
         let now = now_string();
 
         transaction.execute(
@@ -264,7 +275,14 @@ impl TaskRepository {
         insert_commit_refs(&transaction, id, &new_task.commit_refs)?;
         let task = load_task(&transaction, id)?;
         let snapshot = snapshot_json(&transaction, &task)?;
-        insert_version(&transaction, id, 1, &snapshot, &now, actor.actor_id().as_str())?;
+        insert_version(
+            &transaction,
+            id,
+            1,
+            &snapshot,
+            &now,
+            actor.actor_id().as_str(),
+        )?;
         insert_history(
             &transaction,
             Some(id),
@@ -285,6 +303,10 @@ impl TaskRepository {
 
     /// Imports one validated legacy task with its original numeric identity and creation time.
     /// This is only intended for a fresh staging store during explicit migration.
+    // The parameters are the distinct, individually-validated fields of a legacy task
+    // record. There is a single call site (migration) and no reuse, so bundling them
+    // into a struct would add a type without reducing complexity.
+    #[allow(clippy::too_many_arguments)]
     pub fn import_legacy_task(
         &self,
         raw_id: i64,
@@ -298,16 +320,22 @@ impl TaskRepository {
         actor: &ActorContext,
     ) -> Result<Task, StoreError> {
         validate_task_input(&title, &labels, &commit_refs)?;
-        let id = TaskId::new(raw_id)
-            .map_err(|error| StoreError::InvalidTask(error.to_string()))?;
-        if !self.config.statuses.iter().any(|status| status.id == status_id.as_str()) {
+        let id = TaskId::new(raw_id).map_err(|error| StoreError::InvalidTask(error.to_string()))?;
+        if !self
+            .config
+            .statuses
+            .iter()
+            .any(|status| status.id == status_id.as_str())
+        {
             return Err(StoreError::InvalidConfig(format!(
-                "Legacy status '{}' is not configured", status_id
+                "Legacy status '{}' is not configured",
+                status_id
             )));
         }
         if self.config.outcome_for_status(status_id.as_str()) != outcome {
             return Err(StoreError::InvalidConfig(format!(
-                "Legacy outcome for status '{}' does not match project configuration", status_id
+                "Legacy outcome for status '{}' does not match project configuration",
+                status_id
             )));
         }
 
@@ -330,7 +358,12 @@ impl TaskRepository {
         let task = load_task(&transaction, id)?;
         let snapshot = snapshot_json(&transaction, &task)?;
         insert_version(
-            &transaction, id, 1, &snapshot, &created_at, actor.actor_id().as_str()
+            &transaction,
+            id,
+            1,
+            &snapshot,
+            &created_at,
+            actor.actor_id().as_str(),
         )?;
         insert_history(
             &transaction,
@@ -374,8 +407,12 @@ impl TaskRepository {
         let mut connection = self.store.connection()?;
         let transaction = connection.transaction()?;
         let sql = match archived {
-            Some(false) => "SELECT task_id FROM tasks WHERE archived_at IS NULL ORDER BY task_id ASC",
-            Some(true) => "SELECT task_id FROM tasks WHERE archived_at IS NOT NULL ORDER BY task_id ASC",
+            Some(false) => {
+                "SELECT task_id FROM tasks WHERE archived_at IS NULL ORDER BY task_id ASC"
+            }
+            Some(true) => {
+                "SELECT task_id FROM tasks WHERE archived_at IS NOT NULL ORDER BY task_id ASC"
+            }
             None => "SELECT task_id FROM tasks ORDER BY task_id ASC",
         };
         let ids = {
@@ -386,8 +423,8 @@ impl TaskRepository {
 
         let mut tasks = Vec::with_capacity(ids.len());
         for raw_id in ids {
-            let id = TaskId::new(raw_id)
-                .map_err(|error| StoreError::InvalidTask(error.to_string()))?;
+            let id =
+                TaskId::new(raw_id).map_err(|error| StoreError::InvalidTask(error.to_string()))?;
             match self.check_lock(&transaction, id) {
                 Ok(_) => tasks.push(load_task(&transaction, id)?),
                 Err(StoreError::TaskLocked | StoreError::LockExpired | StoreError::StaleLock) => {}
@@ -398,11 +435,19 @@ impl TaskRepository {
         Ok(tasks)
     }
 
-    pub fn archive(&self, task_id: TaskId, actor: &ActorContext) -> Result<TaskArchiveResult, StoreError> {
+    pub fn archive(
+        &self,
+        task_id: TaskId,
+        actor: &ActorContext,
+    ) -> Result<TaskArchiveResult, StoreError> {
         self.set_archive_state(task_id, true, actor)
     }
 
-    pub fn restore(&self, task_id: TaskId, actor: &ActorContext) -> Result<TaskArchiveResult, StoreError> {
+    pub fn restore(
+        &self,
+        task_id: TaskId,
+        actor: &ActorContext,
+    ) -> Result<TaskArchiveResult, StoreError> {
         self.set_archive_state(task_id, false, actor)
     }
 
@@ -412,7 +457,11 @@ impl TaskRepository {
         archived: bool,
         actor: &ActorContext,
     ) -> Result<TaskArchiveResult, StoreError> {
-        let operation = if archived { "task.archive" } else { "task.restore" };
+        let operation = if archived {
+            "task.archive"
+        } else {
+            "task.restore"
+        };
         let mut connection = self.store.connection()?;
         let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
         self.check_lock(&transaction, task_id)?;
@@ -420,7 +469,14 @@ impl TaskRepository {
             Ok(task) => task,
             Err(error @ StoreError::TaskNotFound(_)) => {
                 drop(transaction);
-                return self.reject_operation(None, actor, operation, "task_not_found", None, error);
+                return self.reject_operation(
+                    None,
+                    actor,
+                    operation,
+                    "task_not_found",
+                    None,
+                    error,
+                );
             }
             Err(error) => return Err(error),
         };
@@ -443,7 +499,10 @@ impl TaskRepository {
                 None,
             )?;
             transaction.commit()?;
-            return Ok(TaskArchiveResult { task: previous, no_op: true });
+            return Ok(TaskArchiveResult {
+                task: previous,
+                no_op: true,
+            });
         }
 
         let mut updated = previous.clone();
@@ -467,30 +526,32 @@ impl TaskRepository {
         Ok(TaskArchiveResult { task, no_op: false })
     }
 
-    pub fn update(
-        &self,
-        task: &Task,
-        actor: &ActorContext,
-    ) -> Result<Task, StoreError> {
+    pub fn update(&self, task: &Task, actor: &ActorContext) -> Result<Task, StoreError> {
         if let Err(error) = validate_task_input(&task.title, &task.labels, &task.commit_refs) {
             return self.reject_operation(
-                Some(task.id), actor, "task.update", "invalid_request",
-                serde_json::to_string(task).ok(), error,
+                Some(task.id),
+                actor,
+                "task.update",
+                "invalid_request",
+                serde_json::to_string(task).ok(),
+                error,
             );
         }
 
         let mut connection = self.store.connection()?;
-        let transaction =
-            connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
         self.check_lock(&transaction, task.id)?;
         let previous = match load_task(&transaction, task.id) {
-
             Ok(previous) => previous,
             Err(error @ StoreError::TaskNotFound(_)) => {
                 drop(transaction);
                 return self.reject_operation(
-                    None, actor, "task.update", "task_not_found",
-                    serde_json::to_string(task).ok(), error,
+                    None,
+                    actor,
+                    "task.update",
+                    "task_not_found",
+                    serde_json::to_string(task).ok(),
+                    error,
                 );
             }
             Err(error) => return Err(error),
@@ -499,15 +560,22 @@ impl TaskRepository {
         if previous.archived_at.is_some() {
             drop(transaction);
             return self.reject_operation(
-                Some(task.id), actor, "task.update", "task_archived",
-                serde_json::to_string(task).ok(), StoreError::TaskArchived,
+                Some(task.id),
+                actor,
+                "task.update",
+                "task_archived",
+                serde_json::to_string(task).ok(),
+                StoreError::TaskArchived,
             );
         }
 
         if task.dependencies != previous.dependencies {
             drop(transaction);
             return self.reject_operation(
-                Some(task.id), actor, "task.update", "invalid_request",
+                Some(task.id),
+                actor,
+                "task.update",
+                "invalid_request",
                 serde_json::to_string(task).ok(),
                 StoreError::InvalidTask(
                     "Use dependency operations to change task dependencies".into(),
@@ -519,14 +587,21 @@ impl TaskRepository {
         if status_changed && previous.outcome.is_some() {
             drop(transaction);
             return self.reject_operation(
-                Some(task.id), actor, "task.update", "task_terminal",
-                serde_json::to_string(task).ok(), StoreError::TaskTerminal,
+                Some(task.id),
+                actor,
+                "task.update",
+                "task_terminal",
+                serde_json::to_string(task).ok(),
+                StoreError::TaskTerminal,
             );
         }
         if task.outcome != previous.outcome {
             drop(transaction);
             return self.reject_operation(
-                Some(task.id), actor, "task.update", "invalid_request",
+                Some(task.id),
+                actor,
+                "task.update",
+                "invalid_request",
                 serde_json::to_string(task).ok(),
                 StoreError::InvalidTask(
                     "Use complete, cancel, or reopen to change task outcome".into(),
@@ -538,13 +613,16 @@ impl TaskRepository {
         updated.created_at = previous.created_at.clone();
         updated.updated_at = previous.updated_at.clone();
         if status_changed {
-            if !self.config.is_transition_allowed(
-                previous.status_id.as_str(),
-                task.status_id.as_str(),
-            ) {
+            if !self
+                .config
+                .is_transition_allowed(previous.status_id.as_str(), task.status_id.as_str())
+            {
                 drop(transaction);
                 return self.reject_operation(
-                    Some(task.id), actor, "task.update", "invalid_status_transition",
+                    Some(task.id),
+                    actor,
+                    "task.update",
+                    "invalid_status_transition",
                     serde_json::to_string(task).ok(),
                     StoreError::InvalidStatusTransition(format!(
                         "{} -> {}",
@@ -585,16 +663,19 @@ impl TaskRepository {
         actor: &ActorContext,
     ) -> Result<Task, StoreError> {
         let mut connection = self.store.connection()?;
-        let transaction =
-            connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
         self.check_lock(&transaction, task_id)?;
         let previous = match load_task(&transaction, task_id) {
             Ok(task) => task,
             Err(error @ StoreError::TaskNotFound(_)) => {
                 drop(transaction);
                 return self.reject_operation(
-                    None, actor, "task.status.set", "task_not_found",
-                    Some(serde_json::json!({"status_id": target}).to_string()), error,
+                    None,
+                    actor,
+                    "task.status.set",
+                    "task_not_found",
+                    Some(serde_json::json!({"status_id": target}).to_string()),
+                    error,
                 );
             }
             Err(error) => return Err(error),
@@ -603,22 +684,35 @@ impl TaskRepository {
         if previous.archived_at.is_some() {
             drop(transaction);
             return self.reject_operation(
-                Some(task_id), actor, "task.status.set", "task_archived",
-                Some(serde_json::json!({"status_id": target}).to_string()), StoreError::TaskArchived,
+                Some(task_id),
+                actor,
+                "task.status.set",
+                "task_archived",
+                Some(serde_json::json!({"status_id": target}).to_string()),
+                StoreError::TaskArchived,
             );
         }
         if previous.outcome.is_some() {
             drop(transaction);
             return self.reject_operation(
-                Some(task_id), actor, "task.status.set", "task_terminal",
+                Some(task_id),
+                actor,
+                "task.status.set",
+                "task_terminal",
                 Some(serde_json::json!({"status_id": target}).to_string()),
                 StoreError::TaskTerminal,
             );
         }
-        if !self.config.is_transition_allowed(previous.status_id.as_str(), target.as_str()) {
+        if !self
+            .config
+            .is_transition_allowed(previous.status_id.as_str(), target.as_str())
+        {
             drop(transaction);
             return self.reject_operation(
-                Some(task_id), actor, "task.status.set", "invalid_status_transition",
+                Some(task_id),
+                actor,
+                "task.status.set",
+                "invalid_status_transition",
                 Some(serde_json::json!({"status_id": target}).to_string()),
                 StoreError::InvalidStatusTransition(format!(
                     "{} -> {}",
@@ -632,18 +726,19 @@ impl TaskRepository {
         updated.outcome = self.config.outcome_for_status(updated.status_id.as_str());
         let revision = self.config_revision()?;
         let result = persist_task_change(
-            &transaction, &previous, updated, actor, "task.status.set",
-            None, Some(&revision),
+            &transaction,
+            &previous,
+            updated,
+            actor,
+            "task.status.set",
+            None,
+            Some(&revision),
         )?;
         transaction.commit()?;
         Ok(result)
     }
 
-    pub fn complete(
-        &self,
-        task_id: TaskId,
-        actor: &ActorContext,
-    ) -> Result<Task, StoreError> {
+    pub fn complete(&self, task_id: TaskId, actor: &ActorContext) -> Result<Task, StoreError> {
         self.set_terminal_outcome(task_id, TaskOutcome::Completed, None, actor)
     }
 
@@ -655,7 +750,10 @@ impl TaskRepository {
     ) -> Result<Task, StoreError> {
         if reason.is_some_and(|value| value.trim().is_empty()) {
             return self.reject_operation(
-                Some(task_id), actor, "task.cancel", "invalid_request",
+                Some(task_id),
+                actor,
+                "task.cancel",
+                "invalid_request",
                 None,
                 StoreError::InvalidTask("Cancellation reason cannot be empty".into()),
             );
@@ -671,16 +769,19 @@ impl TaskRepository {
         actor: &ActorContext,
     ) -> Result<Task, StoreError> {
         let mut connection = self.store.connection()?;
-        let transaction =
-            connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
         self.check_lock(&transaction, task_id)?;
         let previous = match load_task(&transaction, task_id) {
             Ok(task) => task,
             Err(error @ StoreError::TaskNotFound(_)) => {
                 drop(transaction);
                 return self.reject_operation(
-                    None, actor, "task.reopen", "task_not_found",
-                    None, error,
+                    None,
+                    actor,
+                    "task.reopen",
+                    "task_not_found",
+                    None,
+                    error,
                 );
             }
             Err(error) => return Err(error),
@@ -689,27 +790,39 @@ impl TaskRepository {
         if previous.archived_at.is_some() {
             drop(transaction);
             return self.reject_operation(
-                Some(task_id), actor, "task.reopen", "task_archived",
-                None, StoreError::TaskArchived,
+                Some(task_id),
+                actor,
+                "task.reopen",
+                "task_archived",
+                None,
+                StoreError::TaskArchived,
             );
         }
         if previous.outcome.is_none() {
             drop(transaction);
             return self.reject_operation(
-                Some(task_id), actor, "task.reopen", "invalid_request",
+                Some(task_id),
+                actor,
+                "task.reopen",
+                "invalid_request",
                 None,
                 StoreError::InvalidTask("Task is not terminal".into()),
             );
         }
 
-        let current_status_is_terminal =
-            self.config.outcome_for_status(previous.status_id.as_str()).is_some();
+        let current_status_is_terminal = self
+            .config
+            .outcome_for_status(previous.status_id.as_str())
+            .is_some();
         let target = match target_status {
             Some(target) => target,
             None if current_status_is_terminal => {
                 drop(transaction);
                 return self.reject_operation(
-                    Some(task_id), actor, "task.reopen", "invalid_status_transition",
+                    Some(task_id),
+                    actor,
+                    "task.reopen",
+                    "invalid_status_transition",
                     None,
                     StoreError::InvalidStatusTransition(
                         "Reopening a terminal status requires a nonterminal target status".into(),
@@ -719,23 +832,31 @@ impl TaskRepository {
             None => previous.status_id.clone(),
         };
 
-        if target != previous.status_id {
-            if !self.config.is_transition_allowed(previous.status_id.as_str(), target.as_str()) {
-                drop(transaction);
-                return self.reject_operation(
-                    Some(task_id), actor, "task.reopen", "invalid_status_transition",
-                    Some(serde_json::json!({"status_id": target}).to_string()),
-                    StoreError::InvalidStatusTransition(format!(
-                        "{} -> {}",
-                        previous.status_id, target
-                    )),
-                );
-            }
+        if target != previous.status_id
+            && !self
+                .config
+                .is_transition_allowed(previous.status_id.as_str(), target.as_str())
+        {
+            drop(transaction);
+            return self.reject_operation(
+                Some(task_id),
+                actor,
+                "task.reopen",
+                "invalid_status_transition",
+                Some(serde_json::json!({"status_id": target}).to_string()),
+                StoreError::InvalidStatusTransition(format!(
+                    "{} -> {}",
+                    previous.status_id, target
+                )),
+            );
         }
         if self.config.outcome_for_status(target.as_str()).is_some() {
             drop(transaction);
             return self.reject_operation(
-                Some(task_id), actor, "task.reopen", "invalid_status_transition",
+                Some(task_id),
+                actor,
+                "task.reopen",
+                "invalid_status_transition",
                 Some(serde_json::json!({"status_id": target}).to_string()),
                 StoreError::InvalidStatusTransition(
                     "Reopen target must not have a terminal outcome".into(),
@@ -748,8 +869,13 @@ impl TaskRepository {
         updated.outcome = None;
         let revision = self.config_revision()?;
         let result = persist_task_change(
-            &transaction, &previous, updated, actor, "task.reopen",
-            None, Some(&revision),
+            &transaction,
+            &previous,
+            updated,
+            actor,
+            "task.reopen",
+            None,
+            Some(&revision),
         )?;
         transaction.commit()?;
         Ok(result)
@@ -767,15 +893,19 @@ impl TaskRepository {
             TaskOutcome::Cancelled => "task.cancel",
         };
         let mut connection = self.store.connection()?;
-        let transaction =
-            connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
         self.check_lock(&transaction, task_id)?;
         let previous = match load_task(&transaction, task_id) {
             Ok(task) => task,
             Err(error @ StoreError::TaskNotFound(_)) => {
                 drop(transaction);
                 return self.reject_operation(
-                    None, actor, operation, "task_not_found", details_json.map(str::to_owned), error,
+                    None,
+                    actor,
+                    operation,
+                    "task_not_found",
+                    details_json.map(str::to_owned),
+                    error,
                 );
             }
             Err(error) => return Err(error),
@@ -783,14 +913,22 @@ impl TaskRepository {
         if previous.archived_at.is_some() {
             drop(transaction);
             return self.reject_operation(
-                Some(task_id), actor, operation, "task_archived",
-                details_json.map(str::to_owned), StoreError::TaskArchived,
+                Some(task_id),
+                actor,
+                operation,
+                "task_archived",
+                details_json.map(str::to_owned),
+                StoreError::TaskArchived,
             );
         }
         if previous.outcome.is_some() {
             drop(transaction);
             return self.reject_operation(
-                Some(task_id), actor, operation, "task_terminal", details_json.map(str::to_owned),
+                Some(task_id),
+                actor,
+                operation,
+                "task_terminal",
+                details_json.map(str::to_owned),
                 StoreError::TaskTerminal,
             );
         }
@@ -798,8 +936,13 @@ impl TaskRepository {
         let mut updated = previous.clone();
         updated.outcome = Some(outcome);
         let result = persist_task_change(
-            &transaction, &previous, updated, actor, operation,
-            details_json, None,
+            &transaction,
+            &previous,
+            updated,
+            actor,
+            operation,
+            details_json,
+            None,
         )?;
         transaction.commit()?;
         Ok(result)
@@ -815,13 +958,19 @@ impl TaskRepository {
         error: StoreError,
     ) -> Result<T, StoreError> {
         self.record_rejection(
-            task_id, actor, operation, error_code, requested_json.as_deref(),
+            task_id,
+            actor,
+            operation,
+            error_code,
+            requested_json.as_deref(),
         )?;
         Err(error)
     }
 
     fn config_revision(&self) -> Result<String, StoreError> {
-        let serialized = self.config.to_toml()
+        let serialized = self
+            .config
+            .to_toml()
             .map_err(|error| StoreError::InvalidConfig(error.to_string()))?;
         Ok(hex::encode(Sha256::digest(serialized.as_bytes())))
     }
@@ -833,16 +982,19 @@ impl TaskRepository {
         actor: &ActorContext,
     ) -> Result<(), StoreError> {
         let mut connection = self.store.connection()?;
-        let transaction =
-            connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
         self.check_lock(&transaction, task_id)?;
         let previous = match load_task(&transaction, task_id) {
             Ok(task) => task,
             Err(error @ StoreError::TaskNotFound(_)) => {
                 drop(transaction);
                 return self.reject_operation(
-                    None, actor, "task.dependency.add", "task_not_found",
-                    Some(serde_json::json!({"depends_on": depends_on}).to_string()), error,
+                    None,
+                    actor,
+                    "task.dependency.add",
+                    "task_not_found",
+                    Some(serde_json::json!({"depends_on": depends_on}).to_string()),
+                    error,
                 );
             }
             Err(error) => return Err(error),
@@ -850,8 +1002,12 @@ impl TaskRepository {
         if previous.archived_at.is_some() {
             drop(transaction);
             return self.reject_operation(
-                Some(task_id), actor, "task.dependency.add", "task_archived",
-                Some(serde_json::json!({"depends_on": depends_on}).to_string()), StoreError::TaskArchived,
+                Some(task_id),
+                actor,
+                "task.dependency.add",
+                "task_archived",
+                Some(serde_json::json!({"depends_on": depends_on}).to_string()),
+                StoreError::TaskArchived,
             );
         }
         match load_task(&transaction, depends_on) {
@@ -859,7 +1015,10 @@ impl TaskRepository {
             Err(StoreError::TaskNotFound(_)) => {
                 drop(transaction);
                 return self.reject_operation(
-                    Some(task_id), actor, "task.dependency.add", "dependency_not_found",
+                    Some(task_id),
+                    actor,
+                    "task.dependency.add",
+                    "dependency_not_found",
                     Some(serde_json::json!({"depends_on": depends_on}).to_string()),
                     StoreError::DependencyNotFound(depends_on.get()),
                 );
@@ -870,7 +1029,10 @@ impl TaskRepository {
         if task_id == depends_on {
             drop(transaction);
             return self.reject_operation(
-                Some(task_id), actor, "task.dependency.add", "dependency_cycle",
+                Some(task_id),
+                actor,
+                "task.dependency.add",
+                "dependency_cycle",
                 Some(serde_json::json!({"depends_on": depends_on}).to_string()),
                 StoreError::DependencyCycle,
             );
@@ -906,7 +1068,10 @@ impl TaskRepository {
         if creates_cycle {
             drop(transaction);
             return self.reject_operation(
-                Some(task_id), actor, "task.dependency.add", "dependency_cycle",
+                Some(task_id),
+                actor,
+                "task.dependency.add",
+                "dependency_cycle",
                 Some(serde_json::json!({"depends_on": depends_on}).to_string()),
                 StoreError::DependencyCycle,
             );
@@ -923,13 +1088,25 @@ impl TaskRepository {
         let updated_snapshot = snapshot_json(&transaction, &updated)?;
         let version_no = next_version_no(&transaction, task_id)?;
         insert_version(
-            &transaction, task_id, version_no, &updated_snapshot, &now,
+            &transaction,
+            task_id,
+            version_no,
+            &updated_snapshot,
+            &now,
             actor.actor_id().as_str(),
         )?;
         insert_history(
-            &transaction, Some(task_id), actor.actor_id().as_str(), &now,
-            "task.dependency.add", Some(&previous_snapshot), Some(&updated_snapshot),
-            HistoryOutcome::Succeeded, None, None, None,
+            &transaction,
+            Some(task_id),
+            actor.actor_id().as_str(),
+            &now,
+            "task.dependency.add",
+            Some(&previous_snapshot),
+            Some(&updated_snapshot),
+            HistoryOutcome::Succeeded,
+            None,
+            None,
+            None,
         )?;
         transaction.commit()?;
         Ok(())
@@ -942,16 +1119,19 @@ impl TaskRepository {
         actor: &ActorContext,
     ) -> Result<(), StoreError> {
         let mut connection = self.store.connection()?;
-        let transaction =
-            connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
         self.check_lock(&transaction, task_id)?;
         let previous = match load_task(&transaction, task_id) {
             Ok(task) => task,
             Err(error @ StoreError::TaskNotFound(_)) => {
                 drop(transaction);
                 return self.reject_operation(
-                    None, actor, "task.dependency.remove", "task_not_found",
-                    Some(serde_json::json!({"depends_on": depends_on}).to_string()), error,
+                    None,
+                    actor,
+                    "task.dependency.remove",
+                    "task_not_found",
+                    Some(serde_json::json!({"depends_on": depends_on}).to_string()),
+                    error,
                 );
             }
             Err(error) => return Err(error),
@@ -960,8 +1140,12 @@ impl TaskRepository {
         if previous.archived_at.is_some() {
             drop(transaction);
             return self.reject_operation(
-                Some(task_id), actor, "task.dependency.remove", "task_archived",
-                Some(serde_json::json!({"depends_on": depends_on}).to_string()), StoreError::TaskArchived,
+                Some(task_id),
+                actor,
+                "task.dependency.remove",
+                "task_archived",
+                Some(serde_json::json!({"depends_on": depends_on}).to_string()),
+                StoreError::TaskArchived,
             );
         }
         let previous_snapshot = snapshot_json(&transaction, &previous)?;
@@ -973,7 +1157,10 @@ impl TaskRepository {
         if changed == 0 {
             drop(transaction);
             return self.reject_operation(
-                Some(task_id), actor, "task.dependency.remove", "dependency_not_found",
+                Some(task_id),
+                actor,
+                "task.dependency.remove",
+                "dependency_not_found",
                 Some(serde_json::json!({"depends_on": depends_on}).to_string()),
                 StoreError::DependencyNotFound(depends_on.get()),
             );
@@ -984,13 +1171,25 @@ impl TaskRepository {
         let now = now_string();
         let version_no = next_version_no(&transaction, task_id)?;
         insert_version(
-            &transaction, task_id, version_no, &updated_snapshot, &now,
+            &transaction,
+            task_id,
+            version_no,
+            &updated_snapshot,
+            &now,
             actor.actor_id().as_str(),
         )?;
         insert_history(
-            &transaction, Some(task_id), actor.actor_id().as_str(), &now,
-            "task.dependency.remove", Some(&previous_snapshot), Some(&updated_snapshot),
-            HistoryOutcome::Succeeded, None, None, None,
+            &transaction,
+            Some(task_id),
+            actor.actor_id().as_str(),
+            &now,
+            "task.dependency.remove",
+            Some(&previous_snapshot),
+            Some(&updated_snapshot),
+            HistoryOutcome::Succeeded,
+            None,
+            None,
+            None,
         )?;
         transaction.commit()?;
         Ok(())
@@ -1000,7 +1199,10 @@ impl TaskRepository {
         Ok(self.get(task_id)?.dependencies)
     }
 
-    pub fn list_dependency_states(&self, task_id: TaskId) -> Result<Vec<DependencyState>, StoreError> {
+    pub fn list_dependency_states(
+        &self,
+        task_id: TaskId,
+    ) -> Result<Vec<DependencyState>, StoreError> {
         let mut connection = self.store.connection()?;
         let transaction = connection.transaction()?;
         self.check_lock(&transaction, task_id)?;
@@ -1014,8 +1216,8 @@ impl TaskRepository {
         };
         let mut states = Vec::with_capacity(ids.len());
         for raw_id in ids {
-            let dependency_id = TaskId::new(raw_id)
-                .map_err(|error| StoreError::InvalidTask(error.to_string()))?;
+            let dependency_id =
+                TaskId::new(raw_id).map_err(|error| StoreError::InvalidTask(error.to_string()))?;
             match self.check_lock(&transaction, dependency_id) {
                 Ok(_) => {
                     let task = load_task(&transaction, dependency_id)?;
@@ -1059,11 +1261,7 @@ impl TaskRepository {
         Ok(versions)
     }
 
-    pub fn get_version(
-        &self,
-        task_id: TaskId,
-        version_no: i64,
-    ) -> Result<TaskVersion, StoreError> {
+    pub fn get_version(&self, task_id: TaskId, version_no: i64) -> Result<TaskVersion, StoreError> {
         let mut connection = self.store.connection()?;
         let transaction = connection.transaction()?;
         self.check_lock(&transaction, task_id)?;
@@ -1121,7 +1319,9 @@ impl TaskRepository {
                 None => visible.push(entry),
                 Some(task_id) => match self.check_lock(&transaction, task_id) {
                     Ok(_) => visible.push(entry),
-                    Err(StoreError::TaskLocked | StoreError::LockExpired | StoreError::StaleLock) => {}
+                    Err(
+                        StoreError::TaskLocked | StoreError::LockExpired | StoreError::StaleLock,
+                    ) => {}
                     Err(error) => return Err(error),
                 },
             }
@@ -1137,22 +1337,32 @@ impl TaskRepository {
         actor: &ActorContext,
     ) -> Result<TaskBaseline, StoreError> {
         let mut connection = self.store.connection()?;
-        let transaction =
-            connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
         self.check_lock(&transaction, task_id)?;
         let task = match load_task(&transaction, task_id) {
             Ok(task) => task,
             Err(error @ StoreError::TaskNotFound(_)) => {
                 drop(transaction);
-                return self.reject_operation(None, actor, "task.version.approve", "task_not_found", None, error);
+                return self.reject_operation(
+                    None,
+                    actor,
+                    "task.version.approve",
+                    "task_not_found",
+                    None,
+                    error,
+                );
             }
             Err(error) => return Err(error),
         };
         if task.archived_at.is_some() {
             drop(transaction);
             return self.reject_operation(
-                Some(task_id), actor, "task.version.approve", "task_archived",
-                Some(serde_json::json!({"version_no": version_no}).to_string()), StoreError::TaskArchived,
+                Some(task_id),
+                actor,
+                "task.version.approve",
+                "task_archived",
+                Some(serde_json::json!({"version_no": version_no}).to_string()),
+                StoreError::TaskArchived,
             );
         }
         let version_id = transaction
@@ -1231,21 +1441,29 @@ impl TaskRepository {
                 |row| {
                     let raw_task_id: i64 = row.get(0)?;
                     let approved_by: String = row.get(4)?;
-                    Ok((raw_task_id, row.get(1)?, row.get(2)?, row.get(3)?, approved_by))
+                    Ok((
+                        raw_task_id,
+                        row.get(1)?,
+                        row.get(2)?,
+                        row.get(3)?,
+                        approved_by,
+                    ))
                 },
             )
             .optional()?
-            .map(|(raw_task_id, version_id, version_no, approved_at, approved_by)| {
-                Ok::<TaskBaseline, StoreError>(TaskBaseline {
-                    task_id: TaskId::new(raw_task_id)
-                        .map_err(|error| StoreError::InvalidTask(error.to_string()))?,
-                    version_id,
-                    version_no,
-                    approved_at,
-                    approved_by: ActorId::new(approved_by)
-                        .map_err(|error| StoreError::InvalidTask(error.to_string()))?,
-                })
-            })
+            .map(
+                |(raw_task_id, version_id, version_no, approved_at, approved_by)| {
+                    Ok::<TaskBaseline, StoreError>(TaskBaseline {
+                        task_id: TaskId::new(raw_task_id)
+                            .map_err(|error| StoreError::InvalidTask(error.to_string()))?,
+                        version_id,
+                        version_no,
+                        approved_at,
+                        approved_by: ActorId::new(approved_by)
+                            .map_err(|error| StoreError::InvalidTask(error.to_string()))?,
+                    })
+                },
+            )
             .transpose()?;
         transaction.commit()?;
         Ok(baseline)
@@ -1262,17 +1480,57 @@ impl TaskRepository {
         let mut changes = Vec::new();
 
         push_change(&mut changes, "title", &before.title, &after.title)?;
-        push_change(&mut changes, "status_id", &before.status_id, &after.status_id)?;
+        push_change(
+            &mut changes,
+            "status_id",
+            &before.status_id,
+            &after.status_id,
+        )?;
         push_change(&mut changes, "outcome", &before.outcome, &after.outcome)?;
         push_change(&mut changes, "body", &before.body, &after.body)?;
         push_change(&mut changes, "labels", &before.labels, &after.labels)?;
-        push_change(&mut changes, "commit_refs", &before.commit_refs, &after.commit_refs)?;
-        push_change(&mut changes, "dependencies", &before.dependencies, &after.dependencies)?;
-        push_change(&mut changes, "archived_at", &before.archived_at, &after.archived_at)?;
-        push_change(&mut changes, "archived_by", &before.archived_by, &after.archived_by)?;
-        push_change(&mut changes, "revision_count", &before.revision_count, &after.revision_count)?;
-        push_change(&mut changes, "final_commit_sha", &before.final_commit_sha, &after.final_commit_sha)?;
-        push_change(&mut changes, "external_references", &before.external_references, &after.external_references)?;
+        push_change(
+            &mut changes,
+            "commit_refs",
+            &before.commit_refs,
+            &after.commit_refs,
+        )?;
+        push_change(
+            &mut changes,
+            "dependencies",
+            &before.dependencies,
+            &after.dependencies,
+        )?;
+        push_change(
+            &mut changes,
+            "archived_at",
+            &before.archived_at,
+            &after.archived_at,
+        )?;
+        push_change(
+            &mut changes,
+            "archived_by",
+            &before.archived_by,
+            &after.archived_by,
+        )?;
+        push_change(
+            &mut changes,
+            "revision_count",
+            &before.revision_count,
+            &after.revision_count,
+        )?;
+        push_change(
+            &mut changes,
+            "final_commit_sha",
+            &before.final_commit_sha,
+            &after.final_commit_sha,
+        )?;
+        push_change(
+            &mut changes,
+            "external_references",
+            &before.external_references,
+            &after.external_references,
+        )?;
         push_change(&mut changes, "reviews", &before.reviews, &after.reviews)?;
 
         Ok(TaskVersionDiff {
@@ -1292,8 +1550,7 @@ impl TaskRepository {
         requested_json: Option<&str>,
     ) -> Result<(), StoreError> {
         let mut connection = self.store.connection()?;
-        let transaction =
-            connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
         let now = now_string();
         insert_history(
             &transaction,
@@ -1318,14 +1575,12 @@ impl TaskRepository {
         &self.store
     }
 
-    fn load_snapshot(
-        &self,
-        task_id: TaskId,
-        version_no: i64,
-    ) -> Result<TaskSnapshot, StoreError> {
+    fn load_snapshot(&self, task_id: TaskId, version_no: i64) -> Result<TaskSnapshot, StoreError> {
         let version = self.get_version(task_id, version_no)?;
-        let snapshot: TaskSnapshot = serde_json::from_str(&version.snapshot_json)
-            .map_err(|error| StoreError::InvalidTask(format!("Invalid task version snapshot: {error}")))?;
+        let snapshot: TaskSnapshot =
+            serde_json::from_str(&version.snapshot_json).map_err(|error| {
+                StoreError::InvalidTask(format!("Invalid task version snapshot: {error}"))
+            })?;
         if snapshot.task_id != task_id {
             return Err(StoreError::InvalidTask(
                 "Task version snapshot identity mismatch".into(),
@@ -1334,12 +1589,18 @@ impl TaskRepository {
         Ok(snapshot)
     }
 
-
     pub fn external_reference_add(
-        &self, task_id: TaskId, namespace: &str, value: &str, relation: &str,
-        scope: &str, actor: &ActorContext,
+        &self,
+        task_id: TaskId,
+        namespace: &str,
+        value: &str,
+        relation: &str,
+        scope: &str,
+        actor: &ActorContext,
     ) -> Result<Value, StoreError> {
-        let requested = json!({"namespace":namespace,"value":value,"relation":relation,"scope":scope}).to_string();
+        let requested =
+            json!({"namespace":namespace,"value":value,"relation":relation,"scope":scope})
+                .to_string();
         match self.external_reference_add_inner(task_id, namespace, value, relation, scope, actor) {
             Ok(value) => Ok(value),
             Err(error) => {
@@ -1347,14 +1608,28 @@ impl TaskRepository {
                     return Err(error);
                 }
                 let code = extension_error_code(&error);
-                let target = if matches!(&error, StoreError::TaskNotFound(_)) { None } else { Some(task_id) };
-                self.reject_operation(target, actor, "task.external-ref.add", code, Some(requested), error)
+                let target = if matches!(&error, StoreError::TaskNotFound(_)) {
+                    None
+                } else {
+                    Some(task_id)
+                };
+                self.reject_operation(
+                    target,
+                    actor,
+                    "task.external-ref.add",
+                    code,
+                    Some(requested),
+                    error,
+                )
             }
         }
     }
 
     pub fn external_reference_remove(
-        &self, task_id: TaskId, reference_id: &str, actor: &ActorContext,
+        &self,
+        task_id: TaskId,
+        reference_id: &str,
+        actor: &ActorContext,
     ) -> Result<Value, StoreError> {
         let requested = json!({"reference_id":reference_id}).to_string();
         match self.external_reference_remove_inner(task_id, reference_id, actor) {
@@ -1364,33 +1639,71 @@ impl TaskRepository {
                     return Err(error);
                 }
                 let code = extension_error_code(&error);
-                let target = if matches!(&error, StoreError::TaskNotFound(_)) { None } else { Some(task_id) };
-                self.reject_operation(target, actor, "task.external-ref.remove", code, Some(requested), error)
+                let target = if matches!(&error, StoreError::TaskNotFound(_)) {
+                    None
+                } else {
+                    Some(task_id)
+                };
+                self.reject_operation(
+                    target,
+                    actor,
+                    "task.external-ref.remove",
+                    code,
+                    Some(requested),
+                    error,
+                )
             }
         }
     }
 
+    // The review fields are a coherent group, but bundling them into a struct would change
+    // this public method's signature and require updating every call site for a marginal
+    // readability gain. The parameters remain individually meaningful and validated.
+    #[allow(clippy::too_many_arguments)]
     pub fn review_add(
-        &self, task_id: TaskId, review_id: &str, version_no: i64, reviewer: &str,
-        outcome: &str, comments: &[Value], actor: &ActorContext,
+        &self,
+        task_id: TaskId,
+        review_id: &str,
+        version_no: i64,
+        reviewer: &str,
+        outcome: &str,
+        comments: &[Value],
+        actor: &ActorContext,
     ) -> Result<Value, StoreError> {
         let requested = json!({"review_id":review_id,"version_no":version_no,"reviewer":reviewer,
-            "outcome":outcome,"comments":comments}).to_string();
-        match self.review_add_inner(task_id, review_id, version_no, reviewer, outcome, comments, actor) {
+            "outcome":outcome,"comments":comments})
+        .to_string();
+        match self.review_add_inner(
+            task_id, review_id, version_no, reviewer, outcome, comments, actor,
+        ) {
             Ok(value) => Ok(value),
             Err(error) => {
                 if is_expected_extension_rejection(&error) {
                     return Err(error);
                 }
                 let code = extension_error_code(&error);
-                let target = if matches!(&error, StoreError::TaskNotFound(_)) { None } else { Some(task_id) };
-                self.reject_operation(target, actor, "task.review.add", code, Some(requested), error)
+                let target = if matches!(&error, StoreError::TaskNotFound(_)) {
+                    None
+                } else {
+                    Some(task_id)
+                };
+                self.reject_operation(
+                    target,
+                    actor,
+                    "task.review.add",
+                    code,
+                    Some(requested),
+                    error,
+                )
             }
         }
     }
 
     pub fn set_final_commit(
-        &self, task_id: TaskId, sha: &str, actor: &ActorContext,
+        &self,
+        task_id: TaskId,
+        sha: &str,
+        actor: &ActorContext,
     ) -> Result<Value, StoreError> {
         let requested = json!({"final_commit_sha":sha}).to_string();
         match self.set_final_commit_inner(task_id, sha, actor) {
@@ -1400,41 +1713,76 @@ impl TaskRepository {
                     return Err(error);
                 }
                 let code = extension_error_code(&error);
-                let target = if matches!(&error, StoreError::TaskNotFound(_)) { None } else { Some(task_id) };
-                self.reject_operation(target, actor, "task.commit.finalize", code, Some(requested), error)
+                let target = if matches!(&error, StoreError::TaskNotFound(_)) {
+                    None
+                } else {
+                    Some(task_id)
+                };
+                self.reject_operation(
+                    target,
+                    actor,
+                    "task.commit.finalize",
+                    code,
+                    Some(requested),
+                    error,
+                )
             }
         }
     }
 
     fn external_reference_add_inner(
-        &self, task_id: TaskId, namespace: &str, value: &str, relation: &str,
-        scope: &str, actor: &ActorContext,
+        &self,
+        task_id: TaskId,
+        namespace: &str,
+        value: &str,
+        relation: &str,
+        scope: &str,
+        actor: &ActorContext,
     ) -> Result<Value, StoreError> {
-        if namespace.trim().is_empty() || namespace.chars().count() > 128 ||
-           value.trim().is_empty() || value.chars().count() > 512 ||
-           relation.trim().is_empty() || relation.chars().count() > 128 ||
-           !matches!(scope, "task" | "project") {
-            return Err(StoreError::InvalidTask("Invalid external reference fields".into()));
+        if namespace.trim().is_empty()
+            || namespace.chars().count() > 128
+            || value.trim().is_empty()
+            || value.chars().count() > 512
+            || relation.trim().is_empty()
+            || relation.chars().count() > 128
+            || !matches!(scope, "task" | "project")
+        {
+            return Err(StoreError::InvalidTask(
+                "Invalid external reference fields".into(),
+            ));
         }
         let mut connection = self.store.connection()?;
         let tx = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
         self.check_lock(&tx, task_id)?;
         let task = load_task(&tx, task_id)?;
-        if task.archived_at.is_some() { return Err(StoreError::TaskArchived); }
+        if task.archived_at.is_some() {
+            return Err(StoreError::TaskArchived);
+        }
         let mut statement = tx.prepare(
             "SELECT reference_id, task_id, relation, scope FROM task_external_references
-             WHERE namespace = ?1 AND value = ?2 AND removed_at IS NULL"
+             WHERE namespace = ?1 AND value = ?2 AND removed_at IS NULL",
         )?;
-        let existing = statement.query_map(params![namespace.trim(), value.trim()], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?,
-                row.get::<_, String>(2)?, row.get::<_, String>(3)?))
-        })?.collect::<Result<Vec<_>, _>>()?;
+        let existing = statement
+            .query_map(params![namespace.trim(), value.trim()], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, i64>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                ))
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
         drop(statement);
         for (reference_id, existing_task, existing_relation, existing_scope) in existing {
             if existing_task == task_id.get() {
                 if existing_relation == relation.trim() && existing_scope == scope {
-                    record_extension_noop(&tx, task_id, actor, "task.external-ref.add",
-                        &json!({"reference_id": reference_id, "no_op": true}).to_string())?;
+                    record_extension_noop(
+                        &tx,
+                        task_id,
+                        actor,
+                        "task.external-ref.add",
+                        &json!({"reference_id": reference_id, "no_op": true}).to_string(),
+                    )?;
                     tx.commit()?;
                     return Ok(json!({"reference_id": reference_id, "task_id": task_id,
                         "namespace": namespace.trim(), "value": value.trim(),
@@ -1447,7 +1795,8 @@ impl TaskRepository {
             }
         }
         let mut bytes = [0u8; 16];
-        getrandom::fill(&mut bytes).map_err(|e| StoreError::InvalidTask(format!("Cannot generate reference ID: {e}")))?;
+        getrandom::fill(&mut bytes)
+            .map_err(|e| StoreError::InvalidTask(format!("Cannot generate reference ID: {e}")))?;
         let reference_id = hex::encode(bytes);
         let now = now_string();
         let before = snapshot_json(&tx, &task)?;
@@ -1463,7 +1812,11 @@ impl TaskRepository {
             "relation": relation.trim(), "scope": scope, "no_op": false}))
     }
 
-    pub fn external_reference_list(&self, task_id: TaskId, include_removed: bool) -> Result<Value, StoreError> {
+    pub fn external_reference_list(
+        &self,
+        task_id: TaskId,
+        include_removed: bool,
+    ) -> Result<Value, StoreError> {
         let mut connection = self.store.connection()?;
         let tx = connection.transaction()?;
         self.check_lock(&tx, task_id)?;
@@ -1487,20 +1840,33 @@ impl TaskRepository {
         Ok(json!({"references": rows}))
     }
 
-    fn external_reference_remove_inner(&self, task_id: TaskId, reference_id: &str, actor: &ActorContext) -> Result<Value, StoreError> {
+    fn external_reference_remove_inner(
+        &self,
+        task_id: TaskId,
+        reference_id: &str,
+        actor: &ActorContext,
+    ) -> Result<Value, StoreError> {
         let mut connection = self.store.connection()?;
         let tx = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
         self.check_lock(&tx, task_id)?;
         let task = load_task(&tx, task_id)?;
-        if task.archived_at.is_some() { return Err(StoreError::TaskArchived); }
+        if task.archived_at.is_some() {
+            return Err(StoreError::TaskArchived);
+        }
         let state: Option<Option<String>> = tx.query_row(
             "SELECT removed_at FROM task_external_references WHERE reference_id = ?1 AND task_id = ?2",
             params![reference_id, task_id.get()], |row| row.get(0)
         ).optional()?;
-        let removed_at = state.ok_or_else(|| StoreError::InvalidTask("external_ref_not_found".into()))?;
+        let removed_at =
+            state.ok_or_else(|| StoreError::InvalidTask("external_ref_not_found".into()))?;
         if removed_at.is_some() {
-            record_extension_noop(&tx, task_id, actor, "task.external-ref.remove",
-                &json!({"reference_id": reference_id, "no_op": true}).to_string())?;
+            record_extension_noop(
+                &tx,
+                task_id,
+                actor,
+                "task.external-ref.remove",
+                &json!({"reference_id": reference_id, "no_op": true}).to_string(),
+            )?;
             tx.commit()?;
             return Ok(json!({"reference_id": reference_id, "no_op": true}));
         }
@@ -1511,18 +1877,37 @@ impl TaskRepository {
              WHERE reference_id = ?3 AND task_id = ?4",
             params![now, actor.actor_id().as_str(), reference_id, task_id.get()],
         )?;
-        record_extension_change(&tx, task_id, actor, "task.external-ref.remove", &before, &now)?;
+        record_extension_change(
+            &tx,
+            task_id,
+            actor,
+            "task.external-ref.remove",
+            &before,
+            &now,
+        )?;
         tx.commit()?;
         Ok(json!({"reference_id": reference_id, "no_op": false}))
     }
 
+    // Private helper called only by review_add; a struct would add no reuse benefit.
+    #[allow(clippy::too_many_arguments)]
     fn review_add_inner(
-        &self, task_id: TaskId, review_id: &str, version_no: i64, reviewer: &str,
-        outcome: &str, comments: &[Value], actor: &ActorContext,
+        &self,
+        task_id: TaskId,
+        review_id: &str,
+        version_no: i64,
+        reviewer: &str,
+        outcome: &str,
+        comments: &[Value],
+        actor: &ActorContext,
     ) -> Result<Value, StoreError> {
-        if review_id.trim().is_empty() || review_id.chars().count() > 128 ||
-           reviewer.trim().is_empty() || reviewer.chars().count() > 256 ||
-           version_no <= 0 || !matches!(outcome, "approved" | "changes_requested") {
+        if review_id.trim().is_empty()
+            || review_id.chars().count() > 128
+            || reviewer.trim().is_empty()
+            || reviewer.chars().count() > 256
+            || version_no <= 0
+            || !matches!(outcome, "approved" | "changes_requested")
+        {
             return Err(StoreError::InvalidTask("Invalid review fields".into()));
         }
         let comments_json = serde_json::to_string(comments)
@@ -1531,7 +1916,9 @@ impl TaskRepository {
         let tx = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
         self.check_lock(&tx, task_id)?;
         let task = load_task(&tx, task_id)?;
-        if task.archived_at.is_some() { return Err(StoreError::TaskArchived); }
+        if task.archived_at.is_some() {
+            return Err(StoreError::TaskArchived);
+        }
         let existing: Option<(i64, String, String, String, String, String)> = tx.query_row(
             "SELECT version_no, reviewer, outcome, comments_json, actor_id, created_at FROM task_reviews
              WHERE task_id = ?1 AND review_id = ?2",
@@ -1539,29 +1926,47 @@ impl TaskRepository {
             |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?))
         ).optional()?;
         if let Some((v, r, o, c, a, created_at)) = existing {
-            if v == version_no && r == reviewer.trim() && o == outcome && c == comments_json && a == actor.actor_id().as_str() {
-                record_extension_noop(&tx, task_id, actor, "task.review.add",
-                    &json!({"review_id": review_id, "no_op": true}).to_string())?;
+            if v == version_no
+                && r == reviewer.trim()
+                && o == outcome
+                && c == comments_json
+                && a == actor.actor_id().as_str()
+            {
+                record_extension_noop(
+                    &tx,
+                    task_id,
+                    actor,
+                    "task.review.add",
+                    &json!({"review_id": review_id, "no_op": true}).to_string(),
+                )?;
                 let revision_count: i64 = tx.query_row(
-                    "SELECT revision_count FROM tasks WHERE task_id = ?1", params![task_id.get()], |row| row.get(0)
+                    "SELECT revision_count FROM tasks WHERE task_id = ?1",
+                    params![task_id.get()],
+                    |row| row.get(0),
                 )?;
                 let task_version_no: i64 = tx.query_row(
                     "SELECT COALESCE(MAX(version_no), 0) FROM task_versions WHERE task_id = ?1",
-                    params![task_id.get()], |row| row.get(0)
+                    params![task_id.get()],
+                    |row| row.get(0),
                 )?;
                 tx.commit()?;
-                return Ok(json!({"review_id": review_id, "task_id": task_id, "reviewed_version_no": version_no,
+                return Ok(
+                    json!({"review_id": review_id, "task_id": task_id, "reviewed_version_no": version_no,
                     "task_version_no": task_version_no, "revision_count": revision_count,
                     "reviewer": reviewer.trim(), "outcome": outcome, "comments": comments,
-                    "actor_id": a, "created_at": created_at, "no_op": true}));
+                    "actor_id": a, "created_at": created_at, "no_op": true}),
+                );
             }
             return Err(StoreError::InvalidTask("review_id_conflict".into()));
         }
         let version_exists: bool = tx.query_row(
             "SELECT EXISTS(SELECT 1 FROM task_versions WHERE task_id = ?1 AND version_no = ?2)",
-            params![task_id.get(), version_no], |row| row.get(0)
+            params![task_id.get(), version_no],
+            |row| row.get(0),
         )?;
-        if !version_exists { return Err(StoreError::InvalidTask("review_version_not_found".into())); }
+        if !version_exists {
+            return Err(StoreError::InvalidTask("review_version_not_found".into()));
+        }
         let now = now_string();
         let before = snapshot_json(&tx, &task)?;
         tx.execute(
@@ -1571,25 +1976,43 @@ impl TaskRepository {
                 comments_json, actor.actor_id().as_str(), now],
         )?;
         if outcome == "changes_requested" {
-            tx.execute("UPDATE tasks SET revision_count = revision_count + 1 WHERE task_id = ?1", params![task_id.get()])?;
+            tx.execute(
+                "UPDATE tasks SET revision_count = revision_count + 1 WHERE task_id = ?1",
+                params![task_id.get()],
+            )?;
         }
         record_extension_change(&tx, task_id, actor, "task.review.add", &before, &now)?;
         let task_version_no = next_version_no(&tx, task_id)? - 1;
         let revision_count: i64 = tx.query_row(
-            "SELECT revision_count FROM tasks WHERE task_id = ?1", params![task_id.get()], |row| row.get(0)
+            "SELECT revision_count FROM tasks WHERE task_id = ?1",
+            params![task_id.get()],
+            |row| row.get(0),
         )?;
         tx.commit()?;
-        Ok(json!({"review_id": review_id, "task_id": task_id, "reviewed_version_no": version_no,
+        Ok(
+            json!({"review_id": review_id, "task_id": task_id, "reviewed_version_no": version_no,
             "task_version_no": task_version_no, "revision_count": revision_count,
             "reviewer": reviewer.trim(), "outcome": outcome, "comments": comments,
-            "actor_id": actor.actor_id().as_str(), "created_at": now, "no_op": false}))
+            "actor_id": actor.actor_id().as_str(), "created_at": now, "no_op": false}),
+        )
     }
 
-    pub fn review_list(&self, task_id: TaskId, before_record_id: Option<i64>, limit: Option<usize>) -> Result<Value, StoreError> {
+    pub fn review_list(
+        &self,
+        task_id: TaskId,
+        before_record_id: Option<i64>,
+        limit: Option<usize>,
+    ) -> Result<Value, StoreError> {
         let limit = limit.unwrap_or(100).min(i64::MAX as usize);
-        if limit == 0 { return Err(StoreError::InvalidTask("limit must be a positive integer".into())); }
+        if limit == 0 {
+            return Err(StoreError::InvalidTask(
+                "limit must be a positive integer".into(),
+            ));
+        }
         if before_record_id.is_some_and(|value| value <= 0) {
-            return Err(StoreError::InvalidTask("before_record_id must be a positive integer".into()));
+            return Err(StoreError::InvalidTask(
+                "before_record_id must be a positive integer".into(),
+            ));
         }
         let mut connection = self.store.connection()?;
         let tx = connection.transaction()?;
@@ -1614,31 +2037,50 @@ impl TaskRepository {
         Ok(json!({"reviews": rows}))
     }
 
-    fn set_final_commit_inner(&self, task_id: TaskId, sha: &str, actor: &ActorContext) -> Result<Value, StoreError> {
+    fn set_final_commit_inner(
+        &self,
+        task_id: TaskId,
+        sha: &str,
+        actor: &ActorContext,
+    ) -> Result<Value, StoreError> {
         if !matches!(sha.len(), 40 | 64) || !sha.bytes().all(|b| b.is_ascii_hexdigit()) {
-            return Err(StoreError::InvalidTask("Invalid full Git commit SHA".into()));
+            return Err(StoreError::InvalidTask(
+                "Invalid full Git commit SHA".into(),
+            ));
         }
         let sha = sha.to_ascii_lowercase();
         let mut connection = self.store.connection()?;
         let tx = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
         self.check_lock(&tx, task_id)?;
         let task = load_task(&tx, task_id)?;
-        if task.archived_at.is_some() { return Err(StoreError::TaskArchived); }
+        if task.archived_at.is_some() {
+            return Err(StoreError::TaskArchived);
+        }
         let current: Option<String> = tx.query_row(
-            "SELECT final_commit_sha FROM tasks WHERE task_id = ?1", params![task_id.get()], |row| row.get(0)
+            "SELECT final_commit_sha FROM tasks WHERE task_id = ?1",
+            params![task_id.get()],
+            |row| row.get(0),
         )?;
         if current.as_deref() == Some(sha.as_str()) {
-            record_extension_noop(&tx, task_id, actor, "task.commit.finalize",
-                &json!({"final_commit_sha": sha, "no_op": true}).to_string())?;
+            record_extension_noop(
+                &tx,
+                task_id,
+                actor,
+                "task.commit.finalize",
+                &json!({"final_commit_sha": sha, "no_op": true}).to_string(),
+            )?;
             let task_version_no: i64 = tx.query_row(
                 "SELECT COALESCE(MAX(version_no), 0) FROM task_versions WHERE task_id = ?1",
-                params![task_id.get()], |row| row.get(0)
+                params![task_id.get()],
+                |row| row.get(0),
             )?;
             tx.commit()?;
             return Ok(json!({"task_id": task_id, "final_commit_sha": sha,
                 "task_version_no": task_version_no, "no_op": true}));
         }
-        if task.outcome.is_some() { return Err(StoreError::TaskTerminal); }
+        if task.outcome.is_some() {
+            return Err(StoreError::TaskTerminal);
+        }
         if current.is_some() {
             let last_set: Option<i64> = tx.query_row(
                 "SELECT MAX(event_id) FROM operation_history WHERE task_id = ?1 AND operation = 'task.commit.finalize' AND outcome = 'succeeded' AND details_json IS NULL",
@@ -1648,7 +2090,8 @@ impl TaskRepository {
                 Some(event_id) => tx.query_row(
                     "SELECT EXISTS(SELECT 1 FROM operation_history WHERE task_id = ?1
                      AND operation = 'task.reopen' AND event_id > ?2)",
-                    params![task_id.get(), event_id], |row| row.get(0)
+                    params![task_id.get(), event_id],
+                    |row| row.get(0),
                 )?,
                 None => false,
             };
@@ -1658,7 +2101,10 @@ impl TaskRepository {
         }
         let now = now_string();
         let before = snapshot_json(&tx, &task)?;
-        tx.execute("UPDATE tasks SET final_commit_sha = ?1 WHERE task_id = ?2", params![sha, task_id.get()])?;
+        tx.execute(
+            "UPDATE tasks SET final_commit_sha = ?1 WHERE task_id = ?2",
+            params![sha, task_id.get()],
+        )?;
         record_extension_change(&tx, task_id, actor, "task.commit.finalize", &before, &now)?;
         let task_version_no = next_version_no(&tx, task_id)? - 1;
         tx.commit()?;
@@ -1672,36 +2118,53 @@ impl TaskRepository {
         self.check_lock(&tx, task_id)?;
         let (revision_count, final_commit_sha): (i64, Option<String>) = tx.query_row(
             "SELECT revision_count, final_commit_sha FROM tasks WHERE task_id = ?1",
-            params![task_id.get()], |row| Ok((row.get(0)?, row.get(1)?))
+            params![task_id.get()],
+            |row| Ok((row.get(0)?, row.get(1)?)),
         )?;
         let mut statement = tx.prepare(
             "SELECT reference_id, namespace, value, relation, scope, created_at
              FROM task_external_references WHERE task_id = ?1 AND removed_at IS NULL
-             ORDER BY created_at, reference_id"
+             ORDER BY created_at, reference_id",
         )?;
-        let external_references = statement.query_map(params![task_id.get()], |row| Ok(json!({
-            "reference_id": row.get::<_, String>(0)?, "namespace": row.get::<_, String>(1)?,
-            "value": row.get::<_, String>(2)?, "relation": row.get::<_, String>(3)?,
-            "scope": row.get::<_, String>(4)?, "created_at": row.get::<_, String>(5)?
-        })))?.collect::<Result<Vec<_>, _>>()?;
+        let external_references = statement
+            .query_map(params![task_id.get()], |row| {
+                Ok(json!({
+                    "reference_id": row.get::<_, String>(0)?, "namespace": row.get::<_, String>(1)?,
+                    "value": row.get::<_, String>(2)?, "relation": row.get::<_, String>(3)?,
+                    "scope": row.get::<_, String>(4)?, "created_at": row.get::<_, String>(5)?
+                }))
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
         drop(statement);
         tx.commit()?;
-        Ok(json!({"revision_count": revision_count, "final_commit_sha": final_commit_sha,
-            "external_references": external_references}))
+        Ok(
+            json!({"revision_count": revision_count, "final_commit_sha": final_commit_sha,
+            "external_references": external_references}),
+        )
     }
-
 }
 
-
-
-
 fn record_extension_noop(
-    tx: &Transaction<'_>, task_id: TaskId, actor: &ActorContext,
-    operation: &str, details: &str,
+    tx: &Transaction<'_>,
+    task_id: TaskId,
+    actor: &ActorContext,
+    operation: &str,
+    details: &str,
 ) -> Result<(), StoreError> {
     let now = now_string();
-    insert_history(tx, Some(task_id), actor.actor_id().as_str(), &now, operation,
-        None, None, HistoryOutcome::Succeeded, None, Some(details), None)
+    insert_history(
+        tx,
+        Some(task_id),
+        actor.actor_id().as_str(),
+        &now,
+        operation,
+        None,
+        None,
+        HistoryOutcome::Succeeded,
+        None,
+        Some(details),
+        None,
+    )
 }
 
 fn is_expected_extension_rejection(error: &StoreError) -> bool {
@@ -1720,29 +2183,63 @@ fn extension_error_code(error: &StoreError) -> &'static str {
         StoreError::TaskLocked => "task_locked",
         StoreError::LockExpired => "lock_expired",
         StoreError::StaleLock => "stale_lock",
-        StoreError::InvalidTask(message) if message == "external_ref_conflict" => "external_ref_conflict",
-        StoreError::InvalidTask(message) if message == "external_ref_not_found" => "external_ref_not_found",
+        StoreError::InvalidTask(message) if message == "external_ref_conflict" => {
+            "external_ref_conflict"
+        }
+        StoreError::InvalidTask(message) if message == "external_ref_not_found" => {
+            "external_ref_not_found"
+        }
         StoreError::InvalidTask(message) if message == "review_id_conflict" => "review_id_conflict",
-        StoreError::InvalidTask(message) if message == "review_version_not_found" => "review_version_not_found",
+        StoreError::InvalidTask(message) if message == "review_version_not_found" => {
+            "review_version_not_found"
+        }
         StoreError::Sqlite(rusqlite::Error::SqliteFailure(code, _))
-            if code.code == rusqlite::ErrorCode::DatabaseBusy ||
-               code.code == rusqlite::ErrorCode::DatabaseLocked => "store_busy",
+            if code.code == rusqlite::ErrorCode::DatabaseBusy
+                || code.code == rusqlite::ErrorCode::DatabaseLocked =>
+        {
+            "store_busy"
+        }
         StoreError::Io(_) => "io_error",
         _ => "invalid_request",
     }
 }
 
 fn record_extension_change(
-    tx: &Transaction<'_>, task_id: TaskId, actor: &ActorContext,
-    operation: &str, previous: &str, now: &str,
+    tx: &Transaction<'_>,
+    task_id: TaskId,
+    actor: &ActorContext,
+    operation: &str,
+    previous: &str,
+    now: &str,
 ) -> Result<(), StoreError> {
-    tx.execute("UPDATE tasks SET updated_at = ?1 WHERE task_id = ?2", params![now, task_id.get()])?;
+    tx.execute(
+        "UPDATE tasks SET updated_at = ?1 WHERE task_id = ?2",
+        params![now, task_id.get()],
+    )?;
     let updated_task = load_task(tx, task_id)?;
     let requested = snapshot_json(tx, &updated_task)?;
     let version_no = next_version_no(tx, task_id)?;
-    insert_version(tx, task_id, version_no, &requested, now, actor.actor_id().as_str())?;
-    insert_history(tx, Some(task_id), actor.actor_id().as_str(), now, operation,
-        Some(previous), Some(&requested), HistoryOutcome::Succeeded, None, None, None)?;
+    insert_version(
+        tx,
+        task_id,
+        version_no,
+        &requested,
+        now,
+        actor.actor_id().as_str(),
+    )?;
+    insert_history(
+        tx,
+        Some(task_id),
+        actor.actor_id().as_str(),
+        now,
+        operation,
+        Some(previous),
+        Some(&requested),
+        HistoryOutcome::Succeeded,
+        None,
+        None,
+        None,
+    )?;
     Ok(())
 }
 
@@ -1817,7 +2314,12 @@ fn same_task_state(current: &Task, requested: &Task) -> bool {
         && current.status_id == requested.status_id
         && current.outcome == requested.outcome
         && current.body == requested.body
-        && current.labels == requested.labels.iter().map(|label| label.trim().to_owned()).collect::<Vec<_>>()
+        && current.labels
+            == requested
+                .labels
+                .iter()
+                .map(|label| label.trim().to_owned())
+                .collect::<Vec<_>>()
         && current.commit_refs == requested.commit_refs
         && current.dependencies == requested.dependencies
         && current.archived_at == requested.archived_at
@@ -1848,16 +2350,14 @@ fn load_task(connection: &Connection, id: TaskId) -> Result<Task, StoreError> {
         .ok_or(StoreError::TaskNotFound(id.get()))?;
 
     let labels = {
-        let mut statement = connection.prepare(
-            "SELECT label FROM task_labels WHERE task_id = ?1 ORDER BY position ASC",
-        )?;
+        let mut statement = connection
+            .prepare("SELECT label FROM task_labels WHERE task_id = ?1 ORDER BY position ASC")?;
         let rows = statement.query_map(params![id.get()], |row| row.get(0))?;
         rows.collect::<Result<Vec<String>, _>>()?
     };
     let commit_refs = {
-        let mut statement = connection.prepare(
-            "SELECT sha FROM task_commit_refs WHERE task_id = ?1 ORDER BY position ASC",
-        )?;
+        let mut statement = connection
+            .prepare("SELECT sha FROM task_commit_refs WHERE task_id = ?1 ORDER BY position ASC")?;
         let rows = statement.query_map(params![id.get()], |row| row.get(0))?;
         rows.collect::<Result<Vec<String>, _>>()?
     };
@@ -1904,7 +2404,10 @@ fn load_task(connection: &Connection, id: TaskId) -> Result<Task, StoreError> {
         created_at: row.4,
         updated_at: row.5,
         archived_at: row.6,
-        archived_by: row.7.map(ActorId::new).transpose()
+        archived_by: row
+            .7
+            .map(ActorId::new)
+            .transpose()
             .map_err(|error| StoreError::InvalidTask(error.to_string()))?,
         labels,
         commit_refs,
@@ -1914,10 +2417,14 @@ fn load_task(connection: &Connection, id: TaskId) -> Result<Task, StoreError> {
 
 fn snapshot_json(connection: &Connection, task: &Task) -> Result<String, StoreError> {
     let revision_count: i64 = connection.query_row(
-        "SELECT revision_count FROM tasks WHERE task_id = ?1", params![task.id.get()], |row| row.get(0)
+        "SELECT revision_count FROM tasks WHERE task_id = ?1",
+        params![task.id.get()],
+        |row| row.get(0),
     )?;
     let final_commit_sha: Option<String> = connection.query_row(
-        "SELECT final_commit_sha FROM tasks WHERE task_id = ?1", params![task.id.get()], |row| row.get(0)
+        "SELECT final_commit_sha FROM tasks WHERE task_id = ?1",
+        params![task.id.get()],
+        |row| row.get(0),
     )?;
     let external_references = {
         let mut statement = connection.prepare(
@@ -1937,20 +2444,46 @@ fn snapshot_json(connection: &Connection, task: &Task) -> Result<String, StoreEr
             "SELECT review_record_id, review_id, version_no, reviewer, outcome, comments_json, actor_id, created_at
              FROM task_reviews WHERE task_id = ?1 ORDER BY review_record_id"
         )?;
-        let rows = statement.query_map(params![task.id.get()], |row| Ok((
-            row.get::<_, i64>(0)?, row.get::<_, String>(1)?, row.get::<_, i64>(2)?,
-            row.get::<_, String>(3)?, row.get::<_, String>(4)?, row.get::<_, String>(5)?,
-            row.get::<_, String>(6)?, row.get::<_, String>(7)?
-        )))?.collect::<Result<Vec<_>, _>>()?;
-        rows.into_iter().map(|(record_id, review_id, version_no, reviewer, outcome, comments_json, actor_id, created_at)| {
-            let comments = serde_json::from_str::<Value>(&comments_json)
-                .map_err(|error| StoreError::InvalidTask(format!("Invalid stored review comments: {error}")))?;
-            Ok(json!({
-                "record_id": record_id, "review_id": review_id, "version_no": version_no,
-                "reviewer": reviewer, "outcome": outcome, "comments": comments,
-                "actor_id": actor_id, "created_at": created_at
-            }))
-        }).collect::<Result<Vec<_>, StoreError>>()?
+        let rows = statement
+            .query_map(params![task.id.get()], |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, i64>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, String>(4)?,
+                    row.get::<_, String>(5)?,
+                    row.get::<_, String>(6)?,
+                    row.get::<_, String>(7)?,
+                ))
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        rows.into_iter()
+            .map(
+                |(
+                    record_id,
+                    review_id,
+                    version_no,
+                    reviewer,
+                    outcome,
+                    comments_json,
+                    actor_id,
+                    created_at,
+                )| {
+                    let comments =
+                        serde_json::from_str::<Value>(&comments_json).map_err(|error| {
+                            StoreError::InvalidTask(format!(
+                                "Invalid stored review comments: {error}"
+                            ))
+                        })?;
+                    Ok(json!({
+                        "record_id": record_id, "review_id": review_id, "version_no": version_no,
+                        "reviewer": reviewer, "outcome": outcome, "comments": comments,
+                        "actor_id": actor_id, "created_at": created_at
+                    }))
+                },
+            )
+            .collect::<Result<Vec<_>, StoreError>>()?
     };
     let snapshot = TaskSnapshot {
         task_id: task.id,
@@ -1970,8 +2503,9 @@ fn snapshot_json(connection: &Connection, task: &Task) -> Result<String, StoreEr
         external_references,
         reviews,
     };
-    serde_json::to_string(&snapshot)
-        .map_err(|error| StoreError::InvalidTask(format!("Cannot serialize task snapshot: {error}")))
+    serde_json::to_string(&snapshot).map_err(|error| {
+        StoreError::InvalidTask(format!("Cannot serialize task snapshot: {error}"))
+    })
 }
 
 fn insert_version(
@@ -1985,7 +2519,13 @@ fn insert_version(
     transaction.execute(
         "INSERT INTO task_versions(task_id, version_no, snapshot_json, created_at, actor_id)
          VALUES (?1, ?2, ?3, ?4, ?5)",
-        params![task_id.get(), version_no, snapshot_json, created_at, actor_id],
+        params![
+            task_id.get(),
+            version_no,
+            snapshot_json,
+            created_at,
+            actor_id
+        ],
     )?;
     Ok(())
 }
@@ -2049,11 +2589,7 @@ fn map_version(row: &rusqlite::Row<'_>) -> rusqlite::Result<TaskVersion> {
         )
     })?;
     let actor_id = ActorId::new(actor_raw).map_err(|error| {
-        rusqlite::Error::FromSqlConversionFailure(
-            5,
-            rusqlite::types::Type::Text,
-            Box::new(error),
-        )
+        rusqlite::Error::FromSqlConversionFailure(5, rusqlite::types::Type::Text, Box::new(error))
     })?;
 
     Ok(TaskVersion {
@@ -2078,18 +2614,10 @@ fn map_history(row: &rusqlite::Row<'_>) -> rusqlite::Result<HistoryEntry> {
         )
     })?;
     let actor_id = ActorId::new(actor_raw).map_err(|error| {
-        rusqlite::Error::FromSqlConversionFailure(
-            2,
-            rusqlite::types::Type::Text,
-            Box::new(error),
-        )
+        rusqlite::Error::FromSqlConversionFailure(2, rusqlite::types::Type::Text, Box::new(error))
     })?;
     let outcome = HistoryOutcome::parse(&outcome_raw).map_err(|error| {
-        rusqlite::Error::FromSqlConversionFailure(
-            7,
-            rusqlite::types::Type::Text,
-            Box::new(error),
-        )
+        rusqlite::Error::FromSqlConversionFailure(7, rusqlite::types::Type::Text, Box::new(error))
     })?;
 
     Ok(HistoryEntry {

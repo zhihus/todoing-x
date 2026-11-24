@@ -1,14 +1,10 @@
 use crate::{
+    TODOING_DIR,
     config::ProjectConfig,
     domain::ProjectId,
     storage::{Store, StoreError},
-    TODOING_DIR,
 };
-use std::{
-    fs,
-    io::Write,
-    path::Path,
-};
+use std::{fs, io::Write, path::Path};
 use tempfile::NamedTempFile;
 
 #[derive(Debug)]
@@ -61,7 +57,8 @@ fn reject_legacy_store(root: &Path) -> Result<(), StoreError> {
     let legacy_index = todoing_dir.join("index.json");
     if legacy_index.exists() {
         return Err(StoreError::InvalidTask(
-            "Legacy index.json exists; use 'todoing migrate --project-id <id>' instead of init".into(),
+            "Legacy index.json exists; use 'todoing migrate --project-id <id>' instead of init"
+                .into(),
         ));
     }
     Ok(())
@@ -99,8 +96,11 @@ fn ensure_project_config(todoing_dir: &Path) -> Result<(), StoreError> {
 
 fn generate_project_id() -> Result<ProjectId, StoreError> {
     let mut bytes = [0u8; 16];
-    getrandom::fill(&mut bytes)
-        .map_err(|error| StoreError::Io(std::io::Error::other(format!("Cannot generate project ID: {error}"))))?;
+    getrandom::fill(&mut bytes).map_err(|error| {
+        StoreError::Io(std::io::Error::other(format!(
+            "Cannot generate project ID: {error}"
+        )))
+    })?;
     ProjectId::new(format!("p-{}", hex::encode(bytes)))
         .map_err(|error| StoreError::InvalidTask(error.to_string()))
 }
@@ -118,7 +118,11 @@ mod tests {
         assert!(report.project_id.starts_with("p-"));
         assert_eq!(report.project_id.len(), 34);
         assert_eq!(report.schema_version, 3);
-        let store = Store::open(root.path(), Some(&ProjectId::new(report.project_id).unwrap())).unwrap();
+        let store = Store::open(
+            root.path(),
+            Some(&ProjectId::new(report.project_id).unwrap()),
+        )
+        .unwrap();
         assert_eq!(store.verify().unwrap().integrity_check, "ok");
     }
 
@@ -155,7 +159,10 @@ mod tests {
         let root = tempdir().unwrap();
         let id = ProjectId::new("test-project").unwrap();
         Store::initialize(root.path(), id.clone()).unwrap();
-        assert!(matches!(initialize(root.path(), Some(id)), Err(StoreError::AlreadyExists(_))));
+        assert!(matches!(
+            initialize(root.path(), Some(id)),
+            Err(StoreError::AlreadyExists(_))
+        ));
     }
 
     #[test]
@@ -176,8 +183,14 @@ mod tests {
         });
 
         let results = [first.join().unwrap(), second.join().unwrap()];
-        let successes: Vec<_> = results.iter().filter_map(|result| result.as_ref().ok()).collect();
-        let failures: Vec<_> = results.iter().filter_map(|result| result.as_ref().err()).collect();
+        let successes: Vec<_> = results
+            .iter()
+            .filter_map(|result| result.as_ref().ok())
+            .collect();
+        let failures: Vec<_> = results
+            .iter()
+            .filter_map(|result| result.as_ref().err())
+            .collect();
         assert_eq!(successes.len(), 1);
         assert_eq!(failures.len(), 1);
         assert!(failures[0].contains("already exists"));

@@ -11,8 +11,12 @@ fn actor() -> ActorContext {
 
 fn repository() -> (tempfile::TempDir, TaskRepository) {
     let root = tempdir().unwrap();
-    let store = Store::initialize(root.path(), ProjectId::new("dependency-tests").unwrap()).unwrap();
-    (root, TaskRepository::new(store, ProjectConfig::default()).unwrap())
+    let store =
+        Store::initialize(root.path(), ProjectId::new("dependency-tests").unwrap()).unwrap();
+    (
+        root,
+        TaskRepository::new(store, ProjectConfig::default()).unwrap(),
+    )
 }
 
 fn new_task(title: &str) -> NewTask {
@@ -30,16 +34,27 @@ fn new_task(title: &str) -> NewTask {
 fn adding_dependency_updates_task_version_history_and_snapshot() {
     let (_root, repository) = repository();
     let dependent = repository.create(new_task("dependent"), &actor()).unwrap();
-    let prerequisite = repository.create(new_task("prerequisite"), &actor()).unwrap();
+    let prerequisite = repository
+        .create(new_task("prerequisite"), &actor())
+        .unwrap();
 
-    repository.add_dependency(dependent.id, prerequisite.id, &actor()).unwrap();
+    repository
+        .add_dependency(dependent.id, prerequisite.id, &actor())
+        .unwrap();
 
     let updated = repository.get(dependent.id).unwrap();
     assert_eq!(updated.dependencies, vec![prerequisite.id]);
-    assert_eq!(repository.list_dependencies(dependent.id).unwrap(), vec![prerequisite.id]);
+    assert_eq!(
+        repository.list_dependencies(dependent.id).unwrap(),
+        vec![prerequisite.id]
+    );
     let versions = repository.list_versions(dependent.id).unwrap();
     assert_eq!(versions.len(), 2);
-    assert!(versions[1].snapshot_json.contains(&format!("[{}]", prerequisite.id.get())));
+    assert!(
+        versions[1]
+            .snapshot_json
+            .contains(&format!("[{}]", prerequisite.id.get()))
+    );
     let history = repository.get_history(dependent.id).unwrap();
     assert_eq!(history.last().unwrap().operation, "task.dependency.add");
 }
@@ -48,15 +63,32 @@ fn adding_dependency_updates_task_version_history_and_snapshot() {
 fn removing_dependency_updates_snapshot_and_history() {
     let (_root, repository) = repository();
     let dependent = repository.create(new_task("dependent"), &actor()).unwrap();
-    let prerequisite = repository.create(new_task("prerequisite"), &actor()).unwrap();
-    repository.add_dependency(dependent.id, prerequisite.id, &actor()).unwrap();
+    let prerequisite = repository
+        .create(new_task("prerequisite"), &actor())
+        .unwrap();
+    repository
+        .add_dependency(dependent.id, prerequisite.id, &actor())
+        .unwrap();
 
-    repository.remove_dependency(dependent.id, prerequisite.id, &actor()).unwrap();
+    repository
+        .remove_dependency(dependent.id, prerequisite.id, &actor())
+        .unwrap();
 
-    assert!(repository.get(dependent.id).unwrap().dependencies.is_empty());
+    assert!(
+        repository
+            .get(dependent.id)
+            .unwrap()
+            .dependencies
+            .is_empty()
+    );
     assert_eq!(repository.list_versions(dependent.id).unwrap().len(), 3);
     assert_eq!(
-        repository.get_history(dependent.id).unwrap().last().unwrap().operation,
+        repository
+            .get_history(dependent.id)
+            .unwrap()
+            .last()
+            .unwrap()
+            .operation,
         "task.dependency.remove"
     );
 }
@@ -65,10 +97,16 @@ fn removing_dependency_updates_snapshot_and_history() {
 fn duplicate_dependency_add_is_a_no_op() {
     let (_root, repository) = repository();
     let dependent = repository.create(new_task("dependent"), &actor()).unwrap();
-    let prerequisite = repository.create(new_task("prerequisite"), &actor()).unwrap();
-    repository.add_dependency(dependent.id, prerequisite.id, &actor()).unwrap();
+    let prerequisite = repository
+        .create(new_task("prerequisite"), &actor())
+        .unwrap();
+    repository
+        .add_dependency(dependent.id, prerequisite.id, &actor())
+        .unwrap();
 
-    repository.add_dependency(dependent.id, prerequisite.id, &actor()).unwrap();
+    repository
+        .add_dependency(dependent.id, prerequisite.id, &actor())
+        .unwrap();
 
     assert_eq!(repository.list_versions(dependent.id).unwrap().len(), 2);
     assert_eq!(repository.get_history(dependent.id).unwrap().len(), 2);
@@ -86,7 +124,12 @@ fn self_dependency_is_rejected_and_recorded() {
 
     assert!(repository.get(task.id).unwrap().dependencies.is_empty());
     assert_eq!(
-        repository.get_history(task.id).unwrap().last().unwrap().outcome,
+        repository
+            .get_history(task.id)
+            .unwrap()
+            .last()
+            .unwrap()
+            .outcome,
         super::HistoryOutcome::Rejected
     );
 }
@@ -120,43 +163,76 @@ fn missing_dependency_task_is_rejected_and_recorded() {
         Err(StoreError::DependencyNotFound(_))
     ));
 
-    assert_eq!(repository.get_history(task.id).unwrap().last().unwrap().outcome, super::HistoryOutcome::Rejected);
+    assert_eq!(
+        repository
+            .get_history(task.id)
+            .unwrap()
+            .last()
+            .unwrap()
+            .outcome,
+        super::HistoryOutcome::Rejected
+    );
 }
 
 #[test]
 fn task_update_cannot_bypass_dependency_operations() {
     let (_root, repository) = repository();
     let dependent = repository.create(new_task("dependent"), &actor()).unwrap();
-    let prerequisite = repository.create(new_task("prerequisite"), &actor()).unwrap();
+    let prerequisite = repository
+        .create(new_task("prerequisite"), &actor())
+        .unwrap();
     let mut changed = dependent.clone();
     changed.dependencies.push(prerequisite.id);
 
     assert!(repository.update(&changed, &actor()).is_err());
-    assert!(repository.get(dependent.id).unwrap().dependencies.is_empty());
+    assert!(
+        repository
+            .get(dependent.id)
+            .unwrap()
+            .dependencies
+            .is_empty()
+    );
 }
-
 
 #[test]
 fn dependency_state_reports_archived_and_locked_references_without_leaking_locked_fields() {
     let (_root, repository) = repository();
     let dependent = repository.create(new_task("dependent"), &actor()).unwrap();
-    let archived_dependency = repository.create(new_task("archived dependency"), &actor()).unwrap();
-    let locked_dependency = repository.create(new_task("locked dependency"), &actor()).unwrap();
-    repository.add_dependency(dependent.id, archived_dependency.id, &actor()).unwrap();
-    repository.add_dependency(dependent.id, locked_dependency.id, &actor()).unwrap();
-    repository.archive(archived_dependency.id, &actor()).unwrap();
+    let archived_dependency = repository
+        .create(new_task("archived dependency"), &actor())
+        .unwrap();
+    let locked_dependency = repository
+        .create(new_task("locked dependency"), &actor())
+        .unwrap();
+    repository
+        .add_dependency(dependent.id, archived_dependency.id, &actor())
+        .unwrap();
+    repository
+        .add_dependency(dependent.id, locked_dependency.id, &actor())
+        .unwrap();
+    repository
+        .archive(archived_dependency.id, &actor())
+        .unwrap();
 
     let lock_service = repository.lock_service().unwrap();
     let owner = ActorContext::new(ActorId::new("agent:lock-owner").unwrap());
-    let grant = lock_service.acquire(locked_dependency.id, "dependency-owner", &owner).unwrap();
+    let grant = lock_service
+        .acquire(locked_dependency.id, "dependency-owner", &owner)
+        .unwrap();
     let states = repository.list_dependency_states(dependent.id).unwrap();
 
-    let archived = states.iter().find(|state| state.task_id == archived_dependency.id).unwrap();
+    let archived = states
+        .iter()
+        .find(|state| state.task_id == archived_dependency.id)
+        .unwrap();
     assert!(!archived.locked);
     assert_eq!(archived.archived, Some(true));
     assert_eq!(archived.status_id.as_ref().unwrap().as_str(), "todo");
 
-    let locked = states.iter().find(|state| state.task_id == locked_dependency.id).unwrap();
+    let locked = states
+        .iter()
+        .find(|state| state.task_id == locked_dependency.id)
+        .unwrap();
     assert!(locked.locked);
     assert_eq!(locked.archived, None);
     assert_eq!(locked.status_id, None);

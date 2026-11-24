@@ -114,16 +114,24 @@ fn complete_cancel_and_reopen_preserve_distinct_outcomes_and_reason() {
     let history = repository.get_history(task.id).unwrap();
     assert!(history.iter().any(|entry| {
         entry.operation == "task.cancel"
-            && entry.details_json.as_deref().unwrap_or("").contains("No longer required")
+            && entry
+                .details_json
+                .as_deref()
+                .unwrap_or("")
+                .contains("No longer required")
     }));
 }
 
 #[test]
 fn reopening_a_terminal_status_requires_a_valid_nonterminal_target() {
     let mut config = ProjectConfig::default();
-    config.transitions.push(StatusTransition::new("done", "in_progress"));
+    config
+        .transitions
+        .push(StatusTransition::new("done", "in_progress"));
     let (_root, repository) = repository(config);
-    let task = repository.create(new_task("reopen mapped status"), &actor()).unwrap();
+    let task = repository
+        .create(new_task("reopen mapped status"), &actor())
+        .unwrap();
     let active = repository
         .set_status(task.id, StatusId::new("in_progress").unwrap(), &actor())
         .unwrap();
@@ -137,7 +145,11 @@ fn reopening_a_terminal_status_requires_a_valid_nonterminal_target() {
     ));
 
     let reopened = repository
-        .reopen(done.id, Some(StatusId::new("in_progress").unwrap()), &actor())
+        .reopen(
+            done.id,
+            Some(StatusId::new("in_progress").unwrap()),
+            &actor(),
+        )
         .unwrap();
     assert_eq!(reopened.status_id.as_str(), "in_progress");
     assert_eq!(reopened.outcome, None);

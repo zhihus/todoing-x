@@ -1,5 +1,5 @@
-use crate::config::ProjectConfig;
 use super::{HistoryOutcome, NewTask, Store, TaskRepository};
+use crate::config::ProjectConfig;
 use crate::domain::{ActorContext, ActorId, ProjectId, StatusId};
 use tempfile::tempdir;
 
@@ -9,8 +9,12 @@ fn actor() -> ActorContext {
 
 fn repository() -> (tempfile::TempDir, TaskRepository) {
     let root = tempdir().unwrap();
-    let store = Store::initialize(root.path(), ProjectId::new("task-history-tests").unwrap()).unwrap();
-    (root, TaskRepository::new(store, ProjectConfig::default()).unwrap())
+    let store =
+        Store::initialize(root.path(), ProjectId::new("task-history-tests").unwrap()).unwrap();
+    (
+        root,
+        TaskRepository::new(store, ProjectConfig::default()).unwrap(),
+    )
 }
 
 fn new_task(title: &str) -> NewTask {
@@ -98,7 +102,9 @@ fn replacing_baseline_keeps_previous_approval_in_append_only_history() {
     let baseline = repository.approve_baseline(task.id, 2, &actor()).unwrap();
 
     assert_eq!(baseline.version_no, 2);
-    let approvals = repository.get_history(task.id).unwrap()
+    let approvals = repository
+        .get_history(task.id)
+        .unwrap()
         .into_iter()
         .filter(|entry| entry.operation == "task.version.approve")
         .count();
@@ -126,22 +132,38 @@ fn version_and_history_rows_are_immutable_at_database_level() {
     let task = repository.create(new_task("immutable"), &actor()).unwrap();
     let connection = repository.store().connection().unwrap();
 
-    assert!(connection.execute(
-        "UPDATE task_versions SET snapshot_json = '{}' WHERE task_id = ?1",
-        [task.id.get()]
-    ).is_err());
-    assert!(connection.execute(
-        "DELETE FROM task_versions WHERE task_id = ?1",
-        [task.id.get()]
-    ).is_err());
-    assert!(connection.execute(
-        "UPDATE operation_history SET operation = 'changed' WHERE task_id = ?1",
-        [task.id.get()]
-    ).is_err());
-    assert!(connection.execute(
-        "DELETE FROM operation_history WHERE task_id = ?1",
-        [task.id.get()]
-    ).is_err());
+    assert!(
+        connection
+            .execute(
+                "UPDATE task_versions SET snapshot_json = '{}' WHERE task_id = ?1",
+                [task.id.get()]
+            )
+            .is_err()
+    );
+    assert!(
+        connection
+            .execute(
+                "DELETE FROM task_versions WHERE task_id = ?1",
+                [task.id.get()]
+            )
+            .is_err()
+    );
+    assert!(
+        connection
+            .execute(
+                "UPDATE operation_history SET operation = 'changed' WHERE task_id = ?1",
+                [task.id.get()]
+            )
+            .is_err()
+    );
+    assert!(
+        connection
+            .execute(
+                "DELETE FROM operation_history WHERE task_id = ?1",
+                [task.id.get()]
+            )
+            .is_err()
+    );
 }
 
 #[test]
