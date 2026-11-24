@@ -1340,6 +1340,9 @@ impl TaskRepository {
         match self.external_reference_add_inner(task_id, namespace, value, relation, scope, actor) {
             Ok(value) => Ok(value),
             Err(error) => {
+                if is_expected_extension_rejection(&error) {
+                    return Err(error);
+                }
                 let code = extension_error_code(&error);
                 let target = if matches!(&error, StoreError::TaskNotFound(_)) { None } else { Some(task_id) };
                 self.reject_operation(target, actor, "task.external-ref.add", code, Some(requested), error)
@@ -1354,6 +1357,9 @@ impl TaskRepository {
         match self.external_reference_remove_inner(task_id, reference_id, actor) {
             Ok(value) => Ok(value),
             Err(error) => {
+                if is_expected_extension_rejection(&error) {
+                    return Err(error);
+                }
                 let code = extension_error_code(&error);
                 let target = if matches!(&error, StoreError::TaskNotFound(_)) { None } else { Some(task_id) };
                 self.reject_operation(target, actor, "task.external-ref.remove", code, Some(requested), error)
@@ -1370,6 +1376,9 @@ impl TaskRepository {
         match self.review_add_inner(task_id, review_id, version_no, reviewer, outcome, comments, actor) {
             Ok(value) => Ok(value),
             Err(error) => {
+                if is_expected_extension_rejection(&error) {
+                    return Err(error);
+                }
                 let code = extension_error_code(&error);
                 let target = if matches!(&error, StoreError::TaskNotFound(_)) { None } else { Some(task_id) };
                 self.reject_operation(target, actor, "task.review.add", code, Some(requested), error)
@@ -1384,6 +1393,9 @@ impl TaskRepository {
         match self.set_final_commit_inner(task_id, sha, actor) {
             Ok(value) => Ok(value),
             Err(error) => {
+                if is_expected_extension_rejection(&error) {
+                    return Err(error);
+                }
                 let code = extension_error_code(&error);
                 let target = if matches!(&error, StoreError::TaskNotFound(_)) { None } else { Some(task_id) };
                 self.reject_operation(target, actor, "task.commit.finalize", code, Some(requested), error)
@@ -1687,6 +1699,14 @@ fn record_extension_noop(
     let now = now_string();
     insert_history(tx, Some(task_id), actor.actor_id().as_str(), &now, operation,
         None, None, HistoryOutcome::Succeeded, None, Some(details), None)
+}
+
+fn is_expected_extension_rejection(error: &StoreError) -> bool {
+    matches!(error, StoreError::InvalidTask(message) if matches!(
+        message.as_str(),
+        "external_ref_conflict" | "external_ref_not_found" |
+        "review_id_conflict" | "review_version_not_found"
+    ))
 }
 
 fn extension_error_code(error: &StoreError) -> &'static str {
