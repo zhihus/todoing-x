@@ -1384,6 +1384,7 @@ impl TaskRepository {
             "SELECT reference_id, namespace, value, relation, scope, created_at, removed_at, removed_by
              FROM task_external_references WHERE task_id = ?1 AND removed_at IS NULL ORDER BY created_at, reference_id"
         };
+        let _task = load_task(&tx, task_id)?;
         let mut statement = tx.prepare(sql)?;
         let rows = statement.query_map(params![task_id.get()], |row| Ok(json!({
             "reference_id": row.get::<_, String>(0)?, "namespace": row.get::<_, String>(1)?,
@@ -1391,6 +1392,7 @@ impl TaskRepository {
             "scope": row.get::<_, String>(4)?, "created_at": row.get::<_, String>(5)?,
             "removed_at": row.get::<_, Option<String>>(6)?, "removed_by": row.get::<_, Option<String>>(7)?
         })))?.collect::<Result<Vec<_>, _>>()?;
+        drop(statement);
         tx.commit()?;
         Ok(json!({"references": rows}))
     }
@@ -1479,6 +1481,7 @@ impl TaskRepository {
         let mut connection = self.store.connection()?;
         let tx = connection.transaction()?;
         self.check_lock(&tx, task_id)?;
+        let _task = load_task(&tx, task_id)?;
         let mut statement = tx.prepare(
             "SELECT review_id, version_no, reviewer, outcome, comments_json, actor_id, created_at
              FROM task_reviews WHERE task_id = ?1 ORDER BY review_record_id"
@@ -1491,6 +1494,7 @@ impl TaskRepository {
                 "reviewer": row.get::<_, String>(2)?, "outcome": row.get::<_, String>(3)?,
                 "comments": comments, "actor_id": row.get::<_, String>(5)?, "created_at": row.get::<_, String>(6)?}))
         })?.collect::<Result<Vec<_>, _>>()?;
+        drop(statement);
         tx.commit()?;
         Ok(json!({"reviews": rows}))
     }
