@@ -453,21 +453,27 @@ fn snapshot_restore_refuses_active_task_locks() {
 fn snapshot_verification_rejects_corrupt_file_without_mutating_store() {
     let root = tempdir().unwrap();
     let store = Store::initialize(root.path(), project_id()).unwrap();
-    store.connection().unwrap().execute(
-        "INSERT INTO tasks(title, status_id, created_at, updated_at)
+    store
+        .connection()
+        .unwrap()
+        .execute(
+            "INSERT INTO tasks(title, status_id, created_at, updated_at)
          VALUES ('preserved task', 'todo', '2026-11-21T00:00:00Z', '2026-11-21T00:00:00Z')",
-        [],
-    ).unwrap();
+            [],
+        )
+        .unwrap();
     let snapshot = store.snapshot("corrupt.db", false).unwrap();
     fs::write(&snapshot.path, b"not a SQLite database").unwrap();
 
     assert!(store.verify_snapshot(&snapshot.path).is_err());
     assert!(store.restore_snapshot(&snapshot.path, None).is_err());
-    let title: String = store.connection().unwrap().query_row(
-        "SELECT title FROM tasks WHERE task_id = 1",
-        [],
-        |row| row.get(0),
-    ).unwrap();
+    let title: String = store
+        .connection()
+        .unwrap()
+        .query_row("SELECT title FROM tasks WHERE task_id = 1", [], |row| {
+            row.get(0)
+        })
+        .unwrap();
     assert_eq!(title, "preserved task");
     assert!(store.verify().is_ok());
 }
