@@ -1509,6 +1509,9 @@ impl TaskRepository {
     pub fn review_list(&self, task_id: TaskId, before_record_id: Option<i64>, limit: Option<usize>) -> Result<Value, StoreError> {
         let limit = limit.unwrap_or(100).min(i64::MAX as usize);
         if limit == 0 { return Err(StoreError::InvalidTask("limit must be a positive integer".into())); }
+        if before_record_id.is_some_and(|value| value <= 0) {
+            return Err(StoreError::InvalidTask("before_record_id must be a positive integer".into()));
+        }
         let mut connection = self.store.connection()?;
         let tx = connection.transaction()?;
         self.check_lock(&tx, task_id)?;
