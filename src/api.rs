@@ -1089,4 +1089,74 @@ mod contract_tests {
         assert_eq!(final_list["tasks"].as_array().unwrap().len(), 2);
     }
 
+
+    #[test]
+    fn extension_operations_round_trip_references_reviews_and_final_commit() {
+        let root = setup_project();
+        let created = execute(request("api-test-project", "task.create", json!({
+            "title": "Extension API task"
+        })), root.path()).unwrap();
+        let task_id = created["task"]["id"].as_i64().unwrap();
+        assert_eq!(created["task"]["revision_count"], 0);
+        assert!(created["task"]["external_references"].as_array().unwrap().is_empty());
+
+        let reference = execute(request("api-test-project", "task.external-ref.add", json!({
+            "task_id": task_id, "namespace": "openspec.change",
+            "value": "change-1", "relation": "implements", "scope": "project"
+        })), root.path()).unwrap();
+        assert_eq!(reference["no_op"], false);
+        let reference_id = reference["reference_id"].as_str().unwrap();
+        let listed_refs = execute(request("api-test-project", "task.external-ref.list", json!({
+            "task_id": task_id
+        })), root.path()).unwrap();
+        assert_eq!(listed_refs["references"].as_array().unwrap().len(), 1);
+
+        let comments = json!([{"path":"src/lib.rs","comment":"Review comment"}]);
+        let review = execute(request("api-test-project", "task.review.add", json!({
+            "task_id": task_id, "review_id": "review-1", "version_no": 1,
+            "reviewer": "reviewer-a", "outcome": "changes_requested", "comments": comments
+        })), root.path()).unwrap();
+        assert_eq!(review["revision_count"], 1);
+        assert_eq!(review["task_version_no"], 3);
+        assert_eq!(review["no_op"], false);
+        let repeated = execute(request("api-test-project", "task.review.add", json!({
+            "task_id": task_id, "review_id": "review-1", "version_no": 1,
+            "reviewer": "reviewer-a", "outcome": "changes_requested", "comments": comments
+        })), root.path()).unwrap();
+        assert_eq!(repeated["no_op"], true);
+        assert_eq!(repeated["revision_count"], 1);
+        let reviews = execute(request("api-test-project", "task.review.list", json!({
+            "task_id": task_id, "limit": 10
+        })), root.path()).unwrap();
+        assert_eq!(reviews["reviews"].as_array().unwrap().len(), 1);
+        assert_eq!(reviews["reviews"][0]["review_id"], "review-1");
+
+        let removed = execute(request("api-test-project", "task.external-ref.remove", json!({
+            "task_id": task_id, "reference_id": reference_id
+        })), root.path()).unwrap();
+        assert_eq!(removed["no_op"], false);
+        let task = execute(request("api-test-project", "task.get", json!({
+            "task_id": task_id
+        })), root.path()).unwrap();
+        assert_eq!(task["task"]["revision_count"], 1);
+        assert!(task["task"]["external_references"].as_array().unwrap().is_empty());
+
+        assert!(std::process::Command::new("git").current_dir(root.path()).args(["init", "-q"]).status().unwrap().success());
+        assert!(std::process::Command::new("git").current_dir(root.path()).args(["config", "user.email", "todoing-test@example.invalid"]).status().unwrap().success());
+        assert!(std::process::Command::new("git").current_dir(root.path()).args(["config", "user.name", "Todoing Test"]).status().unwrap().success());
+        fs::write(root.path().join("final.txt"), "first").unwrap();
+        assert!(std::process::Command::new("git").current_dir(root.path()).args(["add", "final.txt"]).status().unwrap().success());
+        assert!(std::process::Command::new("git").current_dir(root.path()).args(["commit", "-m", "first final commit"]).status().unwrap().success());
+        let finalized = execute(request("api-test-project", "task.commit.finalize", json!({
+            "task_id": task_id, "revision": "HEAD"
+        })), root.path()).unwrap();
+        assert_eq!(finalized["final_commit_sha"].as_str().unwrap().len(), 40);
+        assert_eq!(finalized["no_op"], false);
+        let final_task = execute(request("api-test-project", "task.get", json!({
+            "task_id": task_id
+        })), root.path()).unwrap();
+        assert_eq!(final_task["task"]["final_commit_sha"], finalized["final_commit_sha"]);
+    }
+
+
 }
