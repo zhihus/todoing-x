@@ -84,7 +84,8 @@
                 "review_id_conflict",
                 "review_version_not_found",
                 "store_already_initialized",
-                "migration_required"
+                "migration_required",
+                "snapshot_checksum_mismatch"
               ]
             },
             "message": {
