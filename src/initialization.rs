@@ -117,7 +117,7 @@ mod tests {
         let report = initialize(root.path(), None).unwrap();
         assert!(report.project_id.starts_with("p-"));
         assert_eq!(report.project_id.len(), 34);
-        assert_eq!(report.schema_version, 2);
+        assert_eq!(report.schema_version, 3);
         let store = Store::open(root.path(), Some(&ProjectId::new(report.project_id).unwrap())).unwrap();
         assert_eq!(store.verify().unwrap().integrity_check, "ok");
     }
