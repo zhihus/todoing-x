@@ -79,7 +79,7 @@ fn verify_reports_integrity_and_schema_version() {
 
     assert_eq!(report.integrity_check, "ok");
     assert_eq!(report.foreign_key_violations, 0);
-    assert_eq!(report.schema_version, 2);
+    assert_eq!(report.schema_version, 3);
 }
 
 #[test]
@@ -169,13 +169,13 @@ fn open_rejects_unknown_schema_versions() {
     let root = tempdir().unwrap();
     let store = Store::initialize(root.path(), project_id()).unwrap();
     store.connection().unwrap().execute(
-        "UPDATE store_metadata SET value = '3' WHERE key = 'schema_version'",
+        "UPDATE store_metadata SET value = '4' WHERE key = 'schema_version'",
         [],
     ).unwrap();
 
     assert!(matches!(
         Store::open(root.path(), None),
-        Err(StoreError::UnsupportedSchemaVersion(3))
+        Err(StoreError::UnsupportedSchemaVersion(4))
     ));
 }
 
@@ -184,13 +184,13 @@ fn verify_rejects_migration_checksum_drift() {
     let root = tempdir().unwrap();
     let store = Store::initialize(root.path(), project_id()).unwrap();
     store.connection().unwrap().execute(
-        "UPDATE schema_migrations SET checksum = 'invalid' WHERE version = 2",
+        "UPDATE schema_migrations SET checksum = 'invalid' WHERE version = 3",
         [],
     ).unwrap();
 
     assert!(matches!(
         store.verify(),
-        Err(StoreError::MigrationChecksumMismatch { version: 2 })
+        Err(StoreError::MigrationChecksumMismatch { version: 3 })
     ));
 }
 
@@ -310,7 +310,7 @@ fn online_backup_snapshot_refuses_the_active_database_as_destination() {
 
 
 #[test]
-fn opening_a_v1_store_applies_archive_migration_without_changing_existing_tasks() {
+fn opening_a_v1_store_applies_all_migrations_without_changing_existing_tasks() {
     let root = tempdir().unwrap();
     let todoing_dir = root.path().join(".todoing");
     std::fs::create_dir_all(&todoing_dir).unwrap();
@@ -344,7 +344,7 @@ fn opening_a_v1_store_applies_archive_migration_without_changing_existing_tasks(
 
     let store = Store::open(root.path(), Some(&ProjectId::new("task-repository-tests").unwrap())).unwrap();
     let report = store.verify().unwrap();
-    assert_eq!(report.schema_version, 2);
+    assert_eq!(report.schema_version, 3);
 
     let migrated = store.connection().unwrap();
     let archive_columns: Vec<String> = {
@@ -354,6 +354,8 @@ fn opening_a_v1_store_applies_archive_migration_without_changing_existing_tasks(
     };
     assert!(archive_columns.contains(&"archived_at".to_owned()));
     assert!(archive_columns.contains(&"archived_by".to_owned()));
+    assert!(archive_columns.contains(&"revision_count".to_owned()));
+    assert!(archive_columns.contains(&"final_commit_sha".to_owned()));
 
     let values: (Option<String>, Option<String>, String, String) = migrated.query_row(
         "SELECT archived_at, archived_by, title, body FROM tasks WHERE task_id = 42",
@@ -361,6 +363,74 @@ fn opening_a_v1_store_applies_archive_migration_without_changing_existing_tasks(
         |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
     ).unwrap();
     assert_eq!(values, (None, None, "legacy v1 task".into(), "preserved body".into()));
+    let extension_table_count: i64 = migrated.query_row(
+        "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name IN ('task_external_references', 'task_reviews')",
+        [],
+        |row| row.get(0),
+    ).unwrap();
+    assert_eq!(extension_table_count, 2);
+}
+
+
+#[test]
+fn opening_a_v2_store_applies_extensions_migration_and_preserves_existing_tasks() {
+    let root = tempdir().unwrap();
+    let todoing_dir = root.path().join(".todoing");
+    std::fs::create_dir_all(&todoing_dir).unwrap();
+    let database_path = todoing_dir.join("todoing.db");
+    let connection = Connection::open(&database_path).unwrap();
+    connection.execute_batch("PRAGMA journal_mode=DELETE; PRAGMA foreign_keys=ON; PRAGMA synchronous=FULL;").unwrap();
+    connection.execute_batch(include_str!("../../migrations/0001_initial.sql")).unwrap();
+    let created_at = "2026-11-23T00:00:00Z";
+    connection.execute(
+        "INSERT INTO store_metadata(key, value) VALUES ('schema_version', '1')",
+        [],
+    ).unwrap();
+    connection.execute(
+        "INSERT INTO store_metadata(key, value) VALUES ('project_id', 'task-repository-tests')",
+        [],
+    ).unwrap();
+    connection.execute(
+        "INSERT INTO store_metadata(key, value) VALUES ('created_at', ?1)",
+        [created_at],
+    ).unwrap();
+    connection.execute(
+        "INSERT INTO schema_migrations(version, checksum, applied_at) VALUES (1, ?1, ?2)",
+        [hex::encode(sha2::Sha256::digest(include_str!("../../migrations/0001_initial.sql").as_bytes())), created_at.to_owned()],
+    ).unwrap();
+    connection.execute_batch(include_str!("../../migrations/0002_task_archive.sql")).unwrap();
+    connection.execute(
+        "UPDATE store_metadata SET value = '2' WHERE key = 'schema_version'",
+        [],
+    ).unwrap();
+    connection.execute(
+        "INSERT INTO schema_migrations(version, checksum, applied_at) VALUES (2, ?1, ?2)",
+        [hex::encode(sha2::Sha256::digest(include_str!("../../migrations/0002_task_archive.sql").as_bytes())), created_at.to_owned()],
+    ).unwrap();
+    connection.execute(
+        "INSERT INTO tasks(task_id, title, status_id, outcome, body, created_at, updated_at)
+         VALUES (42, 'legacy v2 task', 'todo', NULL, 'preserved v2 body', ?1, ?1)",
+        [created_at],
+    ).unwrap();
+    drop(connection);
+
+    let store = Store::open(root.path(), Some(&ProjectId::new("task-repository-tests").unwrap())).unwrap();
+    let report = store.verify().unwrap();
+    assert_eq!(report.schema_version, 3);
+
+    let migrated = store.connection().unwrap();
+    let values: (String, String, i64, Option<String>) = migrated.query_row(
+        "SELECT title, body, revision_count, final_commit_sha FROM tasks WHERE task_id = 42",
+        [],
+        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+    ).unwrap();
+    assert_eq!(values, ("legacy v2 task".into(), "preserved v2 body".into(), 0, None));
+    let migration_count: i64 = migrated.query_row(
+        "SELECT COUNT(*) FROM schema_migrations WHERE version = 3",
+        [],
+        |row| row.get(0),
+    ).unwrap();
+    assert_eq!(migration_count, 1);
 }
 
 
