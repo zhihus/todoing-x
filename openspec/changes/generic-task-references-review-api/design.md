@@ -133,7 +133,8 @@ scheduling, retention, replication, or incremental snapshots.
   the database file. The source must be a separate, verified snapshot with the
   same project ID and supported schema.
 - Restore is rejected while any task lock is active. It acquires an exclusive
-  SQLite lock before checking lock state and keeps that lock through restore.
+  SQLite lock before checking lock state and capturing the safety snapshot, then
+  keeps that lock through restore so concurrent writes cannot stale the rollback point.
 - Before mutation, Todoing creates a verified safety snapshot in
   `.todoing/backups/`. The safety snapshot is retained after success and is
   used as the rollback source if restore or post-copy integrity verification
