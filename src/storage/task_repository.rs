@@ -1477,6 +1477,7 @@ impl TaskRepository {
         let tx = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
         self.check_lock(&tx, task_id)?;
         let task = load_task(&tx, task_id)?;
+        if task.archived_at.is_some() { return Err(StoreError::TaskArchived); }
         let state: Option<Option<String>> = tx.query_row(
             "SELECT removed_at FROM task_external_references WHERE reference_id = ?1 AND task_id = ?2",
             params![reference_id, task_id.get()], |row| row.get(0)
