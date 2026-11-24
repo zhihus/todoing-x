@@ -147,3 +147,14 @@ A snapshot MUST be rejected while any task lock is active. The destination MUST 
 - **WHEN** any task lock is active
 - **THEN** snapshot creation is rejected
 - **AND** no snapshot is activated at the destination
+
+### Requirement: Persist generic external references and Review records
+
+The SQLite backend MUST persist generic task external references and append-only Review records. Active reference uniqueness MUST be enforced for task and project scopes. Review identifiers MUST be unique within a task. Task metadata MUST persist `revision_count` and an optional `final_commit_sha`. The schema migration MUST preserve all pre-existing task, version, history, lock, dependency, and archive data.
+
+#### Scenario: Migrate an existing version 2 store
+
+- **WHEN** an existing schema version 2 store is opened
+- **THEN** the system applies the extensions migration transactionally
+- **AND** preserves all existing task data and relationships
+- **AND** verifies the migration checksum and records schema version 3
