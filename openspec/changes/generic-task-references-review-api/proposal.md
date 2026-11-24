@@ -1,6 +1,6 @@
 # Generic task references, review history, and final commit marker
 
-**Status:** draft; no implementation changes or tests have been executed.
+**Status:** implemented and verified on the feature branch.
 
 
 ## Why
@@ -23,7 +23,7 @@ harness.
   new `changes_requested` Review record.
 - Make Review creation idempotent by `review_id`.
 - Add a distinct final Git commit marker, separate from ordinary commit references.
-- Extend JSON API v1 schemas, operation documentation, error catalogue, and tests.
+- Extend JSON API v1 schemas, operation documentation, error catalogue, and tests.\n- Add snapshot verification and full SQLite restore with a retained pre-restore safety snapshot.
 - Migrate existing SQLite stores non-destructively to the new schema.
 
 ## Capabilities
