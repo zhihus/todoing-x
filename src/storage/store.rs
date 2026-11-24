@@ -381,24 +381,13 @@ impl Store {
             return Err(StoreError::InvalidTask("snapshot_checksum_mismatch".into()));
         }
 
-        // Keep a verified pre-restore copy. It remains available after success and
-        // is also the rollback source if the restore operation fails.
-        let backup_dir = self.todoing_dir.join("backups");
-        fs::create_dir_all(&backup_dir)?;
-        let backup_name = format!(
-            "pre-restore-{}-{}.db",
-            Utc::now().format("%Y%m%dT%H%M%S%.6fZ"),
-            std::process::id()
-        );
-        let safety_snapshot = self.snapshot(backup_dir.join(backup_name), false)?;
-
         let source = Connection::open(&source_path)?;
         source.busy_timeout(BUSY_TIMEOUT)?;
         let mut target = self.connection()?;
 
-        // EXCLUSIVE locking mode keeps the database exclusively locked for this
-        // connection's lifetime. This prevents another Todoing process from
-        // writing between the active-lock check and the SQLite backup transaction.
+        // Acquire the exclusive lock before taking the safety snapshot. Keep this
+        // connection open through backup and restore so no Todoing writer can
+        // change the active database after the rollback point has been captured.
         target.execute_batch("PRAGMA locking_mode = EXCLUSIVE; BEGIN EXCLUSIVE;")?;
         let active_locks: i64 = target.query_row(
             "SELECT COUNT(*) FROM task_locks WHERE state = 'active'",
@@ -408,6 +397,46 @@ impl Store {
         if active_locks > 0 {
             return Err(StoreError::TaskLocked);
         }
+
+        // Snapshot the exact database state protected by the exclusive lock.
+        let backup_dir = self.todoing_dir.join("backups");
+        fs::create_dir_all(&backup_dir)?;
+        let backup_name = format!(
+            "pre-restore-{}-{}.db",
+            Utc::now().format("%Y%m%dT%H%M%S%.6fZ"),
+            std::process::id()
+        );
+        let temporary = NamedTempFile::new_in(&backup_dir)?;
+        let temporary_path = temporary.into_temp_path();
+        let mut safety_target = Connection::open(&temporary_path)?;
+        configure_connection(&safety_target)?;
+        {
+            let backup = Backup::new(&target, &mut safety_target)?;
+            backup.run_to_completion(5, Duration::from_millis(100), None)?;
+        }
+        drop(safety_target);
+        let safety_connection = connect(&temporary_path)?;
+        verify_connection(&safety_connection, &self.project_id)?;
+        drop(safety_connection);
+        let (safety_size_bytes, safety_sha256) = file_digest(&temporary_path)?;
+        let safety_path = backup_dir.join(backup_name);
+        temporary_path
+            .persist_noclobber(&safety_path)
+            .map_err(|error| {
+                if error.error.kind() == std::io::ErrorKind::AlreadyExists {
+                    StoreError::AlreadyExists(safety_path.clone())
+                } else {
+                    StoreError::Io(error.error)
+                }
+            })?;
+        let safety_snapshot = SnapshotReport {
+            path: safety_path,
+            size_bytes: safety_size_bytes,
+            sha256: safety_sha256,
+        };
+
+        // locking_mode=EXCLUSIVE retains the database lock after COMMIT, while
+        // leaving the connection ready to receive the Online Backup API restore.
         target.execute_batch("COMMIT;")?;
 
         let restore_result = (|| {
