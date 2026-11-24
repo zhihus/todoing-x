@@ -412,7 +412,7 @@ fn execute(request: Request, root: &Path) -> Result<Value, ApiError> {
         "task.restore" => {
             let args: TaskIdArgs = parse_args(request.args).map_err(|error| invalid(error.to_string()))?;
             let result = repository.restore(id(args.task_id).map_err(|error| invalid(error.to_string()))?, &actor).map_err(store_error)?;
-            Ok(json!({"task": result.task, "no_op": result.no_op}))
+            Ok(json!({"task": task_value(&repository, &result.task)?, "no_op": result.no_op}))
         }
         "task.get" => {
             let args: TaskIdArgs = parse_args(request.args).map_err(|error| invalid(error.to_string()))?;
@@ -465,7 +465,8 @@ fn execute(request: Request, root: &Path) -> Result<Value, ApiError> {
             let args: DependencyArgs = parse_args(request.args).map_err(|error| invalid(error.to_string()))?;
             let task_id = id(args.task_id).map_err(|error| invalid(error.to_string()))?;
             repository.remove_dependency(task_id, id(args.depends_on_task_id).map_err(|error| invalid(error.to_string()))?, &actor).map_err(store_error)?;
-            Ok(json!({"task": repository.get(task_id).map_err(store_error)?}))
+            let task = repository.get(task_id).map_err(store_error)?;
+            Ok(json!({"task": task_value(&repository, &task)?}))
         }
         "task.dependency.list" => {
             let args: TaskIdArgs = parse_args(request.args).map_err(|error| invalid(error.to_string()))?;
