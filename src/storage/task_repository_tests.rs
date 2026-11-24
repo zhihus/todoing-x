@@ -327,6 +327,8 @@ fn external_references_are_idempotent_removable_and_versioned() {
     ).unwrap();
     assert_eq!(repeated["no_op"], true);
     assert_eq!(repository.external_reference_list(task.id, false).unwrap()["references"].as_array().unwrap().len(), 1);
+    let reference_diff = repository.compare_versions(task.id, 1, 2).unwrap();
+    assert!(reference_diff.changes.iter().any(|change| change.field == "external_references"));
     let reference_id = first["reference_id"].as_str().unwrap();
     assert_eq!(repository.external_reference_remove(task.id, reference_id, &actor()).unwrap()["no_op"], false);
     assert_eq!(repository.external_reference_remove(task.id, reference_id, &actor()).unwrap()["no_op"], true);
@@ -345,6 +347,8 @@ fn reviews_are_immutable_idempotent_and_increment_revision_count_once() {
     let first = repository.review_add(task.id, "review-1", 1, "reviewer-a", "changes_requested", &comments, &actor()).unwrap();
     assert_eq!(first["no_op"], false);
     assert_eq!(repository.extension_metadata(task.id).unwrap()["revision_count"], 1);
+    let review_diff = repository.compare_versions(task.id, 1, 2).unwrap();
+    assert!(review_diff.changes.iter().any(|change| change.field == "revision_count"));
     let retry = repository.review_add(task.id, "review-1", 1, "reviewer-a", "changes_requested", &comments, &actor()).unwrap();
     assert_eq!(retry["no_op"], true);
     assert_eq!(repository.extension_metadata(task.id).unwrap()["revision_count"], 1);
