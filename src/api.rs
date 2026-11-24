@@ -1005,6 +1005,10 @@ mod contract_tests {
         assert_eq!(api_exit_code("task_locked"), 4);
         assert_eq!(api_exit_code("store_busy"), 5);
         assert_eq!(api_exit_code("migration_conflict"), 6);
+        assert_eq!(api_exit_code("external_ref_not_found"), 3);
+        assert_eq!(api_exit_code("review_version_not_found"), 3);
+        assert_eq!(api_exit_code("external_ref_conflict"), 4);
+        assert_eq!(api_exit_code("review_id_conflict"), 4);
         assert_eq!(api_exit_code("internal_error"), 70);
     }
 
