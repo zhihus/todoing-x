@@ -8,6 +8,12 @@ references, Review history, revision_count, and the final commit marker MUST be
 included in version snapshots. Failed or rejected saves MUST NOT create successful
 versions.
 
+#### Scenario: Save a task
+
+- **WHEN** a task mutation is successfully committed
+- **THEN** a new immutable version is created
+- **AND** all previous versions remain unchanged
+
 #### Scenario: Snapshot an external-reference mutation
 
 - **WHEN** a lock owner adds or removes an external reference
