@@ -12,7 +12,8 @@
 - Task state, dependencies, immutable versions, append-only operation history, and approval baselines.
 - Exclusive task locks with leases and fencing generations.
 - CLI and versioned JSON API v1.
-- Git commit references as task traceability metadata.
+- Generic external references, append-only Review records, revision counters, and a distinct final Git commit marker.
+- Ordinary Git commit references as task traceability metadata.
 - Verified SQLite snapshots.
 
 ### The consuming workflow owns
@@ -98,9 +99,13 @@ Non-owner reads and writes of a locked task are rejected. List/search operations
 
 Todoing's local actor ID is attribution only. The consumer remains responsible for protecting credentials and deciding which process may act as an owner.
 
-## 6. Git references and snapshots
+## 6. External references, Review history, Git, and snapshots
 
-task.commit.add resolves the supplied Git revision to a full commit SHA and stores it as traceability metadata. A linked commit is not proof of completion, and Todoing does not enforce branch, commit, review, or merge policy.
+task.external-ref.add/list/remove store generic typed references such as OpenSpec Change IDs or issue identifiers. Todoing stores namespace, value, relation, and scope without interpreting consumer-specific meaning. Active reference uniqueness and removal history are enforced by the task store.
+
+task.review.add/list persist append-only Review records linked to immutable task versions. Each accepted changes_requested record increments revision_count once. Todoing does not decide whether a review outcome satisfies a consumer's approval policy.
+
+task.commit.add stores ordinary Git commit references as traceability metadata. task.commit.finalize stores one explicit final commit marker resolved to a full SHA. Replacing that marker requires the task to have been reopened after the prior assignment. A linked or final commit is not proof of completion, and Todoing does not enforce branch, commit, review, or merge policy.
 
 store.snapshot creates and verifies a consistent SQLite snapshot. Snapshot creation is rejected while any task lock is active. The consumer chooses the destination and owns retention, replication, and backup scheduling. Copying the live database file is not a substitute for the snapshot operation.
 
