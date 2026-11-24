@@ -34,9 +34,10 @@ SHA-256. It MUST restore the complete store through SQLite Online Backup API,
 without replacing the active database file.
 
 Restore MUST reject a snapshot from another project or unsupported schema and
-MUST reject active task locks. It MUST acquire an exclusive SQLite lock for the
-lock-state check and restore. Before mutation, it MUST create and retain a
-verified safety snapshot under `.todoing/backups/`. If restore or integrity
+MUST reject active task locks. It MUST acquire an exclusive SQLite lock before
+checking lock state and capturing the verified pre-restore safety snapshot under
+`.todoing/backups/`, then retain that lock through restore. The safety snapshot
+MUST represent the exact database state immediately before mutation. If restore or integrity
 verification fails, it MUST attempt rollback from that safety snapshot.
 
 #### Scenario: Verify a supplied snapshot
