@@ -82,8 +82,7 @@
                 "external_ref_conflict",
                 "external_ref_not_found",
                 "review_id_conflict",
-                "review_version_not_found",
-                "final_commit_reopen_required"
+                "review_version_not_found"
               ]
             },
             "message": {
