@@ -61,14 +61,23 @@
         "task.lock.acquire",
         "task.lock.heartbeat",
         "task.lock.release",
-        "task.lock.recover"
+        "task.lock.recover",
+        "task.external_reference.add",
+        "task.external_reference.list",
+        "task.external_reference.remove",
+        "task.review.add",
+        "task.review.list",
+        "task.final_commit.set"
       ]
     },
     "args": {
       "type": "object"
     },
     "lock_token": {
-      "type": ["string", "null"],
+      "type": [
+        "string",
+        "null"
+      ],
       "minLength": 1,
       "maxLength": 256
     }
