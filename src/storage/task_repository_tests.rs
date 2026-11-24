@@ -350,6 +350,13 @@ fn reviews_are_immutable_idempotent_and_increment_revision_count_once() {
     assert_eq!(repository.extension_metadata(task.id).unwrap()["revision_count"], 1);
     let review_diff = repository.compare_versions(task.id, 1, 2).unwrap();
     assert!(review_diff.changes.iter().any(|change| change.field == "revision_count"));
+    assert!(review_diff.changes.iter().any(|change| change.field == "reviews"));
+    let versions_after_first_review = repository.list_versions(task.id).unwrap();
+    let initial_snapshot: serde_json::Value = serde_json::from_str(&versions_after_first_review[0].snapshot_json).unwrap();
+    let reviewed_snapshot: serde_json::Value = serde_json::from_str(&versions_after_first_review[1].snapshot_json).unwrap();
+    assert_eq!(initial_snapshot["reviews"].as_array().unwrap().len(), 0);
+    assert_eq!(reviewed_snapshot["reviews"].as_array().unwrap().len(), 1);
+    assert_eq!(reviewed_snapshot["reviews"][0]["review_id"], "review-1");
     let retry = repository.review_add(task.id, "review-1", 1, "reviewer-a", "changes_requested", &comments, &actor()).unwrap();
     assert_eq!(retry["no_op"], true);
     assert_eq!(repository.list_versions(task.id).unwrap().len(), 2);
@@ -363,6 +370,44 @@ fn reviews_are_immutable_idempotent_and_increment_revision_count_once() {
     repository.review_add(task.id, "review-2", 1, "reviewer-b", "approved", &[], &actor()).unwrap();
     assert_eq!(repository.extension_metadata(task.id).unwrap()["revision_count"], 1);
     assert_eq!(repository.review_list(task.id, None, None).unwrap()["reviews"].as_array().unwrap().len(), 2);
+    let latest = repository.list_versions(task.id).unwrap();
+    let latest_snapshot: serde_json::Value = serde_json::from_str(&latest.last().unwrap().snapshot_json).unwrap();
+    assert_eq!(latest_snapshot["reviews"].as_array().unwrap().len(), 2);
+}
+
+#[test]
+fn extension_text_limits_count_unicode_characters() {
+    let (_root, repository) = repository();
+    let task = repository.create(new_task("unicode limits"), &actor()).unwrap();
+
+    let namespace = "я".repeat(128);
+    let value = "я".repeat(512);
+    let relation = "я".repeat(128);
+    repository.external_reference_add(
+        task.id, &namespace, &value, &relation, "task", &actor()
+    ).unwrap();
+
+    assert!(repository.external_reference_add(
+        task.id, &format!("{namespace}я"), "other", "tracks", "task", &actor()
+    ).is_err());
+    assert!(repository.external_reference_add(
+        task.id, "other", &format!("{value}я"), "tracks", "task", &actor()
+    ).is_err());
+    assert!(repository.external_reference_add(
+        task.id, "other", "other", &format!("{relation}я"), "task", &actor()
+    ).is_err());
+
+    let review_id = "я".repeat(128);
+    let reviewer = "я".repeat(256);
+    repository.review_add(
+        task.id, &review_id, 1, &reviewer, "approved", &[], &actor()
+    ).unwrap();
+    assert!(repository.review_add(
+        task.id, &format!("{review_id}я"), 1, "reviewer", "approved", &[], &actor()
+    ).is_err());
+    assert!(repository.review_add(
+        task.id, "review-too-long", 1, &format!("{reviewer}я"), "approved", &[], &actor()
+    ).is_err());
 }
 
 #[test]
