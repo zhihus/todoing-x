@@ -1455,7 +1455,7 @@ impl TaskRepository {
             "SELECT version_no, reviewer, outcome, comments_json, actor_id, created_at FROM task_reviews
              WHERE task_id = ?1 AND review_id = ?2",
             params![task_id.get(), review_id.trim()],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?))
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?))
         ).optional()?;
         if let Some((v, r, o, c, a, created_at)) = existing {
             if v == version_no && r == reviewer.trim() && o == outcome && c == comments_json && a == actor.actor_id().as_str() {
