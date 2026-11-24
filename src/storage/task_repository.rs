@@ -1331,7 +1331,67 @@ impl TaskRepository {
         Ok(snapshot)
     }
 
+
     pub fn external_reference_add(
+        &self, task_id: TaskId, namespace: &str, value: &str, relation: &str,
+        scope: &str, actor: &ActorContext,
+    ) -> Result<Value, StoreError> {
+        let requested = json!({"namespace":namespace,"value":value,"relation":relation,"scope":scope}).to_string();
+        match self.external_reference_add_inner(task_id, namespace, value, relation, scope, actor) {
+            Ok(value) => Ok(value),
+            Err(error) => {
+                let code = extension_error_code(&error);
+                let target = if matches!(error, StoreError::TaskNotFound(_)) { None } else { Some(task_id) };
+                self.reject_operation(target, actor, "task.external-ref.add", code, Some(requested), error)
+            }
+        }
+    }
+
+    pub fn external_reference_remove(
+        &self, task_id: TaskId, reference_id: &str, actor: &ActorContext,
+    ) -> Result<Value, StoreError> {
+        let requested = json!({"reference_id":reference_id}).to_string();
+        match self.external_reference_remove_inner(task_id, reference_id, actor) {
+            Ok(value) => Ok(value),
+            Err(error) => {
+                let code = extension_error_code(&error);
+                let target = if matches!(error, StoreError::TaskNotFound(_)) { None } else { Some(task_id) };
+                self.reject_operation(target, actor, "task.external-ref.remove", code, Some(requested), error)
+            }
+        }
+    }
+
+    fn review_add_inner(
+        &self, task_id: TaskId, review_id: &str, version_no: i64, reviewer: &str,
+        outcome: &str, comments: &[Value], actor: &ActorContext,
+    ) -> Result<Value, StoreError> {
+        let requested = json!({"review_id":review_id,"version_no":version_no,"reviewer":reviewer,
+            "outcome":outcome,"comments":comments}).to_string();
+        match self.review_add_inner(task_id, review_id, version_no, reviewer, outcome, comments, actor) {
+            Ok(value) => Ok(value),
+            Err(error) => {
+                let code = extension_error_code(&error);
+                let target = if matches!(error, StoreError::TaskNotFound(_)) { None } else { Some(task_id) };
+                self.reject_operation(target, actor, "task.review.add", code, Some(requested), error)
+            }
+        }
+    }
+
+    pub fn set_final_commit(
+        &self, task_id: TaskId, sha: &str, actor: &ActorContext,
+    ) -> Result<Value, StoreError> {
+        let requested = json!({"final_commit_sha":sha}).to_string();
+        match self.set_final_commit_inner(task_id, sha, actor) {
+            Ok(value) => Ok(value),
+            Err(error) => {
+                let code = extension_error_code(&error);
+                let target = if matches!(error, StoreError::TaskNotFound(_)) { None } else { Some(task_id) };
+                self.reject_operation(target, actor, "task.commit.finalize", code, Some(requested), error)
+            }
+        }
+    }
+
+    fn external_reference_add_inner(
         &self, task_id: TaskId, namespace: &str, value: &str, relation: &str,
         scope: &str, actor: &ActorContext,
     ) -> Result<Value, StoreError> {
@@ -1411,7 +1471,7 @@ impl TaskRepository {
         Ok(json!({"references": rows}))
     }
 
-    pub fn external_reference_remove(&self, task_id: TaskId, reference_id: &str, actor: &ActorContext) -> Result<Value, StoreError> {
+    fn external_reference_remove_inner(&self, task_id: TaskId, reference_id: &str, actor: &ActorContext) -> Result<Value, StoreError> {
         let mut connection = self.store.connection()?;
         let tx = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
         self.check_lock(&tx, task_id)?;
@@ -1535,7 +1595,7 @@ impl TaskRepository {
         Ok(json!({"reviews": rows}))
     }
 
-    pub fn set_final_commit(&self, task_id: TaskId, sha: &str, actor: &ActorContext) -> Result<Value, StoreError> {
+    fn set_final_commit_inner(&self, task_id: TaskId, sha: &str, actor: &ActorContext) -> Result<Value, StoreError> {
         if !matches!(sha.len(), 40 | 64) || !sha.bytes().all(|b| b.is_ascii_hexdigit()) {
             return Err(StoreError::InvalidTask("Invalid full Git commit SHA".into()));
         }
@@ -1612,6 +1672,27 @@ impl TaskRepository {
 
 }
 
+
+
+fn extension_error_code(error: &StoreError) -> &'static str {
+    match error {
+        StoreError::TaskNotFound(_) => "task_not_found",
+        StoreError::TaskTerminal => "task_terminal",
+        StoreError::TaskArchived => "task_archived",
+        StoreError::TaskLocked => "task_locked",
+        StoreError::LockExpired => "lock_expired",
+        StoreError::StaleLock => "stale_lock",
+        StoreError::InvalidTask(message) if message == "external_ref_conflict" => "external_ref_conflict",
+        StoreError::InvalidTask(message) if message == "external_ref_not_found" => "external_ref_not_found",
+        StoreError::InvalidTask(message) if message == "review_id_conflict" => "review_id_conflict",
+        StoreError::InvalidTask(message) if message == "review_version_not_found" => "review_version_not_found",
+        StoreError::Sqlite(rusqlite::Error::SqliteFailure(code, _))
+            if code.code == rusqlite::ErrorCode::DatabaseBusy ||
+               code.code == rusqlite::ErrorCode::DatabaseLocked => "store_busy",
+        StoreError::Io(_) => "io_error",
+        _ => "invalid_request",
+    }
+}
 
 fn record_extension_change(
     tx: &Transaction<'_>, task_id: TaskId, actor: &ActorContext,
