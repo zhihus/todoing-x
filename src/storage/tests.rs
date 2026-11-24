@@ -391,7 +391,9 @@ fn snapshot_verification_and_restore_round_trip_preserve_store_state() {
     assert!(restored.safety_snapshot.path.is_file());
     let safety = Connection::open(&restored.safety_snapshot.path).unwrap();
     let safety_title: String = safety
-        .query_row("SELECT title FROM tasks WHERE task_id = 1", [], |row| row.get(0))
+        .query_row("SELECT title FROM tasks WHERE task_id = 1", [], |row| {
+            row.get(0)
+        })
         .unwrap();
     assert_eq!(safety_title, "after snapshot");
     drop(safety);
