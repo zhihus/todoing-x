@@ -1451,13 +1451,13 @@ impl TaskRepository {
         self.check_lock(&tx, task_id)?;
         let task = load_task(&tx, task_id)?;
         if task.archived_at.is_some() { return Err(StoreError::TaskArchived); }
-        let existing: Option<(i64, String, String, String, String)> = tx.query_row(
-            "SELECT version_no, reviewer, outcome, comments_json, actor_id FROM task_reviews
+        let existing: Option<(i64, String, String, String, String, String)> = tx.query_row(
+            "SELECT version_no, reviewer, outcome, comments_json, actor_id, created_at FROM task_reviews
              WHERE task_id = ?1 AND review_id = ?2",
             params![task_id.get(), review_id.trim()],
             |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?))
         ).optional()?;
-        if let Some((v, r, o, c, a)) = existing {
+        if let Some((v, r, o, c, a, created_at)) = existing {
             if v == version_no && r == reviewer.trim() && o == outcome && c == comments_json && a == actor.actor_id().as_str() {
                 let revision_count: i64 = tx.query_row(
                     "SELECT revision_count FROM tasks WHERE task_id = ?1", params![task_id.get()], |row| row.get(0)
@@ -1469,7 +1469,8 @@ impl TaskRepository {
                 tx.commit()?;
                 return Ok(json!({"review_id": review_id, "task_id": task_id, "reviewed_version_no": version_no,
                     "task_version_no": task_version_no, "revision_count": revision_count,
-                    "reviewer": reviewer.trim(), "outcome": outcome, "comments": comments, "no_op": true}));
+                    "reviewer": reviewer.trim(), "outcome": outcome, "comments": comments,
+                    "actor_id": a, "created_at": created_at, "no_op": true}));
             }
             return Err(StoreError::InvalidTask("review_id_conflict".into()));
         }
@@ -1498,7 +1499,8 @@ impl TaskRepository {
         tx.commit()?;
         Ok(json!({"review_id": review_id, "task_id": task_id, "reviewed_version_no": version_no,
             "task_version_no": task_version_no, "revision_count": revision_count,
-            "reviewer": reviewer.trim(), "outcome": outcome, "comments": comments, "no_op": false}))
+            "reviewer": reviewer.trim(), "outcome": outcome, "comments": comments,
+            "actor_id": actor.actor_id().as_str(), "created_at": now, "no_op": false}))
     }
 
     pub fn review_list(&self, task_id: TaskId, before_record_id: Option<i64>, limit: Option<usize>) -> Result<Value, StoreError> {
