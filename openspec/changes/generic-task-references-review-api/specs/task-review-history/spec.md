@@ -45,7 +45,7 @@ The system MUST enforce uniqueness of review_id within a task.
 
 #### Scenario: Reject a missing reviewed version
 
-- **WHEN** a lock owner submits a Review record for a version that does not exist
+- **WHEN** a client submits a Review record for a version that does not exist on an unlocked task or while holding its active lock
 - **THEN** the operation is rejected with review_version_not_found
 - **AND** no Review record, task version, or counter increment is committed
 
