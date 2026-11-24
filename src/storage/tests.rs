@@ -1,5 +1,7 @@
 use super::{Store, StoreError};
-use crate::domain::ProjectId;
+use crate::config::ProjectConfig;
+use crate::domain::{ProjectId, TaskId};
+use crate::storage::TaskRepository;
 use rusqlite::Connection;
 use sha2::Digest;
 use tempfile::tempdir;
@@ -346,6 +348,12 @@ fn opening_a_v1_store_applies_all_migrations_without_changing_existing_tasks() {
     let report = store.verify().unwrap();
     assert_eq!(report.schema_version, 3);
 
+    let repository = TaskRepository::new(store.clone(), ProjectConfig::default()).unwrap();
+    let legacy_version_diff = repository.compare_versions(
+        TaskId::new(42).unwrap(), 1, 1
+    ).unwrap();
+    assert!(legacy_version_diff.changes.is_empty());
+
     let migrated = store.connection().unwrap();
     let archive_columns: Vec<String> = {
         let mut statement = migrated.prepare("PRAGMA table_info(tasks)").unwrap();
@@ -430,10 +438,24 @@ fn opening_a_v2_store_applies_extensions_migration_and_preserves_existing_data()
         "INSERT INTO task_dependencies(task_id, depends_on_task_id, created_at) VALUES (43, 42, ?1)",
         [created_at],
     ).unwrap();
+    let legacy_snapshot = serde_json::json!({
+        "task_id": 42,
+        "title": "legacy v2 task",
+        "status_id": "todo",
+        "outcome": null,
+        "body": "preserved v2 body",
+        "created_at": created_at,
+        "updated_at": created_at,
+        "archived_at": "2026-11-22T12:00:00Z",
+        "archived_by": "user:archive",
+        "labels": ["Legacy"],
+        "commit_refs": ["0123456789abcdef0123456789abcdef01234567"],
+        "dependencies": []
+    }).to_string();
     connection.execute(
         "INSERT INTO task_versions(task_id, version_no, snapshot_json, created_at, actor_id)
-         VALUES (42, 1, '{\"title\":\"legacy v2 task\"}', ?1, 'user:legacy')",
-        [created_at],
+         VALUES (42, 1, ?1, ?2, 'user:legacy')",
+        rusqlite::params![legacy_snapshot, created_at],
     ).unwrap();
     let version_id: i64 = connection.query_row(
         "SELECT version_id FROM task_versions WHERE task_id = 42 AND version_no = 1",
