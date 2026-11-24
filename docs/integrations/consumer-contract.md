@@ -95,17 +95,17 @@ A consumer that requires exclusive ownership for an agent work session should:
 
 The raw token is returned once and only its SHA-256 hash is stored by Todoing. Consumers must keep it secret and must not place it in task content, logs, command-line arguments, or Git. For CLI owner operations, the token is read from TODOING_LOCK_TOKEN.
 
-Non-owner reads and writes of a locked task are rejected. List/search operations omit locked tasks. Recovery is explicit; an expired lock does not silently grant ownership. Fencing generations prevent a former owner from resuming after recovery.
+While a task is locked, task.get and task-scoped reads/writes (including history, versions, external references, and Review records) require the valid owner token; non-owner requests are rejected without disclosing protected data. task.list/search omit locked tasks. Unlocked tasks may be read or changed without a token. Recovery is explicit; an expired lock does not silently grant ownership. Fencing generations prevent a former owner from resuming after recovery.
 
 Todoing's local actor ID is attribution only. The consumer remains responsible for protecting credentials and deciding which process may act as an owner.
 
 ## 6. External references, Review history, Git, and snapshots
 
-task.external-ref.add/list/remove store generic typed references such as OpenSpec Change IDs or issue identifiers. Todoing stores namespace, value, relation, and scope without interpreting consumer-specific meaning. Active reference uniqueness and removal history are enforced by the task store.
+`task.external-ref.add/list/remove` store generic typed references such as OpenSpec Change IDs or issue identifiers. Each reference has a namespace, value, relation, and task/project scope. Active uniqueness is enforced within the selected scope; removal marks a reference inactive and preserves its history. Identical retries are no-ops.
 
-task.review.add/list persist append-only Review records linked to immutable task versions. Each accepted changes_requested record increments revision_count once. Todoing does not decide whether a review outcome satisfies a consumer's approval policy.
+`task.review.add/list` persist append-only Review records linked to immutable task versions. A Review ID is unique within a task; an identical retry is a no-op and a conflicting payload is rejected. Each newly accepted `changes_requested` record increments `revision_count` exactly once; `approved` does not. Todoing does not decide whether a review outcome satisfies a consumer's approval policy.
 
-task.commit.add stores ordinary Git commit references as traceability metadata. task.commit.finalize stores one explicit final commit marker resolved to a full SHA. Replacing that marker requires the task to have been reopened after the prior assignment. A linked or final commit is not proof of completion, and Todoing does not enforce branch, commit, review, or merge policy.
+`task.commit.add` stores ordinary Git commit references as traceability metadata. `task.commit.finalize` resolves a supplied Git revision to a full commit SHA and stores one explicit final commit marker. Repeating the same SHA is a no-op; replacing it requires reopening the task after the prior assignment. A linked or final commit is not proof of completion, and Todoing does not enforce branch, commit, review, or merge policy.
 
 store.snapshot creates and verifies a consistent SQLite snapshot. Snapshot creation is rejected while any task lock is active. The consumer chooses the destination and owns retention, replication, and backup scheduling. Copying the live database file is not a substitute for the snapshot operation.
 
