@@ -466,8 +466,8 @@ fn opening_a_v2_store_applies_extensions_migration_and_preserves_existing_data()
         [created_at],
     ).unwrap();
     connection.execute(
-        "INSERT INTO task_locks(task_id, state, owner_id, token_hash, acquired_at, heartbeat_at, expires_at, released_at, fencing_generation)
-         VALUES (42, 'released', NULL, NULL, 1000, 1000, NULL, 3000, 7)",
+        "INSERT INTO task_locks(task_id, state, owner_id, token_hash, acquired_at, heartbeat_at, expires_at, fencing_generation)
+         VALUES (43, 'active', 'legacy-owner', zeroblob(32), 1000, 1000, 2000, 7)",
         [],
     ).unwrap();
     drop(connection);
@@ -532,11 +532,11 @@ fn opening_a_v2_store_applies_extensions_migration_and_preserves_existing_data()
     assert_eq!(history_count, 1);
     let lock: (String, Option<String>, Option<i64>, Option<i64>, i64) = migrated.query_row(
         "SELECT state, owner_id, length(token_hash), released_at, fencing_generation
-         FROM task_locks WHERE task_id = 42",
+         FROM task_locks WHERE task_id = 43",
         [],
         |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)),
     ).unwrap();
-    assert_eq!(lock, ("released".into(), None, None, Some(3000), 7));
+    assert_eq!(lock, ("active".into(), Some("legacy-owner".into()), Some(32), None, 7));
 
     let migration_count: i64 = migrated.query_row(
         "SELECT COUNT(*) FROM schema_migrations WHERE version = 3",
