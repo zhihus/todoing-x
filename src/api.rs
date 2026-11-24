@@ -1077,7 +1077,9 @@ fn execute(request: Request, root: &Path) -> Result<Value, ApiError> {
             if args.snapshot_path.trim().is_empty() {
                 return Err(invalid("snapshot_path must not be empty".into()));
             }
-            let report = store.verify_snapshot(args.snapshot_path).map_err(store_error)?;
+            let report = store
+                .verify_snapshot(args.snapshot_path)
+                .map_err(store_error)?;
             if let Some(expected) = args.expected_sha256
                 && (!expected.eq_ignore_ascii_case(&report.sha256)
                     || expected.len() != 64
