@@ -249,6 +249,11 @@ fn store_error(error: StoreError) -> ApiError {
         StoreError::DependencyNotFound(_) => ("dependency_not_found", false),
         StoreError::DependencyCycle => ("dependency_cycle", false),
         StoreError::VersionNotFound { .. } => ("version_not_found", false),
+        StoreError::InvalidTask(message) if message == "external_ref_conflict" => ("external_ref_conflict", false),
+        StoreError::InvalidTask(message) if message == "external_ref_not_found" => ("external_ref_not_found", false),
+        StoreError::InvalidTask(message) if message == "review_id_conflict" => ("review_id_conflict", false),
+        StoreError::InvalidTask(message) if message == "review_version_not_found" => ("review_version_not_found", false),
+        StoreError::InvalidTask(message) if message == "final_commit_reopen_required" => ("final_commit_reopen_required", false),
         StoreError::ProjectIdMismatch { .. } => ("project_id_mismatch", false),
         StoreError::InvalidConfig(_) => ("config_invalid", false),
         StoreError::HistoryRecordFailed(_) => ("history_record_failed", false),
@@ -646,9 +651,9 @@ fn invalid(message: String) -> ApiError {
 fn api_exit_code(code: &str) -> i32 {
     match code {
         "invalid_request" | "unsupported_api_version" | "project_id_mismatch" | "config_invalid" | "migration_required" => 2,
-        "task_not_found" | "version_not_found" | "dependency_not_found" => 3,
+        "task_not_found" | "version_not_found" | "dependency_not_found" | "external_ref_not_found" | "review_version_not_found" => 3,
         "task_terminal" | "task_archived" | "task_locked" | "lock_expired" | "stale_lock" |
-        "invalid_status_transition" | "dependency_cycle" => 4,
+        "invalid_status_transition" | "dependency_cycle" | "external_ref_conflict" | "review_id_conflict" | "final_commit_reopen_required" => 4,
         "io_error" | "store_corrupt" | "store_busy" | "history_record_failed" => 5,
         "migration_conflict" | "store_already_initialized" => 6,
         _ => 70,
