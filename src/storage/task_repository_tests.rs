@@ -312,3 +312,63 @@ fn verified_snapshot_preserves_archived_task_metadata() {
     assert!(archived.0.is_some());
     assert_eq!(archived.1.as_deref(), Some("agent:repository-tests"));
 }
+
+
+#[test]
+fn external_references_are_idempotent_removable_and_versioned() {
+    let (_root, repository) = repository();
+    let task = repository.create(new_task("references"), &actor()).unwrap();
+    let first = repository.external_reference_add(
+        task.id, "openspec.change", "generic-task-api", "implements", "project", &actor()
+    ).unwrap();
+    assert_eq!(first["no_op"], false);
+    let repeated = repository.external_reference_add(
+        task.id, "openspec.change", "generic-task-api", "implements", "project", &actor()
+    ).unwrap();
+    assert_eq!(repeated["no_op"], true);
+    assert_eq!(repository.external_reference_list(task.id, false).unwrap()["references"].as_array().unwrap().len(), 1);
+    let reference_id = first["reference_id"].as_str().unwrap();
+    assert_eq!(repository.external_reference_remove(task.id, reference_id, &actor()).unwrap()["no_op"], false);
+    assert_eq!(repository.external_reference_remove(task.id, reference_id, &actor()).unwrap()["no_op"], true);
+    assert!(repository.external_reference_list(task.id, false).unwrap()["references"].as_array().unwrap().is_empty());
+    assert_eq!(repository.external_reference_list(task.id, true).unwrap()["references"].as_array().unwrap().len(), 1);
+    let versions = repository.list_versions(task.id).unwrap();
+    let latest: serde_json::Value = serde_json::from_str(&versions.last().unwrap().snapshot_json).unwrap();
+    assert_eq!(latest["external_references"].as_array().unwrap()[0]["removed_at"].is_string(), true);
+}
+
+#[test]
+fn reviews_are_immutable_idempotent_and_increment_revision_count_once() {
+    let (_root, repository) = repository();
+    let task = repository.create(new_task("reviews"), &actor()).unwrap();
+    let comments = vec![serde_json::json!({"path":"src/lib.rs","comment":"Adjust error handling"})];
+    let first = repository.review_add(task.id, "review-1", 1, "reviewer-a", "changes_requested", &comments, &actor()).unwrap();
+    assert_eq!(first["no_op"], false);
+    assert_eq!(repository.extension_metadata(task.id).unwrap()["revision_count"], 1);
+    let retry = repository.review_add(task.id, "review-1", 1, "reviewer-a", "changes_requested", &comments, &actor()).unwrap();
+    assert_eq!(retry["no_op"], true);
+    assert_eq!(repository.extension_metadata(task.id).unwrap()["revision_count"], 1);
+    assert!(repository.review_add(task.id, "review-1", 1, "reviewer-a", "approved", &comments, &actor()).is_err());
+    repository.review_add(task.id, "review-2", 1, "reviewer-b", "approved", &[], &actor()).unwrap();
+    assert_eq!(repository.extension_metadata(task.id).unwrap()["revision_count"], 1);
+    assert_eq!(repository.review_list(task.id).unwrap()["reviews"].as_array().unwrap().len(), 2);
+}
+
+#[test]
+fn final_commit_replacement_requires_reopen_and_keeps_prior_snapshot() {
+    let (_root, repository) = repository();
+    let task = repository.create(new_task("final commit"), &actor()).unwrap();
+    let first = "0123456789abcdef0123456789abcdef01234567";
+    let second = "1123456789abcdef0123456789abcdef01234567";
+    assert_eq!(repository.set_final_commit(task.id, first, &actor()).unwrap()["no_op"], false);
+    assert_eq!(repository.set_final_commit(task.id, first, &actor()).unwrap()["no_op"], true);
+    assert!(repository.set_final_commit(task.id, second, &actor()).is_err());
+    repository.complete(task.id, &actor()).unwrap();
+    repository.reopen(task.id, None, &actor()).unwrap();
+    assert_eq!(repository.set_final_commit(task.id, second, &actor()).unwrap()["no_op"], false);
+    let versions = repository.list_versions(task.id).unwrap();
+    let previous: serde_json::Value = serde_json::from_str(&versions[1].snapshot_json).unwrap();
+    let current: serde_json::Value = serde_json::from_str(&versions.last().unwrap().snapshot_json).unwrap();
+    assert_eq!(previous["final_commit_sha"], first);
+    assert_eq!(current["final_commit_sha"], second);
+}
