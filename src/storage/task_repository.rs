@@ -1321,6 +1321,231 @@ impl TaskRepository {
         }
         Ok(snapshot)
     }
+
+    pub fn external_reference_add(
+        &self, task_id: TaskId, namespace: &str, value: &str, relation: &str,
+        scope: &str, actor: &ActorContext,
+    ) -> Result<Value, StoreError> {
+        if namespace.trim().is_empty() || namespace.len() > 128 ||
+           value.trim().is_empty() || value.len() > 512 ||
+           relation.trim().is_empty() || relation.len() > 128 ||
+           !matches!(scope, "task" | "project") {
+            return Err(StoreError::InvalidTask("Invalid external reference fields".into()));
+        }
+        let mut connection = self.store.connection()?;
+        let tx = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        self.check_lock(&tx, task_id)?;
+        let task = load_task(&tx, task_id)?;
+        if task.archived_at.is_some() { return Err(StoreError::TaskArchived); }
+        let mut statement = tx.prepare(
+            "SELECT reference_id, task_id, relation, scope FROM task_external_references
+             WHERE namespace = ?1 AND value = ?2 AND removed_at IS NULL"
+        )?;
+        let existing = statement.query_map(params![namespace.trim(), value.trim()], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?,
+                row.get::<_, String>(2)?, row.get::<_, String>(3)?))
+        })?.collect::<Result<Vec<_>, _>>()?;
+        drop(statement);
+        for (reference_id, existing_task, existing_relation, existing_scope) in existing {
+            if existing_task == task_id.get() && existing_relation == relation.trim() && existing_scope == scope {
+                tx.commit()?;
+                return Ok(json!({"reference_id": reference_id, "task_id": task_id,
+                    "namespace": namespace.trim(), "value": value.trim(),
+                    "relation": relation.trim(), "scope": scope, "no_op": true}));
+            }
+            return Err(StoreError::InvalidTask("external_ref_conflict".into()));
+        }
+        let mut bytes = [0u8; 16];
+        getrandom::fill(&mut bytes).map_err(|e| StoreError::InvalidTask(format!("Cannot generate reference ID: {e}")))?;
+        let reference_id = hex::encode(bytes);
+        let now = now_string();
+        let before = snapshot_json(&tx, &task)?;
+        tx.execute(
+            "INSERT INTO task_external_references(reference_id, task_id, namespace, value, relation, scope, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            params![reference_id, task_id.get(), namespace.trim(), value.trim(), relation.trim(), scope, now],
+        )?;
+        let after = snapshot_json(&tx, &task)?;
+        record_extension_change(&tx, task_id, actor, "task.external_reference.add", &before, &after, &now)?;
+        tx.commit()?;
+        Ok(json!({"reference_id": reference_id, "task_id": task_id,
+            "namespace": namespace.trim(), "value": value.trim(),
+            "relation": relation.trim(), "scope": scope, "no_op": false}))
+    }
+
+    pub fn external_reference_list(&self, task_id: TaskId, include_removed: bool) -> Result<Value, StoreError> {
+        let mut connection = self.store.connection()?;
+        let tx = connection.transaction()?;
+        self.check_lock(&tx, task_id)?;
+        let sql = if include_removed {
+            "SELECT reference_id, namespace, value, relation, scope, created_at, removed_at, removed_by
+             FROM task_external_references WHERE task_id = ?1 ORDER BY created_at, reference_id"
+        } else {
+            "SELECT reference_id, namespace, value, relation, scope, created_at, removed_at, removed_by
+             FROM task_external_references WHERE task_id = ?1 AND removed_at IS NULL ORDER BY created_at, reference_id"
+        };
+        let mut statement = tx.prepare(sql)?;
+        let rows = statement.query_map(params![task_id.get()], |row| Ok(json!({
+            "reference_id": row.get::<_, String>(0)?, "namespace": row.get::<_, String>(1)?,
+            "value": row.get::<_, String>(2)?, "relation": row.get::<_, String>(3)?,
+            "scope": row.get::<_, String>(4)?, "created_at": row.get::<_, String>(5)?,
+            "removed_at": row.get::<_, Option<String>>(6)?, "removed_by": row.get::<_, Option<String>>(7)?
+        })))?.collect::<Result<Vec<_>, _>>()?;
+        tx.commit()?;
+        Ok(json!({"references": rows}))
+    }
+
+    pub fn external_reference_remove(&self, task_id: TaskId, reference_id: &str, actor: &ActorContext) -> Result<Value, StoreError> {
+        let mut connection = self.store.connection()?;
+        let tx = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        self.check_lock(&tx, task_id)?;
+        let task = load_task(&tx, task_id)?;
+        let state: Option<Option<String>> = tx.query_row(
+            "SELECT removed_at FROM task_external_references WHERE reference_id = ?1 AND task_id = ?2",
+            params![reference_id, task_id.get()], |row| row.get(0)
+        ).optional()?;
+        let removed_at = state.ok_or_else(|| StoreError::InvalidTask("external_ref_not_found".into()))?;
+        if removed_at.is_some() {
+            tx.commit()?;
+            return Ok(json!({"reference_id": reference_id, "no_op": true}));
+        }
+        let now = now_string();
+        let before = snapshot_json(&tx, &task)?;
+        tx.execute(
+            "UPDATE task_external_references SET removed_at = ?1, removed_by = ?2
+             WHERE reference_id = ?3 AND task_id = ?4",
+            params![now, actor.actor_id().as_str(), reference_id, task_id.get()],
+        )?;
+        let after = snapshot_json(&tx, &task)?;
+        record_extension_change(&tx, task_id, actor, "task.external_reference.remove", &before, &after, &now)?;
+        tx.commit()?;
+        Ok(json!({"reference_id": reference_id, "no_op": false}))
+    }
+
+    pub fn review_add(
+        &self, task_id: TaskId, review_id: &str, version_no: i64, reviewer: &str,
+        outcome: &str, comments: &[Value], actor: &ActorContext,
+    ) -> Result<Value, StoreError> {
+        if review_id.trim().is_empty() || review_id.len() > 128 ||
+           reviewer.trim().is_empty() || reviewer.len() > 256 ||
+           version_no <= 0 || !matches!(outcome, "approved" | "changes_requested") {
+            return Err(StoreError::InvalidTask("Invalid review fields".into()));
+        }
+        let comments_json = serde_json::to_string(comments)
+            .map_err(|e| StoreError::InvalidTask(format!("Invalid review comments: {e}")))?;
+        let mut connection = self.store.connection()?;
+        let tx = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        self.check_lock(&tx, task_id)?;
+        let task = load_task(&tx, task_id)?;
+        if task.archived_at.is_some() { return Err(StoreError::TaskArchived); }
+        let existing: Option<(i64, String, String, String, String)> = tx.query_row(
+            "SELECT version_no, reviewer, outcome, comments_json, actor_id FROM task_reviews
+             WHERE task_id = ?1 AND review_id = ?2",
+            params![task_id.get(), review_id.trim()],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?))
+        ).optional()?;
+        if let Some((v, r, o, c, a)) = existing {
+            if v == version_no && r == reviewer.trim() && o == outcome && c == comments_json && a == actor.actor_id().as_str() {
+                tx.commit()?;
+                return Ok(json!({"review_id": review_id, "task_id": task_id, "version_no": version_no,
+                    "reviewer": reviewer.trim(), "outcome": outcome, "comments": comments, "no_op": true}));
+            }
+            return Err(StoreError::InvalidTask("review_id_conflict".into()));
+        }
+        let version_exists: bool = tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM task_versions WHERE task_id = ?1 AND version_no = ?2)",
+            params![task_id.get(), version_no], |row| row.get(0)
+        )?;
+        if !version_exists { return Err(StoreError::VersionNotFound { task_id: task_id.get(), version_no }); }
+        let now = now_string();
+        let before = snapshot_json(&tx, &task)?;
+        tx.execute(
+            "INSERT INTO task_reviews(task_id, review_id, version_no, reviewer, outcome, comments_json, actor_id, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            params![task_id.get(), review_id.trim(), version_no, reviewer.trim(), outcome,
+                comments_json, actor.actor_id().as_str(), now],
+        )?;
+        if outcome == "changes_requested" {
+            tx.execute("UPDATE tasks SET revision_count = revision_count + 1 WHERE task_id = ?1", params![task_id.get()])?;
+        }
+        let after = snapshot_json(&tx, &task)?;
+        record_extension_change(&tx, task_id, actor, "task.review.add", &before, &after, &now)?;
+        tx.commit()?;
+        Ok(json!({"review_id": review_id, "task_id": task_id, "version_no": version_no,
+            "reviewer": reviewer.trim(), "outcome": outcome, "comments": comments, "no_op": false}))
+    }
+
+    pub fn review_list(&self, task_id: TaskId) -> Result<Value, StoreError> {
+        let mut connection = self.store.connection()?;
+        let tx = connection.transaction()?;
+        self.check_lock(&tx, task_id)?;
+        let mut statement = tx.prepare(
+            "SELECT review_id, version_no, reviewer, outcome, comments_json, actor_id, created_at
+             FROM task_reviews WHERE task_id = ?1 ORDER BY review_record_id"
+        )?;
+        let rows = statement.query_map(params![task_id.get()], |row| {
+            let comments: String = row.get(4)?;
+            let comments: Value = serde_json::from_str(&comments).map_err(|e|
+                rusqlite::Error::FromSqlConversionFailure(4, rusqlite::types::Type::Text, Box::new(e)))?;
+            Ok(json!({"review_id": row.get::<_, String>(0)?, "version_no": row.get::<_, i64>(1)?,
+                "reviewer": row.get::<_, String>(2)?, "outcome": row.get::<_, String>(3)?,
+                "comments": comments, "actor_id": row.get::<_, String>(5)?, "created_at": row.get::<_, String>(6)?}))
+        })?.collect::<Result<Vec<_>, _>>()?;
+        tx.commit()?;
+        Ok(json!({"reviews": rows}))
+    }
+
+    pub fn set_final_commit(&self, task_id: TaskId, sha: &str, actor: &ActorContext) -> Result<Value, StoreError> {
+        if !matches!(sha.len(), 40 | 64) || !sha.bytes().all(|b| b.is_ascii_hexdigit()) {
+            return Err(StoreError::InvalidTask("Invalid full Git commit SHA".into()));
+        }
+        let sha = sha.to_ascii_lowercase();
+        let mut connection = self.store.connection()?;
+        let tx = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        self.check_lock(&tx, task_id)?;
+        let task = load_task(&tx, task_id)?;
+        if task.archived_at.is_some() { return Err(StoreError::TaskArchived); }
+        let current: Option<String> = tx.query_row(
+            "SELECT final_commit_sha FROM tasks WHERE task_id = ?1", params![task_id.get()], |row| row.get(0)
+        )?;
+        if current.as_deref() == Some(sha.as_str()) {
+            tx.commit()?;
+            return Ok(json!({"task_id": task_id, "final_commit_sha": sha, "no_op": true}));
+        }
+        if task.outcome.is_some() { return Err(StoreError::TaskTerminal); }
+        let now = now_string();
+        let before = snapshot_json(&tx, &task)?;
+        tx.execute("UPDATE tasks SET final_commit_sha = ?1 WHERE task_id = ?2", params![sha, task_id.get()])?;
+        let after = snapshot_json(&tx, &task)?;
+        record_extension_change(&tx, task_id, actor, "task.final_commit.set", &before, &after, &now)?;
+        tx.commit()?;
+        Ok(json!({"task_id": task_id, "final_commit_sha": sha, "no_op": false}))
+    }
+
+    pub fn extension_metadata(&self, task_id: TaskId) -> Result<Value, StoreError> {
+        let mut connection = self.store.connection()?;
+        let tx = connection.transaction()?;
+        self.check_lock(&tx, task_id)?;
+        let (revision_count, final_commit_sha): (i64, Option<String>) = tx.query_row(
+            "SELECT revision_count, final_commit_sha FROM tasks WHERE task_id = ?1",
+            params![task_id.get()], |row| Ok((row.get(0)?, row.get(1)?))
+        )?;
+        tx.commit()?;
+        Ok(json!({"revision_count": revision_count, "final_commit_sha": final_commit_sha}))
+    }
+
+}
+
+
+fn record_extension_change(
+    tx: &Transaction<'_>, task_id: TaskId, actor: &ActorContext,
+    operation: &str, previous: &str, requested: &str, now: &str,
+) -> Result<(), StoreError> {
+    let version_no = next_version_no(tx, task_id)?;
+    insert_version(tx, task_id, version_no, requested, now, actor.actor_id().as_str())?;
+    insert_history(tx, Some(task_id), actor.actor_id().as_str(), now, operation,
+        Some(previous), Some(requested), HistoryOutcome::Succeeded, None, None, None)?;
+    Ok(())
 }
 
 fn persist_task_change(
@@ -1504,7 +1729,33 @@ fn snapshot_json(_connection: &Connection, task: &Task) -> Result<String, StoreE
         commit_refs: task.commit_refs.clone(),
         dependencies: task.dependencies.clone(),
     };
-    serde_json::to_string(&snapshot)
+    let mut value = serde_json::to_value(&snapshot)
+        .map_err(|error| StoreError::InvalidTask(format!("Cannot serialize task snapshot: {error}")))?;
+    let object = value.as_object_mut().expect("task snapshot is an object");
+    let revision_count: i64 = _connection.query_row(
+        "SELECT revision_count FROM tasks WHERE task_id = ?1", params![task.id.get()], |row| row.get(0)
+    )?;
+    let final_commit_sha: Option<String> = _connection.query_row(
+        "SELECT final_commit_sha FROM tasks WHERE task_id = ?1", params![task.id.get()], |row| row.get(0)
+    )?;
+    let mut refs = Vec::new();
+    {
+        let mut statement = _connection.prepare(
+            "SELECT reference_id, namespace, value, relation, scope, created_at, removed_at, removed_by
+             FROM task_external_references WHERE task_id = ?1 ORDER BY created_at, reference_id"
+        )?;
+        let rows = statement.query_map(params![task.id.get()], |row| Ok(json!({
+            "reference_id": row.get::<_, String>(0)?, "namespace": row.get::<_, String>(1)?,
+            "value": row.get::<_, String>(2)?, "relation": row.get::<_, String>(3)?,
+            "scope": row.get::<_, String>(4)?, "created_at": row.get::<_, String>(5)?,
+            "removed_at": row.get::<_, Option<String>>(6)?, "removed_by": row.get::<_, Option<String>>(7)?
+        })))?;
+        refs = rows.collect::<Result<Vec<_>, _>>()?;
+    }
+    object.insert("revision_count".into(), json!(revision_count));
+    object.insert("final_commit_sha".into(), json!(final_commit_sha));
+    object.insert("external_references".into(), json!(refs));
+    serde_json::to_string(&value)
         .map_err(|error| StoreError::InvalidTask(format!("Cannot serialize task snapshot: {error}")))
 }
 
