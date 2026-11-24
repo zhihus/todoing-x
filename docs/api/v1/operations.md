@@ -15,7 +15,7 @@
 - JSON responses, including errors, are written to stdout. Diagnostics are written to stderr.
 - A non-zero process exit code accompanies an error response.
 - If a task has an active lock owned by another client, reads of that task are rejected. List/search operations omit locked tasks. Task-specific history, versions, dependencies, labels, commit references, external references, and Review history are also protected.
-- A valid lock token is supplied in the request envelope's lock_token field for operations on a task locked by the caller. The raw token is never accepted in command-line arguments.
+- Task locks are opt-in. When a task has an active lock, every task-specific read or mutation is restricted to its owner; the owner supplies a valid token in the request envelope's lock_token field. When no active lock exists, operations do not require a token. The raw token is never accepted in command-line arguments.
 - Every successful task-state save creates a new immutable task version and a successful operation-history event in the same transaction.
 - A rejected task operation that reaches the application operation layer is recorded in operation history after the attempted mutation is rolled back. If the store cannot accept the rejection event, the response reports history_record_failed.
 - Lock acquisition/heartbeat/release/recovery and baseline approval append history events but do not create task versions unless task state also changes.
@@ -192,7 +192,7 @@ Required:
 - task_id
 - reference_id
 
-Requires the task lock. Removal is soft: removed_at and removed_by are retained. Repeated removal is a no-op; an unknown reference_id returns external_ref_not_found. A successful removal creates a task version and history event atomically.
+Honors active task-lock ownership: an unlocked task may be modified without a token; when locked, only the owner with a valid token may remove the reference. Removal is soft: removed_at and removed_by are retained. Repeated removal is a no-op; an unknown reference_id returns external_ref_not_found. A successful removal creates a task version and history event atomically.
 
 ### task.review.add
 
@@ -206,7 +206,7 @@ Required:
 Optional:
 - comments: ordered JSON array of JSON values (any valid JSON value is allowed as an array element), default empty.
 
-Requires the task lock. Review records are append-only and linked to the reviewed immutable version. Repeating review_id with the same canonical payload is a no-op; a different payload returns review_id_conflict. A missing version returns review_version_not_found. Each newly accepted changes_requested review increments revision_count exactly once. Approval does not change workflow status or revision_count. Record, counter, task version, and history event are committed atomically. Result: the Review record, reviewed_version_no, task_version_no, revision_count, and no_op.
+Honors active task-lock ownership: an unlocked task may be modified without a token; when locked, only the owner with a valid token may add a Review. Review records are append-only and linked to the reviewed immutable version. Repeating review_id with the same canonical payload is a no-op; a different payload returns review_id_conflict. A missing version returns review_version_not_found. Each newly accepted changes_requested review increments revision_count exactly once. Approval does not change workflow status or revision_count. Record, counter, task version, and history event are committed atomically. Result: the Review record, reviewed_version_no, task_version_no, revision_count, and no_op.
 
 ### task.review.list
 
@@ -225,7 +225,7 @@ Required:
 - task_id
 - revision: Git revision expression resolvable to a commit in the project repository.
 
-Requires the task lock. Todoing resolves the revision to a full Git SHA. Repeating the current SHA is a no-op. Replacing an existing SHA requires the task to have been explicitly reopened after the previous assignment; otherwise task_terminal is returned. A terminal task must be reopened before changing the marker. The prior SHA remains in immutable task versions and operation history. The marker cannot be cleared. Result: task_id, resolved final_commit_sha, task_version_no, and no_op.
+Honors active task-lock ownership: an unlocked task may be modified without a token; when locked, only the owner with a valid token may set the marker. Todoing resolves the revision to a full Git SHA. Repeating the current SHA is a no-op. Replacing an existing SHA requires the task to have been explicitly reopened after the previous assignment; otherwise task_terminal is returned. A terminal task must be reopened before changing the marker. The prior SHA remains in immutable task versions and operation history. The marker cannot be cleared. Result: task_id, resolved final_commit_sha, task_version_no, and no_op.
 
 ## 6. Dependencies
 
