@@ -1347,13 +1347,18 @@ impl TaskRepository {
         })?.collect::<Result<Vec<_>, _>>()?;
         drop(statement);
         for (reference_id, existing_task, existing_relation, existing_scope) in existing {
-            if existing_task == task_id.get() && existing_relation == relation.trim() && existing_scope == scope {
-                tx.commit()?;
-                return Ok(json!({"reference_id": reference_id, "task_id": task_id,
-                    "namespace": namespace.trim(), "value": value.trim(),
-                    "relation": relation.trim(), "scope": scope, "no_op": true}));
+            if existing_task == task_id.get() {
+                if existing_relation == relation.trim() && existing_scope == scope {
+                    tx.commit()?;
+                    return Ok(json!({"reference_id": reference_id, "task_id": task_id,
+                        "namespace": namespace.trim(), "value": value.trim(),
+                        "relation": relation.trim(), "scope": scope, "no_op": true}));
+                }
+                return Err(StoreError::InvalidTask("external_ref_conflict".into()));
             }
-            return Err(StoreError::InvalidTask("external_ref_conflict".into()));
+            if scope == "project" || existing_scope == "project" {
+                return Err(StoreError::InvalidTask("external_ref_conflict".into()));
+            }
         }
         let mut bytes = [0u8; 16];
         getrandom::fill(&mut bytes).map_err(|e| StoreError::InvalidTask(format!("Cannot generate reference ID: {e}")))?;
@@ -1492,7 +1497,7 @@ impl TaskRepository {
     }
 
     pub fn review_list(&self, task_id: TaskId, before_record_id: Option<i64>, limit: Option<usize>) -> Result<Value, StoreError> {
-        let limit = limit.unwrap_or(100);
+        let limit = limit.unwrap_or(100).min(i64::MAX as usize);
         if limit == 0 { return Err(StoreError::InvalidTask("limit must be a positive integer".into())); }
         let mut connection = self.store.connection()?;
         let tx = connection.transaction()?;
