@@ -1256,4 +1256,49 @@ mod contract_tests {
         execute(release, root.path()).unwrap();
     }
 
+
+    #[test]
+    fn extension_error_codes_are_stable_in_api_responses() {
+        let root = setup_project();
+        let first = execute(request("api-test-project", "task.create", json!({
+            "title": "First error-contract task"
+        })), root.path()).unwrap();
+        let first_id = first["task"]["id"].as_i64().unwrap();
+        let second = execute(request("api-test-project", "task.create", json!({
+            "title": "Second error-contract task"
+        })), root.path()).unwrap();
+        let second_id = second["task"]["id"].as_i64().unwrap();
+
+        execute(request("api-test-project", "task.external-ref.add", json!({
+            "task_id": first_id, "namespace": "openspec.change",
+            "value": "unique-change", "relation": "implements", "scope": "project"
+        })), root.path()).unwrap();
+        let reference_conflict = execute(request("api-test-project", "task.external-ref.add", json!({
+            "task_id": second_id, "namespace": "openspec.change",
+            "value": "unique-change", "relation": "implements", "scope": "project"
+        })), root.path()).unwrap_err();
+        assert_eq!(reference_conflict.code, "external_ref_conflict");
+
+        execute(request("api-test-project", "task.review.add", json!({
+            "task_id": first_id, "review_id": "stable-review", "version_no": 1,
+            "reviewer": "reviewer-a", "outcome": "approved", "comments": []
+        })), root.path()).unwrap();
+        let review_conflict = execute(request("api-test-project", "task.review.add", json!({
+            "task_id": first_id, "review_id": "stable-review", "version_no": 1,
+            "reviewer": "reviewer-a", "outcome": "changes_requested", "comments": []
+        })), root.path()).unwrap_err();
+        assert_eq!(review_conflict.code, "review_id_conflict");
+
+        let missing_version = execute(request("api-test-project", "task.review.add", json!({
+            "task_id": first_id, "review_id": "missing-version", "version_no": 999,
+            "reviewer": "reviewer-a", "outcome": "approved", "comments": []
+        })), root.path()).unwrap_err();
+        assert_eq!(missing_version.code, "review_version_not_found");
+
+        let missing_reference = execute(request("api-test-project", "task.external-ref.remove", json!({
+            "task_id": first_id, "reference_id": "missing-reference"
+        })), root.path()).unwrap_err();
+        assert_eq!(missing_reference.code, "external_ref_not_found");
+    }
+
 }
