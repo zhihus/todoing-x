@@ -10,7 +10,7 @@ label, outcome, ordered comments, actor attribution, and timestamp.
 
 #### Scenario: Add an approved review
 
-- **WHEN** a lock owner adds an approved review for an existing task version
+- **WHEN** a client adds an approved review for an existing task version on an unlocked task or while holding its active lock
 - **THEN** Todoing stores the record
 - **AND** creates a task version and operation-history event atomically
 - **AND** does not change workflow status or revision_count
