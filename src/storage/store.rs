@@ -372,17 +372,22 @@ impl Store {
             ));
         }
 
-        let verification = self.verify_snapshot(&source_path)?;
+        // Lock and verify the exact source connection that will be restored.
+        // This prevents a snapshot file from being replaced or modified between
+        // checksum verification and the Online Backup API copy.
+        let source = Connection::open(&source_path)?;
+        source.busy_timeout(BUSY_TIMEOUT)?;
+        source.execute_batch("PRAGMA locking_mode = EXCLUSIVE;")?;
+        verify_connection(&source, &self.project_id)?;
+        let (_, source_sha256) = file_digest(&source_path)?;
         if let Some(expected) = expected_sha256
-            && (!expected.eq_ignore_ascii_case(&verification.sha256)
+            && (!expected.eq_ignore_ascii_case(&source_sha256)
                 || expected.len() != 64
                 || !expected.bytes().all(|byte| byte.is_ascii_hexdigit()))
         {
             return Err(StoreError::InvalidTask("snapshot_checksum_mismatch".into()));
         }
 
-        let source = Connection::open(&source_path)?;
-        source.busy_timeout(BUSY_TIMEOUT)?;
         let mut target = self.connection()?;
 
         // EXCLUSIVE locking mode retains the database lock for this connection's
