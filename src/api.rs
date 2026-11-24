@@ -397,7 +397,19 @@ fn execute(request: Request, root: &Path) -> Result<Value, ApiError> {
             tasks.sort_by_key(|task| task.id);
             if !args.reverse { tasks.reverse(); }
             if let Some(limit) = args.limit { tasks.truncate(limit); }
-            Ok(json!({"tasks": tasks}))
+            let mut task_values = Vec::with_capacity(tasks.len());
+            for task in tasks {
+                let metadata = repository.extension_metadata(task.id).map_err(store_error)?;
+                let mut value = serde_json::to_value(&task).map_err(|error| ApiError {
+                    code: "internal_error", message: format!("Cannot serialize task: {error}"),
+                    retryable: false, details: json!({})
+                })?;
+                let object = value.as_object_mut().expect("task serializes as an object");
+                object.insert("revision_count".into(), metadata["revision_count"].clone());
+                object.insert("final_commit_sha".into(), metadata["final_commit_sha"].clone());
+                task_values.push(value);
+            }
+            Ok(json!({"tasks": task_values}))
         }
         "task.archive" => {
             let args: TaskIdArgs = parse_args(request.args).map_err(|error| invalid(error.to_string()))?;
@@ -415,7 +427,14 @@ fn execute(request: Request, root: &Path) -> Result<Value, ApiError> {
             let version_no = repository.list_versions(task.id).map_err(store_error)?.last().map(|version| version.version_no).unwrap_or(0);
             let baseline = repository.get_baseline(task.id).map_err(store_error)?;
             let metadata = repository.extension_metadata(task.id).map_err(store_error)?;
-            Ok(json!({"task": task, "version_no": version_no, "baseline_version_no": baseline.map(|value| value.version_no), "revision_count": metadata["revision_count"], "final_commit_sha": metadata["final_commit_sha"]}))
+            let mut task_value = serde_json::to_value(&task).map_err(|error| ApiError {
+                code: "internal_error", message: format!("Cannot serialize task: {error}"),
+                retryable: false, details: json!({})
+            })?;
+            let object = task_value.as_object_mut().expect("task serializes as an object");
+            object.insert("revision_count".into(), metadata["revision_count"].clone());
+            object.insert("final_commit_sha".into(), metadata["final_commit_sha"].clone());
+            Ok(json!({"task": task_value, "version_no": version_no, "baseline_version_no": baseline.map(|value| value.version_no)}))
         }
         "task.update" => {
             let args: UpdateArgs = parse_args(request.args).map_err(|error| invalid(error.to_string()))?;
