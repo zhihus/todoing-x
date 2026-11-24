@@ -314,7 +314,7 @@ The caller supplies actor_id in the envelope. Todoing generates an owner/session
 
 Returns owner_id, lock_token, fencing_generation, acquired_at, heartbeat_at, and expires_at.
 
-Acquisition uses a short SQLite EXCLUSIVE transaction. An active unexpired lock causes task_locked. An expired lock blocks a new acquire as well; before recovery grace elapses it returns lock_expired with the recovery-available time, and after grace elapses the caller must invoke task.lock.recover explicitly. Acquire never performs implicit takeover.
+Acquisition uses a short SQLite EXCLUSIVE transaction. An active unexpired lock causes task_locked. An expired lock continues to block a new acquire and returns task_locked. The caller must invoke task.lock.recover explicitly after the configured recovery grace; acquire never performs implicit takeover.
 
 ### task.lock.heartbeat
 

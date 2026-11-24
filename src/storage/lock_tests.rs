@@ -55,13 +55,13 @@ fn acquire_reports_expired_lock_and_never_takes_it_over_implicitly() {
     clock.advance(300_001);
     assert!(matches!(
         service.acquire(task_id, "session-b", &actor()),
-        Err(StoreError::LockExpired)
+        Err(StoreError::TaskLocked)
     ));
 
     clock.advance(60_000);
     assert!(matches!(
         service.acquire(task_id, "session-b", &actor()),
-        Err(StoreError::LockExpired)
+        Err(StoreError::TaskLocked)
     ));
 
     let recovered = service.recover(task_id, "session-b", &actor()).unwrap();

@@ -216,20 +216,6 @@ impl TaskLockService {
                     StoreError::InvalidMetadata("fencing_generation overflow".into())
                 })?
             }
-            Some(record)
-                if record.state == "active"
-                    && record.expires_at.is_some_and(|expires_at| expires_at <= self.clock.now_millis()) =>
-            {
-                drop(transaction);
-                return self.reject(
-                    Some(task_id),
-                    actor,
-                    "task.lock.acquire",
-                    "lock_expired",
-                    Some(&serde_json::json!({"owner_id": owner_id}).to_string()),
-                    StoreError::LockExpired,
-                );
-            }
             Some(_) => {
                 drop(transaction);
                 return self.reject(
