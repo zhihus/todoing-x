@@ -1568,8 +1568,10 @@ impl TaskRepository {
         tx.execute("UPDATE tasks SET final_commit_sha = ?1 WHERE task_id = ?2", params![sha, task_id.get()])?;
         let after = snapshot_json(&tx, &task)?;
         record_extension_change(&tx, task_id, actor, "task.commit.finalize", &before, &after, &now)?;
+        let task_version_no = next_version_no(&tx, task_id)? - 1;
         tx.commit()?;
-        Ok(json!({"task_id": task_id, "final_commit_sha": sha, "no_op": false}))
+        Ok(json!({"task_id": task_id, "final_commit_sha": sha,
+            "task_version_no": task_version_no, "no_op": false}))
     }
 
     pub fn extension_metadata(&self, task_id: TaskId) -> Result<Value, StoreError> {
