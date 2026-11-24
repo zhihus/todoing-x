@@ -23,7 +23,7 @@ comments in one record count as one review cycle.
 
 #### Scenario: Record requested changes
 
-- **WHEN** a lock owner adds a changes_requested Review record
+- **WHEN** a client adds a changes_requested Review record on an unlocked task or while holding its active lock
 - **THEN** revision_count increases by exactly one
 - **AND** the record, task version, and history event commit atomically
 
