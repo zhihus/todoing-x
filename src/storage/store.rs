@@ -385,10 +385,11 @@ impl Store {
         source.busy_timeout(BUSY_TIMEOUT)?;
         let mut target = self.connection()?;
 
-        // Acquire the exclusive lock before taking the safety snapshot. Keep this
-        // connection open through backup and restore so no Todoing writer can
-        // change the active database after the rollback point has been captured.
-        target.execute_batch("PRAGMA locking_mode = EXCLUSIVE; BEGIN EXCLUSIVE;")?;
+        // EXCLUSIVE locking mode retains the database lock for this connection's
+        // lifetime after the first read. This lets the same idle connection serve
+        // as the Online Backup API source for the safety snapshot, then as the
+        // restore destination, without a transaction gap or a second DB handle.
+        target.execute_batch("PRAGMA locking_mode = EXCLUSIVE;")?;
         let active_locks: i64 = target.query_row(
             "SELECT COUNT(*) FROM task_locks WHERE state = 'active'",
             [],
@@ -434,10 +435,6 @@ impl Store {
             size_bytes: safety_size_bytes,
             sha256: safety_sha256,
         };
-
-        // locking_mode=EXCLUSIVE retains the database lock after COMMIT, while
-        // leaving the connection ready to receive the Online Backup API restore.
-        target.execute_batch("COMMIT;")?;
 
         let restore_result = (|| {
             {
