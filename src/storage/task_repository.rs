@@ -155,6 +155,8 @@ struct TaskSnapshot {
     final_commit_sha: Option<String>,
     #[serde(default)]
     external_references: Vec<Value>,
+    #[serde(default)]
+    reviews: Vec<Value>,
 }
 
 impl TaskRepository {
@@ -1271,6 +1273,7 @@ impl TaskRepository {
         push_change(&mut changes, "revision_count", &before.revision_count, &after.revision_count)?;
         push_change(&mut changes, "final_commit_sha", &before.final_commit_sha, &after.final_commit_sha)?;
         push_change(&mut changes, "external_references", &before.external_references, &after.external_references)?;
+        push_change(&mut changes, "reviews", &before.reviews, &after.reviews)?;
 
         Ok(TaskVersionDiff {
             task_id,
@@ -1407,9 +1410,9 @@ impl TaskRepository {
         &self, task_id: TaskId, namespace: &str, value: &str, relation: &str,
         scope: &str, actor: &ActorContext,
     ) -> Result<Value, StoreError> {
-        if namespace.trim().is_empty() || namespace.len() > 128 ||
-           value.trim().is_empty() || value.len() > 512 ||
-           relation.trim().is_empty() || relation.len() > 128 ||
+        if namespace.trim().is_empty() || namespace.chars().count() > 128 ||
+           value.trim().is_empty() || value.chars().count() > 512 ||
+           relation.trim().is_empty() || relation.chars().count() > 128 ||
            !matches!(scope, "task" | "project") {
             return Err(StoreError::InvalidTask("Invalid external reference fields".into()));
         }
@@ -1517,8 +1520,8 @@ impl TaskRepository {
         &self, task_id: TaskId, review_id: &str, version_no: i64, reviewer: &str,
         outcome: &str, comments: &[Value], actor: &ActorContext,
     ) -> Result<Value, StoreError> {
-        if review_id.trim().is_empty() || review_id.len() > 128 ||
-           reviewer.trim().is_empty() || reviewer.len() > 256 ||
+        if review_id.trim().is_empty() || review_id.chars().count() > 128 ||
+           reviewer.trim().is_empty() || reviewer.chars().count() > 256 ||
            version_no <= 0 || !matches!(outcome, "approved" | "changes_requested") {
             return Err(StoreError::InvalidTask("Invalid review fields".into()));
         }
@@ -1929,6 +1932,26 @@ fn snapshot_json(connection: &Connection, task: &Task) -> Result<String, StoreEr
         })))?;
         rows.collect::<Result<Vec<_>, _>>()?
     };
+    let reviews = {
+        let mut statement = connection.prepare(
+            "SELECT review_record_id, review_id, version_no, reviewer, outcome, comments_json, actor_id, created_at
+             FROM task_reviews WHERE task_id = ?1 ORDER BY review_record_id"
+        )?;
+        let rows = statement.query_map(params![task.id.get()], |row| Ok((
+            row.get::<_, i64>(0)?, row.get::<_, String>(1)?, row.get::<_, i64>(2)?,
+            row.get::<_, String>(3)?, row.get::<_, String>(4)?, row.get::<_, String>(5)?,
+            row.get::<_, String>(6)?, row.get::<_, String>(7)?
+        )))?.collect::<Result<Vec<_>, _>>()?;
+        rows.into_iter().map(|(record_id, review_id, version_no, reviewer, outcome, comments_json, actor_id, created_at)| {
+            let comments = serde_json::from_str::<Value>(&comments_json)
+                .map_err(|error| StoreError::InvalidTask(format!("Invalid stored review comments: {error}")))?;
+            Ok(json!({
+                "record_id": record_id, "review_id": review_id, "version_no": version_no,
+                "reviewer": reviewer, "outcome": outcome, "comments": comments,
+                "actor_id": actor_id, "created_at": created_at
+            }))
+        }).collect::<Result<Vec<_>, StoreError>>()?
+    };
     let snapshot = TaskSnapshot {
         task_id: task.id,
         title: task.title.clone(),
@@ -1945,6 +1968,7 @@ fn snapshot_json(connection: &Connection, task: &Task) -> Result<String, StoreEr
         revision_count,
         final_commit_sha,
         external_references,
+        reviews,
     };
     serde_json::to_string(&snapshot)
         .map_err(|error| StoreError::InvalidTask(format!("Cannot serialize task snapshot: {error}")))
