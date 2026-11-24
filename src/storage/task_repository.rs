@@ -1355,7 +1355,7 @@ impl TaskRepository {
             Ok(value) => Ok(value),
             Err(error) => {
                 let code = extension_error_code(&error);
-                let target = if matches!(error, StoreError::TaskNotFound(_)) { None } else { Some(task_id) };
+                let target = if matches!(&error, StoreError::TaskNotFound(_)) { None } else { Some(task_id) };
                 self.reject_operation(target, actor, "task.external-ref.remove", code, Some(requested), error)
             }
         }
@@ -2724,7 +2724,7 @@ impl TaskRepository {
         }
     }
 
-    fn review_add_inner(
+    pub fn review_add(
         &self, task_id: TaskId, review_id: &str, version_no: i64, reviewer: &str,
         outcome: &str, comments: &[Value], actor: &ActorContext,
     ) -> Result<Value, StoreError> {
@@ -2861,7 +2861,7 @@ impl TaskRepository {
         Ok(json!({"reference_id": reference_id, "no_op": false}))
     }
 
-    pub fn review_add(
+    fn review_add_inner(
         &self, task_id: TaskId, review_id: &str, version_no: i64, reviewer: &str,
         outcome: &str, comments: &[Value], actor: &ActorContext,
     ) -> Result<Value, StoreError> {
