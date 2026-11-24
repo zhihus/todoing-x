@@ -42,6 +42,18 @@ review_id_conflict, and review_version_not_found for the corresponding failures.
 Final-commit mutation on a terminal task MUST use the existing task_terminal error.
 The response schema MUST enumerate all extension codes.
 
+#### Scenario: Return a stable extension error
+
+- **WHEN** an extension operation fails because of a duplicate external reference,
+  an unknown external reference, a conflicting review ID, or an unknown reviewed version
+- **THEN** the API returns the corresponding stable error code
+- **AND** the response conforms to the error response schema
+
+#### Scenario: Reject final-commit mutation on a terminal task
+
+- **WHEN** a client attempts to change the final commit marker on a terminal task
+- **THEN** the API returns task_terminal
+
 ### Requirement: Include extension state in task responses
 
 Task responses MUST include revision_count, final_commit_sha, and active external
