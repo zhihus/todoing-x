@@ -341,6 +341,9 @@ fn store_error(error: StoreError) -> ApiError {
         StoreError::InvalidTask(message) if message == "review_version_not_found" => {
             ("review_version_not_found", false)
         }
+        StoreError::InvalidTask(message) if message == "snapshot_checksum_mismatch" => {
+            ("snapshot_checksum_mismatch", false)
+        }
         StoreError::ProjectIdMismatch { .. } => ("project_id_mismatch", false),
         StoreError::InvalidConfig(_) => ("config_invalid", false),
         StoreError::HistoryRecordFailed(_) => ("history_record_failed", false),
@@ -1085,9 +1088,9 @@ fn execute(request: Request, root: &Path) -> Result<Value, ApiError> {
                     || expected.len() != 64
                     || !expected.bytes().all(|byte| byte.is_ascii_hexdigit()))
             {
-                return Err(invalid(
-                    "expected_sha256 does not match the snapshot".into(),
-                ));
+                return Err(store_error(StoreError::InvalidTask(
+                    "snapshot_checksum_mismatch".into(),
+                )));
             }
             Ok(json!({
                 "snapshot_path": report.path,
@@ -1386,6 +1389,93 @@ mod contract_tests {
             args,
             lock_token: None,
         }
+    }
+
+    #[test]
+    fn snapshot_verify_and_restore_are_available_through_json_api() {
+        let root = setup_project();
+        let snapshot = execute(
+            request(
+                "api-test-project",
+                "store.snapshot",
+                json!({"output_path": "api-snapshot.db"}),
+            ),
+            root.path(),
+        )
+        .expect("create snapshot");
+        let snapshot_path = snapshot["snapshot_path"]
+            .as_str()
+            .expect("snapshot path")
+            .to_owned();
+        let checksum = snapshot["sha256"]
+            .as_str()
+            .expect("snapshot checksum")
+            .to_owned();
+
+        let verified = execute(
+            request(
+                "api-test-project",
+                "store.snapshot.verify",
+                json!({
+                    "snapshot_path": snapshot_path,
+                    "expected_sha256": checksum
+                }),
+            ),
+            root.path(),
+        )
+        .expect("verify snapshot");
+        assert_eq!(verified["integrity"]["integrity_check"], "ok");
+
+        let mismatch = execute(
+            request(
+                "api-test-project",
+                "store.snapshot.verify",
+                json!({
+                    "snapshot_path": snapshot_path,
+                    "expected_sha256": "0".repeat(64)
+                }),
+            ),
+            root.path(),
+        )
+        .unwrap_err();
+        assert_eq!(mismatch.code, "snapshot_checksum_mismatch");
+
+        execute(
+            request(
+                "api-test-project",
+                "task.create",
+                json!({"title": "Must be removed by restore"}),
+            ),
+            root.path(),
+        )
+        .expect("create post-snapshot task");
+        let restored = execute(
+            request(
+                "api-test-project",
+                "store.snapshot.restore",
+                json!({
+                    "snapshot_path": snapshot_path,
+                    "expected_sha256": checksum
+                }),
+            ),
+            root.path(),
+        )
+        .expect("restore snapshot");
+        assert_eq!(restored["restored"]["integrity_check"], "ok");
+        assert!(
+            Path::new(
+                restored["safety_snapshot"]["snapshot_path"]
+                    .as_str()
+                    .expect("safety snapshot path")
+            )
+            .is_file()
+        );
+        let info = execute(
+            request("api-test-project", "store.info", json!({})),
+            root.path(),
+        )
+        .expect("read restored store");
+        assert_eq!(info["task_count"], 0);
     }
 
     #[test]
