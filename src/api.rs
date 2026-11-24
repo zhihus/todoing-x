@@ -291,8 +291,8 @@ fn execute(request: Request, root: &Path) -> Result<Value, ApiError> {
         "task.version.list", "task.version.get", "task.version.compare",
         "task.version.approve", "task.lock.acquire", "task.lock.heartbeat",
         "task.lock.release", "task.lock.recover",
-        "task.external_reference.add", "task.external_reference.list", "task.external_reference.remove",
-        "task.review.add", "task.review.list", "task.final_commit.set",
+        "task.external-ref.add", "task.external-ref.list", "task.external-ref.remove",
+        "task.review.add", "task.review.list", "task.commit.finalize",
     ];
     if !OPERATIONS.contains(&request.operation.as_str()) {
         return Err(invalid(format!("Unknown operation '{}'", request.operation)));
@@ -568,15 +568,15 @@ fn execute(request: Request, root: &Path) -> Result<Value, ApiError> {
             let updated = repository.update(&task, &actor).map_err(store_error)?;
             Ok(json!({"task": updated, "commit_sha": sha, "no_op": !changed}))
         }
-        "task.external_reference.add" => {
+        "task.external-ref.add" => {
             let args: ExternalReferenceAddArgs = parse_args(request.args).map_err(invalid)?;
             repository.external_reference_add(id(args.task_id).map_err(invalid)?, &args.namespace, &args.value, &args.relation, &args.scope, &actor).map_err(store_error)
         }
-        "task.external_reference.list" => {
+        "task.external-ref.list" => {
             let args: ExternalReferenceListArgs = parse_args(request.args).map_err(invalid)?;
             repository.external_reference_list(id(args.task_id).map_err(invalid)?, args.include_removed).map_err(store_error)
         }
-        "task.external_reference.remove" => {
+        "task.external-ref.remove" => {
             let args: ExternalReferenceRemoveArgs = parse_args(request.args).map_err(invalid)?;
             repository.external_reference_remove(id(args.task_id).map_err(invalid)?, &args.reference_id, &actor).map_err(store_error)
         }
@@ -588,7 +588,7 @@ fn execute(request: Request, root: &Path) -> Result<Value, ApiError> {
             let args: TaskIdArgs = parse_args(request.args).map_err(invalid)?;
             repository.review_list(id(args.task_id).map_err(invalid)?).map_err(store_error)
         }
-        "task.final_commit.set" => {
+        "task.commit.finalize" => {
             let args: FinalCommitArgs = parse_args(request.args).map_err(invalid)?;
             if args.revision.trim().is_empty() { return Err(invalid("revision must not be empty".into())); }
             let output = Command::new("git").current_dir(root)
