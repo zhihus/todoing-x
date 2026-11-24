@@ -86,3 +86,25 @@ The project ID MUST match the active store metadata. Actor identity MUST be supp
 
 - **WHEN** a client submits a valid request with an actor ID
 - **THEN** successful and applicable rejected operation events record that actor
+
+### Requirement: Expose external references, Review history, and final commit operations
+
+The API MUST expose `task.external-ref.add`, `task.external-ref.list`, `task.external-ref.remove`, `task.review.add`, `task.review.list`, and `task.commit.finalize`. Task reads MUST include active external references, `revision_count`, and `final_commit_sha`. The finalization operation MUST resolve a Git revision to a full commit SHA before persistence.
+
+#### Scenario: Manage external references
+
+- **WHEN** a client adds, lists, or removes an external reference
+- **THEN** the API returns the reference identifier and documented reference fields
+- **AND** applies task-lock ownership and stable conflict/not-found errors
+
+#### Scenario: Record and inspect Review history
+
+- **WHEN** a client adds or lists Review records
+- **THEN** the API returns immutable records linked to task versions
+- **AND** exposes the persisted `revision_count` on task reads
+
+#### Scenario: Finalize a Git commit
+
+- **WHEN** a client supplies a valid Git revision to `task.commit.finalize`
+- **THEN** the API resolves it with Git to a full commit SHA
+- **AND** persists the SHA as the task's distinct final commit marker
