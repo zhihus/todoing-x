@@ -467,7 +467,7 @@ fn opening_a_v2_store_applies_extensions_migration_and_preserves_existing_data()
     ).unwrap();
     connection.execute(
         "INSERT INTO task_locks(task_id, state, owner_id, token_hash, acquired_at, heartbeat_at, expires_at, fencing_generation)
-         VALUES (43, 'active', 'legacy-owner', zeroblob(32), 1000, 1000, 2000, 7)",
+         VALUES (43, 'active', 'legacy-owner', zeroblob(32), 1000, 1000, 9999999999999, 7)",
         [],
     ).unwrap();
     drop(connection);
