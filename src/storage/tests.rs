@@ -463,7 +463,7 @@ fn snapshot_verification_rejects_corrupt_file_without_mutating_store() {
         )
         .unwrap();
     let snapshot = store.snapshot("corrupt.db", false).unwrap();
-    fs::write(&snapshot.path, b"not a SQLite database").unwrap();
+    std::fs::write(&snapshot.path, b"not a SQLite database").unwrap();
 
     assert!(store.verify_snapshot(&snapshot.path).is_err());
     assert!(store.restore_snapshot(&snapshot.path, None).is_err());
