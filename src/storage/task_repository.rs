@@ -1441,8 +1441,7 @@ impl TaskRepository {
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
             params![reference_id, task_id.get(), namespace.trim(), value.trim(), relation.trim(), scope, now],
         )?;
-        let after = snapshot_json(&tx, &task)?;
-        record_extension_change(&tx, task_id, actor, "task.external-ref.add", &before, &after, &now)?;
+        record_extension_change(&tx, task_id, actor, "task.external-ref.add", &before, &now)?;
         tx.commit()?;
         Ok(json!({"reference_id": reference_id, "task_id": task_id,
             "namespace": namespace.trim(), "value": value.trim(),
@@ -1496,8 +1495,7 @@ impl TaskRepository {
              WHERE reference_id = ?3 AND task_id = ?4",
             params![now, actor.actor_id().as_str(), reference_id, task_id.get()],
         )?;
-        let after = snapshot_json(&tx, &task)?;
-        record_extension_change(&tx, task_id, actor, "task.external-ref.remove", &before, &after, &now)?;
+        record_extension_change(&tx, task_id, actor, "task.external-ref.remove", &before, &now)?;
         tx.commit()?;
         Ok(json!({"reference_id": reference_id, "no_op": false}))
     }
@@ -1559,8 +1557,7 @@ impl TaskRepository {
         if outcome == "changes_requested" {
             tx.execute("UPDATE tasks SET revision_count = revision_count + 1 WHERE task_id = ?1", params![task_id.get()])?;
         }
-        let after = snapshot_json(&tx, &task)?;
-        record_extension_change(&tx, task_id, actor, "task.review.add", &before, &after, &now)?;
+        record_extension_change(&tx, task_id, actor, "task.review.add", &before, &now)?;
         let task_version_no = next_version_no(&tx, task_id)? - 1;
         let revision_count: i64 = tx.query_row(
             "SELECT revision_count FROM tasks WHERE task_id = ?1", params![task_id.get()], |row| row.get(0)
@@ -1646,8 +1643,7 @@ impl TaskRepository {
         let now = now_string();
         let before = snapshot_json(&tx, &task)?;
         tx.execute("UPDATE tasks SET final_commit_sha = ?1 WHERE task_id = ?2", params![sha, task_id.get()])?;
-        let after = snapshot_json(&tx, &task)?;
-        record_extension_change(&tx, task_id, actor, "task.commit.finalize", &before, &after, &now)?;
+        record_extension_change(&tx, task_id, actor, "task.commit.finalize", &before, &now)?;
         let task_version_no = next_version_no(&tx, task_id)? - 1;
         tx.commit()?;
         Ok(json!({"task_id": task_id, "final_commit_sha": sha,
@@ -1714,12 +1710,15 @@ fn extension_error_code(error: &StoreError) -> &'static str {
 
 fn record_extension_change(
     tx: &Transaction<'_>, task_id: TaskId, actor: &ActorContext,
-    operation: &str, previous: &str, requested: &str, now: &str,
+    operation: &str, previous: &str, now: &str,
 ) -> Result<(), StoreError> {
+    tx.execute("UPDATE tasks SET updated_at = ?1 WHERE task_id = ?2", params![now, task_id.get()])?;
+    let updated_task = load_task(tx, task_id)?;
+    let requested = snapshot_json(tx, &updated_task)?;
     let version_no = next_version_no(tx, task_id)?;
-    insert_version(tx, task_id, version_no, requested, now, actor.actor_id().as_str())?;
+    insert_version(tx, task_id, version_no, &requested, now, actor.actor_id().as_str())?;
     insert_history(tx, Some(task_id), actor.actor_id().as_str(), now, operation,
-        Some(previous), Some(requested), HistoryOutcome::Succeeded, None, None, None)?;
+        Some(previous), Some(&requested), HistoryOutcome::Succeeded, None, None, None)?;
     Ok(())
 }
 
