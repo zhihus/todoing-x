@@ -170,6 +170,9 @@ struct ExternalReferenceRemoveArgs { task_id: i64, reference_id: String }
 struct ReviewAddArgs { task_id: i64, review_id: String, version_no: i64, reviewer: String, outcome: String, #[serde(default)] comments: Vec<Value> }
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
+struct ReviewListArgs { task_id: i64, #[serde(default)] before_record_id: Option<i64>, #[serde(default)] limit: Option<usize> }
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct FinalCommitArgs { task_id: i64, revision: String }
 
 #[derive(Debug, Deserialize)]
@@ -407,6 +410,7 @@ fn execute(request: Request, root: &Path) -> Result<Value, ApiError> {
                 let object = value.as_object_mut().expect("task serializes as an object");
                 object.insert("revision_count".into(), metadata["revision_count"].clone());
                 object.insert("final_commit_sha".into(), metadata["final_commit_sha"].clone());
+                object.insert("external_references".into(), metadata["external_references"].clone());
                 task_values.push(value);
             }
             Ok(json!({"tasks": task_values}))
@@ -434,6 +438,7 @@ fn execute(request: Request, root: &Path) -> Result<Value, ApiError> {
             let object = task_value.as_object_mut().expect("task serializes as an object");
             object.insert("revision_count".into(), metadata["revision_count"].clone());
             object.insert("final_commit_sha".into(), metadata["final_commit_sha"].clone());
+            object.insert("external_references".into(), metadata["external_references"].clone());
             Ok(json!({"task": task_value, "version_no": version_no, "baseline_version_no": baseline.map(|value| value.version_no)}))
         }
         "task.update" => {
@@ -585,8 +590,8 @@ fn execute(request: Request, root: &Path) -> Result<Value, ApiError> {
             repository.review_add(id(args.task_id).map_err(invalid)?, &args.review_id, args.version_no, &args.reviewer, &args.outcome, &args.comments, &actor).map_err(store_error)
         }
         "task.review.list" => {
-            let args: TaskIdArgs = parse_args(request.args).map_err(invalid)?;
-            repository.review_list(id(args.task_id).map_err(invalid)?).map_err(store_error)
+            let args: ReviewListArgs = parse_args(request.args).map_err(invalid)?;
+            repository.review_list(id(args.task_id).map_err(invalid)?, args.before_record_id, args.limit).map_err(store_error)
         }
         "task.commit.finalize" => {
             let args: FinalCommitArgs = parse_args(request.args).map_err(invalid)?;
@@ -672,7 +677,7 @@ fn api_exit_code(code: &str) -> i32 {
         "invalid_request" | "unsupported_api_version" | "project_id_mismatch" | "config_invalid" | "migration_required" => 2,
         "task_not_found" | "version_not_found" | "dependency_not_found" | "external_ref_not_found" | "review_version_not_found" => 3,
         "task_terminal" | "task_archived" | "task_locked" | "lock_expired" | "stale_lock" |
-        "invalid_status_transition" | "dependency_cycle" | "external_ref_conflict" | "review_id_conflict" | "final_commit_reopen_required" => 4,
+        "invalid_status_transition" | "dependency_cycle" | "external_ref_conflict" | "review_id_conflict" => 4,
         "io_error" | "store_corrupt" | "store_busy" | "history_record_failed" => 5,
         "migration_conflict" | "store_already_initialized" => 6,
         _ => 70,
