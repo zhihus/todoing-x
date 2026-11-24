@@ -55,5 +55,9 @@ jobs:
         run: npm install --global @fission-ai/openspec@1.16.0
       - name: Validate OpenSpec changes and specs
         run: openspec validate --all
-      - name: Parse JSON API schemas
-        run: node -e "const fs = require('node:fs'); for (const p of ['docs/api/v1/request.schema.json', 'docs/api/v1/response.schema.json']) JSON.parse(fs.readFileSync(p, 'utf8'));"
+      - name: Install JSON Schema validator
+        run: npm install --global ajv-cli@5.0.0
+      - name: Validate JSON API schemas
+        run: |
+          ajv compile --spec=draft2020 -s docs/api/v1/request.schema.json
+          ajv compile --spec=draft2020 -s docs/api/v1/response.schema.json
