@@ -161,7 +161,7 @@ Result: updated task and new version when a new reference is added. Re-adding an
 
 ## 5. External references, Review history, and final commit
 
-### task.external_reference.add
+### task.external-ref.add
 
 Required:
 - task_id
@@ -174,7 +174,7 @@ Optional:
 
 Requires the task lock. Active namespace/value pairs are unique within a task for task scope and across the project for project scope. An identical active reference on the same task is a no-op. Reusing an active pair with different relation/scope or on another task returns external_ref_conflict. Successful changes create a version and history event atomically.
 
-### task.external_reference.list
+### task.external-ref.list
 
 Required:
 - task_id.
@@ -184,7 +184,7 @@ Optional:
 
 Requires read access under the task lock. Returns references ordered by creation time. Removed references are included only when include_removed=true.
 
-### task.external_reference.remove
+### task.external-ref.remove
 
 Required:
 - task_id
@@ -211,15 +211,19 @@ Requires the task lock. Review records are append-only and linked to the reviewe
 Required:
 - task_id.
 
-Requires read access under the task lock. Returns immutable review records in insertion order.
+Optional:
+- before_record_id: pagination cursor; returns records with smaller IDs.
+- limit: positive integer; default 100.
 
-### task.final_commit.set
+Requires read access under the task lock. Returns immutable review records newest-first, including record_id for pagination.
+
+### task.commit.finalize
 
 Required:
 - task_id
 - revision: Git revision expression resolvable to a commit in the project repository.
 
-Requires the task lock. Todoing resolves the revision to a full Git SHA. Repeating the current SHA is a no-op. Replacing an existing SHA requires the task to have been explicitly reopened after the previous assignment; otherwise final_commit_reopen_required is returned. A terminal task must be reopened before changing the marker. The prior SHA remains in immutable task versions and operation history. The marker cannot be cleared.
+Requires the task lock. Todoing resolves the revision to a full Git SHA. Repeating the current SHA is a no-op. Replacing an existing SHA requires the task to have been explicitly reopened after the previous assignment; otherwise task_terminal is returned. A terminal task must be reopened before changing the marker. The prior SHA remains in immutable task versions and operation history. The marker cannot be cleared.
 
 ## 6. Dependencies
 
