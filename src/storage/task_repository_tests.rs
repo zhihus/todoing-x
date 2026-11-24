@@ -372,3 +372,44 @@ fn final_commit_replacement_requires_reopen_and_keeps_prior_snapshot() {
     assert_eq!(previous["final_commit_sha"], first);
     assert_eq!(current["final_commit_sha"], second);
 }
+
+
+#[test]
+fn task_scoped_references_are_local_and_project_scope_conflicts_across_tasks() {
+    let (_root, repository) = repository();
+    let first = repository.create(new_task("first ref task"), &actor()).unwrap();
+    let second = repository.create(new_task("second ref task"), &actor()).unwrap();
+
+    repository.external_reference_add(
+        first.id, "issue", "42", "tracks", "task", &actor()
+    ).unwrap();
+    repository.external_reference_add(
+        second.id, "issue", "42", "tracks", "task", &actor()
+    ).unwrap();
+
+    repository.external_reference_add(
+        first.id, "openspec.change", "change-1", "implements", "project", &actor()
+    ).unwrap();
+    assert!(repository.external_reference_add(
+        second.id, "openspec.change", "change-1", "implements", "project", &actor()
+    ).is_err());
+    assert!(repository.external_reference_add(
+        second.id, "openspec.change", "change-1", "implements", "task", &actor()
+    ).is_err());
+}
+
+#[test]
+fn review_list_supports_bounded_cursor_pagination() {
+    let (_root, repository) = repository();
+    let task = repository.create(new_task("review pagination"), &actor()).unwrap();
+    repository.review_add(task.id, "review-a", 1, "reviewer", "approved", &[], &actor()).unwrap();
+    repository.review_add(task.id, "review-b", 1, "reviewer", "approved", &[], &actor()).unwrap();
+    let first = repository.review_list(task.id, None, Some(1)).unwrap();
+    let records = first["reviews"].as_array().unwrap();
+    assert_eq!(records.len(), 1);
+    let cursor = records[0]["record_id"].as_i64().unwrap();
+    let second = repository.review_list(task.id, Some(cursor), Some(1)).unwrap();
+    assert_eq!(second["reviews"].as_array().unwrap().len(), 1);
+    assert_ne!(records[0]["record_id"], second["reviews"][0]["record_id"]);
+    assert!(repository.review_list(task.id, None, Some(0)).is_err());
+}
