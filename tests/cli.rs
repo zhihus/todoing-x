@@ -502,7 +502,7 @@ fn init_creates_a_new_store_and_refuses_reinitialization() {
     let response: Value = serde_json::from_slice(&initialized.stdout).unwrap();
     assert_eq!(response["ok"], true);
     assert!(response["data"]["project_id"].as_str().unwrap().starts_with("p-"));
-    assert_eq!(response["data"]["schema_version"], 2);
+    assert_eq!(response["data"]["schema_version"], 3);
     assert!(dir.path().join(".todoing/todoing.db").is_file());
     assert!(dir.path().join(".todoing/config.toml").is_file());
 
@@ -550,7 +550,7 @@ fn json_api_store_init_creates_a_project_store() {
     let response: Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(response["request_id"], "bootstrap-1");
     assert_eq!(response["data"]["project_id"], "api-project");
-    assert_eq!(response["data"]["schema_version"], 2);
+    assert_eq!(response["data"]["schema_version"], 3);
 
     let info = serde_json::json!({
         "api_version": 1,
