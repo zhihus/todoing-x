@@ -53,7 +53,7 @@ were created.
 
 #### Scenario: Remove an active reference
 
-- **WHEN** the lock owner removes an active reference
+- **WHEN** a client removes an active reference from an unlocked task or while holding its active lock
 - **THEN** it is no longer returned by the default active-reference list
 - **AND** the task version and operation history record the removal
 
