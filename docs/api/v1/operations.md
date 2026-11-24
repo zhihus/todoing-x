@@ -14,7 +14,7 @@
 - Successful responses use the v1 success envelope. Failed operations use the v1 error envelope.
 - JSON responses, including errors, are written to stdout. Diagnostics are written to stderr.
 - A non-zero process exit code accompanies an error response.
-- If a task has an active lock owned by another client, reads of that task are rejected. List/search operations omit locked tasks. Task-specific history, versions, dependencies, labels, and commit references are also protected.
+- If a task has an active lock owned by another client, reads of that task are rejected. List/search operations omit locked tasks. Task-specific history, versions, dependencies, labels, commit references, external references, and Review history are also protected.
 - A valid lock token is supplied in the request envelope's lock_token field for operations on a task locked by the caller. The raw token is never accepted in command-line arguments.
 - Every successful task-state save creates a new immutable task version and a successful operation-history event in the same transaction.
 - A rejected task operation that reaches the application operation layer is recorded in operation history after the attempted mutation is rolled back. If the store cannot accept the rejection event, the response reports history_record_failed.
@@ -172,7 +172,7 @@ Required:
 Optional:
 - scope: task (default) or project.
 
-Requires the task lock. Active namespace/value pairs are unique within a task for task scope and across the project for project scope. An identical active reference on the same task is a no-op. Reusing an active pair with different relation/scope on the same task returns external_ref_conflict. A project-scoped pair conflicts with any active reference using that pair anywhere in the project; task-scoped pairs may be reused on different tasks. Successful changes create a version and history event atomically.
+Honors task lock ownership; when the task is locked, the caller must supply its valid lock token. Active namespace/value pairs are unique within a task for task scope and across the project for project scope. An identical active reference on the same task is a no-op. Reusing an active pair with different relation/scope on the same task returns external_ref_conflict. A project-scoped pair conflicts with any active reference using that pair anywhere in the project; task-scoped pairs may be reused on different tasks. Successful changes create a version and history event atomically.
 
 ### task.external-ref.list
 
@@ -182,7 +182,7 @@ Required:
 Optional:
 - include_removed: boolean, default false.
 
-Requires read access under the task lock. Returns references ordered by creation time. Removed references are included only when include_removed=true.
+Honors task read exclusion; when the task is locked, only its owner with a valid lock token may read. Returns references ordered by creation time. Removed references are included only when include_removed=true.
 
 ### task.external-ref.remove
 
