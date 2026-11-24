@@ -37,6 +37,8 @@
         "store.verify",
         "store.migrate",
         "store.snapshot",
+        "store.snapshot.verify",
+        "store.snapshot.restore",
         "task.create",
         "task.list",
         "task.get",

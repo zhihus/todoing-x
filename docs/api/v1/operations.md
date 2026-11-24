@@ -29,6 +29,8 @@
 | store.verify | none | deep (boolean, default true) | integrity status and structured diagnostics. |
 | store.migrate | none | dry_run (boolean, default false) | migration report, imported count, warnings; requires legacy store and no active target DB. |
 | store.snapshot | output_path (non-empty string) | overwrite (boolean, default false) | verified snapshot path, byte size, checksum. |
+| store.snapshot.verify | snapshot_path (non-empty string) | expected_sha256 | snapshot integrity, project/schema compatibility, byte size and SHA-256. |
+| store.snapshot.restore | snapshot_path (non-empty string) | expected_sha256 | restored integrity report and retained pre-restore safety snapshot. |
 
 `store.snapshot` requires `output_path` as a non-empty string identifying the destination file. `overwrite` is a boolean and defaults to false; an existing destination is preserved unless it is explicitly set to true.
 
@@ -37,6 +39,10 @@ store.init creates a new project-local store only when no database exists. It va
 store.migrate is non-destructive. It refuses to overwrite an existing database. A dry run validates sources and reports expected actions without activating a database.
 
 store.snapshot uses SQLite Online Backup API. It is rejected while any task lock is active so a client cannot use a snapshot to bypass task read exclusion. The destination must not resolve to the active database path. Existing destination files are not overwritten unless overwrite=true. The snapshot is reopened and integrity-checked before success is returned.
+
+store.snapshot.verify opens the supplied snapshot independently and checks project identity, the exact supported schema, SQLite integrity, foreign keys and SHA-256. Relative paths are resolved from the project root. When expected_sha256 is supplied, it must match the computed digest.
+
+store.snapshot.restore restores the complete store from a verified snapshot using SQLite Online Backup API into the existing database connection; it does not replace the database file. The operation rejects the active database as its source, rejects active task locks, and takes an exclusive SQLite database lock while checking and restoring. Before restore it creates a verified safety snapshot under .todoing/backups/. The safety snapshot is retained after success. If restore or post-restore verification fails, Todoing attempts to restore the safety snapshot before returning the original error. Supplying expected_sha256 is recommended and rejects a mismatched snapshot before any mutation. Restore requires a snapshot with the same project ID and currently supported schema version; automatic downgrade/upgrade is not performed. All Todoing processes must allow the exclusive database lock to be acquired; open readers/writers are blocked by SQLite during restore.
 
 ## 3. Task operations
 

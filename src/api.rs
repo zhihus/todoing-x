@@ -257,6 +257,14 @@ struct SnapshotArgs {
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
+struct SnapshotPathArgs {
+    snapshot_path: String,
+    #[serde(default)]
+    expected_sha256: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct MigrateArgs {
     #[serde(default)]
     dry_run: bool,
@@ -387,6 +395,8 @@ fn execute(request: Request, root: &Path) -> Result<Value, ApiError> {
         "store.verify",
         "store.migrate",
         "store.snapshot",
+        "store.snapshot.verify",
+        "store.snapshot.restore",
         "task.create",
         "task.list",
         "task.get",
@@ -1061,6 +1071,43 @@ fn execute(request: Request, root: &Path) -> Result<Value, ApiError> {
             Ok(
                 json!({"snapshot_path": report.path, "size_bytes": report.size_bytes, "sha256": report.sha256}),
             )
+        }
+        "store.snapshot.verify" => {
+            let args: SnapshotPathArgs = parse_args(request.args).map_err(invalid)?;
+            if args.snapshot_path.trim().is_empty() {
+                return Err(invalid("snapshot_path must not be empty".into()));
+            }
+            let report = store.verify_snapshot(args.snapshot_path).map_err(store_error)?;
+            if let Some(expected) = args.expected_sha256
+                && (!expected.eq_ignore_ascii_case(&report.sha256)
+                    || expected.len() != 64
+                    || !expected.bytes().all(|byte| byte.is_ascii_hexdigit()))
+            {
+                return Err(invalid("expected_sha256 does not match the snapshot".into()));
+            }
+            Ok(json!({
+                "snapshot_path": report.path,
+                "size_bytes": report.size_bytes,
+                "sha256": report.sha256,
+                "integrity": report.integrity
+            }))
+        }
+        "store.snapshot.restore" => {
+            let args: SnapshotPathArgs = parse_args(request.args).map_err(invalid)?;
+            if args.snapshot_path.trim().is_empty() {
+                return Err(invalid("snapshot_path must not be empty".into()));
+            }
+            let report = store
+                .restore_snapshot(args.snapshot_path, args.expected_sha256.as_deref())
+                .map_err(store_error)?;
+            Ok(json!({
+                "restored": report.restored,
+                "safety_snapshot": {
+                    "snapshot_path": report.safety_snapshot.path,
+                    "size_bytes": report.safety_snapshot.size_bytes,
+                    "sha256": report.safety_snapshot.sha256
+                }
+            }))
         }
         other => Err(invalid(format!(
             "Operation '{other}' is not implemented yet"

@@ -94,6 +94,10 @@ enum Commands {
     Verify,
     #[command(about = "Create a verified SQLite snapshot.")]
     Snapshot(SnapshotArgs),
+    #[command(about = "Verify a SQLite snapshot.")]
+    SnapshotVerify(SnapshotVerifyArgs),
+    #[command(about = "Restore the SQLite store from a verified snapshot.")]
+    SnapshotRestore(SnapshotRestoreArgs),
     #[command(about = "Manage optional standard hooks.")]
     Hooks(HooksArgs),
     #[command(name = "__hook", hide = true)]
@@ -303,6 +307,18 @@ struct SnapshotArgs {
     path: PathBuf,
     #[arg(long)]
     overwrite: bool,
+}
+
+#[derive(Args)]
+struct SnapshotVerifyArgs {
+    path: PathBuf,
+}
+
+#[derive(Args)]
+struct SnapshotRestoreArgs {
+    path: PathBuf,
+    #[arg(long)]
+    sha256: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -886,7 +902,9 @@ fn run_legacy(cli: Cli) {
         | Some(Commands::Config)
         | Some(Commands::Migrate(_))
         | Some(Commands::Verify)
-        | Some(Commands::Snapshot(_)) => fail(
+        | Some(Commands::Snapshot(_))
+        | Some(Commands::SnapshotVerify(_))
+        | Some(Commands::SnapshotRestore(_)) => fail(
             "This command requires the SQLite store. Run 'todoing migrate --project-id <id>' first.",
         ),
         None => {}
@@ -1896,6 +1914,28 @@ fn run_sqlite(cli: Cli) {
                 ),
             );
         }
+        Some(Commands::SnapshotVerify(args)) => {
+            let report = context
+                .store
+                .verify_snapshot(args.path)
+                .unwrap_or_else(|error| fail_store(json_output, error));
+            cli_success(
+                json_output,
+                serde_json::to_value(&report).unwrap(),
+                format!("Snapshot verified: {} ({})", report.path.display(), report.sha256),
+            );
+        }
+        Some(Commands::SnapshotRestore(args)) => {
+            let report = context
+                .store
+                .restore_snapshot(args.path, args.sha256.as_deref())
+                .unwrap_or_else(|error| fail_store(json_output, error));
+            cli_success(
+                json_output,
+                serde_json::to_value(&report).unwrap(),
+                format!("Store restored; safety snapshot: {}", report.safety_snapshot.path.display()),
+            );
+        }
         Some(Commands::Hooks(args)) => match args.command {
             HooksCommands::Status => show_hook_status(json_output),
             HooksCommands::Install { hook } => install_hooks(hook, json_output),
@@ -1925,6 +1965,8 @@ fn run() {
             | Some(Commands::Config)
             | Some(Commands::Verify)
             | Some(Commands::Snapshot(_))
+            | Some(Commands::SnapshotVerify(_))
+            | Some(Commands::SnapshotRestore(_))
             | Some(Commands::Version(_))
     );
     let legacy_only = matches!(

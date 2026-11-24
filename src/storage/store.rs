@@ -70,6 +70,20 @@ pub struct SnapshotReport {
     pub sha256: String,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct SnapshotVerificationReport {
+    pub path: PathBuf,
+    pub size_bytes: u64,
+    pub sha256: String,
+    pub integrity: IntegrityReport,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct RestoreReport {
+    pub restored: IntegrityReport,
+    pub safety_snapshot: SnapshotReport,
+}
+
 #[derive(Clone, Debug)]
 pub struct Store {
     root: PathBuf,
@@ -321,6 +335,117 @@ impl Store {
         })
     }
 
+    pub fn verify_snapshot(
+        &self,
+        snapshot_path: impl AsRef<Path>,
+    ) -> Result<SnapshotVerificationReport, StoreError> {
+        let path = resolve_store_path(&self.root, snapshot_path.as_ref())?;
+        let active_database = self.database_path.canonicalize()?;
+        if path == active_database {
+            return Err(StoreError::InvalidTask(
+                "Snapshot verification requires a separate snapshot file".into(),
+            ));
+        }
+        let connection = Connection::open(&path)?;
+        connection.busy_timeout(BUSY_TIMEOUT)?;
+        let integrity = verify_connection(&connection, &self.project_id)?;
+        drop(connection);
+        let (size_bytes, sha256) = file_digest(&path)?;
+        Ok(SnapshotVerificationReport {
+            path,
+            size_bytes,
+            sha256,
+            integrity,
+        })
+    }
+
+    pub fn restore_snapshot(
+        &self,
+        snapshot_path: impl AsRef<Path>,
+        expected_sha256: Option<&str>,
+    ) -> Result<RestoreReport, StoreError> {
+        let source_path = resolve_store_path(&self.root, snapshot_path.as_ref())?;
+        let active_database = self.database_path.canonicalize()?;
+        if source_path == active_database {
+            return Err(StoreError::InvalidTask(
+                "Restore source must differ from the active database".into(),
+            ));
+        }
+
+        let verification = self.verify_snapshot(&source_path)?;
+        if let Some(expected) = expected_sha256
+            && (!expected.eq_ignore_ascii_case(&verification.sha256)
+                || expected.len() != 64
+                || !expected.bytes().all(|byte| byte.is_ascii_hexdigit()))
+        {
+            return Err(StoreError::InvalidTask(
+                "snapshot_checksum_mismatch".into(),
+            ));
+        }
+
+        // Keep a verified pre-restore copy. It remains available after success and
+        // is also the rollback source if the restore operation fails.
+        let backup_dir = self.todoing_dir.join("backups");
+        fs::create_dir_all(&backup_dir)?;
+        let backup_name = format!(
+            "pre-restore-{}-{}.db",
+            Utc::now().format("%Y%m%dT%H%M%S%.6fZ"),
+            std::process::id()
+        );
+        let safety_snapshot = self.snapshot(backup_dir.join(backup_name), false)?;
+
+        let source = Connection::open(&source_path)?;
+        source.busy_timeout(BUSY_TIMEOUT)?;
+        let mut target = self.connection()?;
+
+        // EXCLUSIVE locking mode keeps the database exclusively locked for this
+        // connection's lifetime. This prevents another Todoing process from
+        // writing between the active-lock check and the SQLite backup transaction.
+        target.execute_batch("PRAGMA locking_mode = EXCLUSIVE; BEGIN EXCLUSIVE;")?;
+        let active_locks: i64 = target.query_row(
+            "SELECT COUNT(*) FROM task_locks WHERE state = 'active'",
+            [],
+            |row| row.get(0),
+        )?;
+        if active_locks > 0 {
+            return Err(StoreError::TaskLocked);
+        }
+        target.execute_batch("COMMIT;")?;
+
+        let restore_result = (|| {
+            let backup = Backup::new(&source, &mut target)?;
+            backup.run_to_completion(5, Duration::from_millis(100), None)?;
+            verify_connection(&target, &self.project_id)
+        })();
+
+        let restored = match restore_result {
+            Ok(report) => report,
+            Err(restore_error) => {
+                let rollback_result = (|| {
+                    let safety_source = Connection::open(&safety_snapshot.path)?;
+                    safety_source.busy_timeout(BUSY_TIMEOUT)?;
+                    let backup = Backup::new(&safety_source, &mut target)?;
+                    backup.run_to_completion(5, Duration::from_millis(100), None)?;
+                    verify_connection(&target, &self.project_id)
+                })();
+                if let Err(rollback_error) = rollback_result {
+                    return Err(StoreError::IntegrityCheckFailed(format!(
+                        "Snapshot restore failed ({restore_error}); automatic rollback from {} also failed ({rollback_error})",
+                        safety_snapshot.path.display()
+                    )));
+                }
+                return Err(restore_error);
+            }
+        };
+        drop(target);
+        drop(source);
+
+        Ok(RestoreReport {
+            restored,
+            safety_snapshot,
+        })
+    }
+
     pub fn verify(&self) -> Result<IntegrityReport, StoreError> {
         let connection = self.connection()?;
         let actual_raw = metadata_value(&connection, "project_id")?;
@@ -357,6 +482,35 @@ impl Store {
             schema_version: SCHEMA_VERSION,
         })
     }
+}
+
+fn resolve_store_path(root: &Path, requested: &Path) -> Result<PathBuf, StoreError> {
+    let path = if requested.is_absolute() {
+        requested.to_path_buf()
+    } else {
+        root.join(requested)
+    };
+    Ok(path.canonicalize()?)
+}
+
+fn file_digest(path: &Path) -> Result<(u64, String), StoreError> {
+    let metadata = fs::metadata(path)?;
+    if !metadata.is_file() {
+        return Err(StoreError::InvalidTask(
+            "Snapshot path must identify a regular file".into(),
+        ));
+    }
+    let mut file = File::open(path)?;
+    let mut digest = Sha256::new();
+    let mut buffer = [0u8; 64 * 1024];
+    loop {
+        let read = file.read(&mut buffer)?;
+        if read == 0 {
+            break;
+        }
+        digest.update(&buffer[..read]);
+    }
+    Ok((metadata.len(), hex::encode(digest.finalize())))
 }
 
 fn verify_connection(

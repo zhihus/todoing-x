@@ -357,6 +357,88 @@ fn online_backup_snapshot_is_verified_hashed_and_respects_overwrite_policy() {
 }
 
 #[test]
+fn snapshot_verification_and_restore_round_trip_preserve_store_state() {
+    let root = tempdir().unwrap();
+    let store = Store::initialize(root.path(), project_id()).unwrap();
+    let connection = store.connection().unwrap();
+    connection
+        .execute(
+            "INSERT INTO tasks(title, status_id, created_at, updated_at)
+             VALUES ('before snapshot', 'todo', '2026-11-21T00:00:00Z', '2026-11-21T00:00:00Z')",
+            [],
+        )
+        .unwrap();
+    drop(connection);
+
+    let snapshot = store.snapshot("round-trip.db", false).unwrap();
+    let verified = store
+        .verify_snapshot(&snapshot.path)
+        .unwrap();
+    assert_eq!(verified.sha256, snapshot.sha256);
+    assert_eq!(verified.integrity.integrity_check, "ok");
+
+    store
+        .connection()
+        .unwrap()
+        .execute("UPDATE tasks SET title = 'after snapshot' WHERE task_id = 1", [])
+        .unwrap();
+
+    let restored = store
+        .restore_snapshot(&snapshot.path, Some(&snapshot.sha256))
+        .unwrap();
+    assert_eq!(restored.restored.integrity_check, "ok");
+    assert!(restored.safety_snapshot.path.is_file());
+    let title: String = store
+        .connection()
+        .unwrap()
+        .query_row("SELECT title FROM tasks WHERE task_id = 1", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(title, "before snapshot");
+    assert!(store.verify().is_ok());
+}
+
+#[test]
+fn snapshot_restore_rejects_checksum_mismatch_without_changing_store() {
+    let root = tempdir().unwrap();
+    let store = Store::initialize(root.path(), project_id()).unwrap();
+    let snapshot = store.snapshot("checksum.db", false).unwrap();
+
+    let error = store
+        .restore_snapshot(&snapshot.path, Some(&"0".repeat(64)))
+        .unwrap_err();
+    assert!(matches!(error, StoreError::InvalidTask(message) if message == "snapshot_checksum_mismatch"));
+    assert!(store.verify().is_ok());
+}
+
+#[test]
+fn snapshot_restore_refuses_active_task_locks() {
+    let root = tempdir().unwrap();
+    let store = Store::initialize(root.path(), project_id()).unwrap();
+    let snapshot = store.snapshot("locked-restore.db", false).unwrap();
+    let connection = store.connection().unwrap();
+    connection.execute(
+        "INSERT INTO tasks(title, status_id, created_at, updated_at)
+         VALUES ('locked task', 'todo', '2026-11-21T00:00:00Z', '2026-11-21T00:00:00Z')",
+        [],
+    ).unwrap();
+    connection.execute(
+        "INSERT INTO task_locks(task_id, state, owner_id, token_hash, acquired_at, heartbeat_at, expires_at, fencing_generation)
+         VALUES (1, 'active', 'session-1', zeroblob(32), 1000, 1000, 2000, 1)",
+        [],
+    ).unwrap();
+    drop(connection);
+
+    assert!(matches!(
+        store.restore_snapshot(&snapshot.path, None),
+        Err(StoreError::TaskLocked)
+    ));
+    let title: String = store.connection().unwrap()
+        .query_row("SELECT title FROM tasks WHERE task_id = 1", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(title, "locked task");
+}
+
+#[test]
 fn online_backup_snapshot_refuses_active_task_locks() {
     let root = tempdir().unwrap();
     let store = Store::initialize(root.path(), project_id()).unwrap();
