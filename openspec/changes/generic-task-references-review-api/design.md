@@ -119,6 +119,33 @@ A duplicate idempotent request must not create a second version or counter incre
 Integrity verification must detect missing schema objects, invalid foreign keys,
 and migration checksum mismatch.
 
+## SQLite snapshot verification and restore
+
+Snapshot creation remains the existing SQLite Online Backup API operation.
+Add explicit verification and restore operations without introducing backup
+scheduling, retention, replication, or incremental snapshots.
+
+- `store.snapshot.verify` opens a separate snapshot and validates project
+  identity, the supported schema and migration checksums, SQLite integrity,
+  foreign-key integrity, file size, and SHA-256.
+- `store.snapshot.restore` restores the complete database through SQLite
+  Online Backup API into the existing database connection; it does not replace
+  the database file. The source must be a separate, verified snapshot with the
+  same project ID and supported schema.
+- Restore is rejected while any task lock is active. It acquires an exclusive
+  SQLite lock before checking lock state and keeps that lock through restore.
+- Before mutation, Todoing creates a verified safety snapshot in
+  `.todoing/backups/`. The safety snapshot is retained after success and is
+  used as the rollback source if restore or post-copy integrity verification
+  fails.
+- Restore does not roll back Git or consumer-owned artifacts such as OpenSpec.
+  It restores only the Todoing SQLite store.
+
+The operation is intended for restoring a valid project store to a prior
+verified snapshot. The current database must be openable by Todoing so the
+normal store context can be established; recovery from a database that cannot
+be opened at all remains an offline/manual recovery procedure.
+
 ## Testing strategy
 
 Write tests before implementation for:
@@ -132,7 +159,7 @@ Write tests before implementation for:
 - final commit resolution, no-op, replacement after reopen, and rejection before reopen;
 - transaction rollback at each mutation boundary;
 - schema v2 to v3 migration with existing data;
-- snapshot/verify round-trip;
+- snapshot/verify/restore round-trip, checksum mismatch, active-lock refusal, and safety-snapshot preservation;
 - JSON request/response schemas and stable error codes.
 
 Run the full existing test suite and release build on both Windows and Linux CI.
