@@ -354,7 +354,12 @@ fn reviews_are_immutable_idempotent_and_increment_revision_count_once() {
     assert_eq!(retry["no_op"], true);
     assert_eq!(repository.list_versions(task.id).unwrap().len(), 2);
     assert_eq!(repository.extension_metadata(task.id).unwrap()["revision_count"], 1);
+    let history_before_conflict = repository.get_history(task.id).unwrap().len();
     assert!(repository.review_add(task.id, "review-1", 1, "reviewer-a", "approved", &comments, &actor()).is_err());
+    assert_eq!(repository.get_history(task.id).unwrap().len(), history_before_conflict);
+    let history_before_missing_version = repository.get_history(task.id).unwrap().len();
+    assert!(repository.review_add(task.id, "review-missing", 999, "reviewer-a", "approved", &[], &actor()).is_err());
+    assert_eq!(repository.get_history(task.id).unwrap().len(), history_before_missing_version);
     repository.review_add(task.id, "review-2", 1, "reviewer-b", "approved", &[], &actor()).unwrap();
     assert_eq!(repository.extension_metadata(task.id).unwrap()["revision_count"], 1);
     assert_eq!(repository.review_list(task.id, None, None).unwrap()["reviews"].as_array().unwrap().len(), 2);
@@ -397,12 +402,14 @@ fn task_scoped_references_are_local_and_project_scope_conflicts_across_tasks() {
     repository.external_reference_add(
         first.id, "openspec.change", "change-1", "implements", "project", &actor()
     ).unwrap();
+    let second_history_before_conflict = repository.get_history(second.id).unwrap().len();
     assert!(repository.external_reference_add(
         second.id, "openspec.change", "change-1", "implements", "project", &actor()
     ).is_err());
     assert!(repository.external_reference_add(
         second.id, "openspec.change", "change-1", "implements", "task", &actor()
     ).is_err());
+    assert_eq!(repository.get_history(second.id).unwrap().len(), second_history_before_conflict);
 }
 
 #[test]
