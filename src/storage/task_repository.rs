@@ -2991,7 +2991,7 @@ impl TaskRepository {
         if task.outcome.is_some() { return Err(StoreError::TaskTerminal); }
         if current.is_some() {
             let last_set: Option<i64> = tx.query_row(
-                "SELECT MAX(event_id) FROM operation_history WHERE task_id = ?1 AND operation = 'task.commit.finalize' AND outcome = 'succeeded'",
+                "SELECT MAX(event_id) FROM operation_history WHERE task_id = ?1 AND operation = 'task.commit.finalize' AND outcome = 'succeeded' AND details_json IS NULL",
                 params![task_id.get()], |row| row.get(0)
             )?;
             let reopened_after_set: bool = match last_set {
