@@ -351,7 +351,7 @@ fn reviews_are_immutable_idempotent_and_increment_revision_count_once() {
     assert!(repository.review_add(task.id, "review-1", 1, "reviewer-a", "approved", &comments, &actor()).is_err());
     repository.review_add(task.id, "review-2", 1, "reviewer-b", "approved", &[], &actor()).unwrap();
     assert_eq!(repository.extension_metadata(task.id).unwrap()["revision_count"], 1);
-    assert_eq!(repository.review_list(task.id).unwrap()["reviews"].as_array().unwrap().len(), 2);
+    assert_eq!(repository.review_list(task.id, None, None).unwrap()["reviews"].as_array().unwrap().len(), 2);
 }
 
 #[test]
