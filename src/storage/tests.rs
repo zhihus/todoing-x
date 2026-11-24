@@ -373,7 +373,7 @@ fn opening_a_v1_store_applies_all_migrations_without_changing_existing_tasks() {
 
 
 #[test]
-fn opening_a_v2_store_applies_extensions_migration_and_preserves_existing_tasks() {
+fn opening_a_v2_store_applies_extensions_migration_and_preserves_existing_data() {
     let root = tempdir().unwrap();
     let todoing_dir = root.path().join(".todoing");
     std::fs::create_dir_all(&todoing_dir).unwrap();
@@ -407,10 +407,52 @@ fn opening_a_v2_store_applies_extensions_migration_and_preserves_existing_tasks(
         "INSERT INTO schema_migrations(version, checksum, applied_at) VALUES (2, ?1, ?2)",
         [hex::encode(sha2::Sha256::digest(include_str!("../../migrations/0002_task_archive.sql").as_bytes())), created_at.to_owned()],
     ).unwrap();
+
+    connection.execute(
+        "INSERT INTO tasks(task_id, title, status_id, outcome, body, created_at, updated_at, archived_at, archived_by)
+         VALUES (42, 'legacy v2 task', 'todo', NULL, 'preserved v2 body', ?1, ?1, '2026-11-22T12:00:00Z', 'user:archive')",
+        [created_at],
+    ).unwrap();
     connection.execute(
         "INSERT INTO tasks(task_id, title, status_id, outcome, body, created_at, updated_at)
-         VALUES (42, 'legacy v2 task', 'todo', NULL, 'preserved v2 body', ?1, ?1)",
+         VALUES (43, 'dependent v2 task', 'in_progress', NULL, 'dependent body', ?1, ?1)",
         [created_at],
+    ).unwrap();
+    connection.execute(
+        "INSERT INTO task_labels(task_id, position, label, label_key) VALUES (42, 0, 'Legacy', 'legacy')",
+        [],
+    ).unwrap();
+    connection.execute(
+        "INSERT INTO task_commit_refs(task_id, position, sha) VALUES (42, 0, ?1)",
+        ["0123456789abcdef0123456789abcdef01234567"],
+    ).unwrap();
+    connection.execute(
+        "INSERT INTO task_dependencies(task_id, depends_on_task_id, created_at) VALUES (43, 42, ?1)",
+        [created_at],
+    ).unwrap();
+    connection.execute(
+        "INSERT INTO task_versions(task_id, version_no, snapshot_json, created_at, actor_id)
+         VALUES (42, 1, '{\"title\":\"legacy v2 task\"}', ?1, 'user:legacy')",
+        [created_at],
+    ).unwrap();
+    let version_id: i64 = connection.query_row(
+        "SELECT version_id FROM task_versions WHERE task_id = 42 AND version_no = 1",
+        [],
+        |row| row.get(0),
+    ).unwrap();
+    connection.execute(
+        "INSERT INTO task_baselines(task_id, version_id, approved_at, approved_by) VALUES (42, ?1, ?2, 'user:approver')",
+        rusqlite::params![version_id, created_at],
+    ).unwrap();
+    connection.execute(
+        "INSERT INTO operation_history(task_id, actor_id, occurred_at, operation, outcome)
+         VALUES (42, 'user:legacy', ?1, 'task.create', 'succeeded')",
+        [created_at],
+    ).unwrap();
+    connection.execute(
+        "INSERT INTO task_locks(task_id, state, owner_id, token_hash, acquired_at, heartbeat_at, expires_at, fencing_generation)
+         VALUES (42, 'active', 'legacy-owner', zeroblob(32), 1000, 1000, 2000, 7)",
+        [],
     ).unwrap();
     drop(connection);
 
@@ -419,20 +461,74 @@ fn opening_a_v2_store_applies_extensions_migration_and_preserves_existing_tasks(
     assert_eq!(report.schema_version, 3);
 
     let migrated = store.connection().unwrap();
-    let values: (String, String, i64, Option<String>) = migrated.query_row(
-        "SELECT title, body, revision_count, final_commit_sha FROM tasks WHERE task_id = 42",
+    let task: (String, String, i64, Option<String>, Option<String>, Option<String>) = migrated.query_row(
+        "SELECT title, body, revision_count, final_commit_sha, archived_at, archived_by FROM tasks WHERE task_id = 42",
+        [],
+        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?)),
+    ).unwrap();
+    assert_eq!(task, (
+        "legacy v2 task".into(),
+        "preserved v2 body".into(),
+        0,
+        None,
+        Some("2026-11-22T12:00:00Z".into()),
+        Some("user:archive".into()),
+    ));
+
+    let label: String = migrated.query_row(
+        "SELECT label FROM task_labels WHERE task_id = 42 AND position = 0",
+        [],
+        |row| row.get(0),
+    ).unwrap();
+    assert_eq!(label, "Legacy");
+    let commit_sha: String = migrated.query_row(
+        "SELECT sha FROM task_commit_refs WHERE task_id = 42 AND position = 0",
+        [],
+        |row| row.get(0),
+    ).unwrap();
+    assert_eq!(commit_sha, "0123456789abcdef0123456789abcdef01234567");
+    let dependency: i64 = migrated.query_row(
+        "SELECT depends_on_task_id FROM task_dependencies WHERE task_id = 43",
+        [],
+        |row| row.get(0),
+    ).unwrap();
+    assert_eq!(dependency, 42);
+
+    let baseline_count: i64 = migrated.query_row(
+        "SELECT COUNT(*) FROM task_baselines b JOIN task_versions v
+         ON v.task_id = b.task_id AND v.version_id = b.version_id
+         WHERE b.task_id = 42 AND v.version_no = 1 AND b.approved_by = 'user:approver'",
+        [],
+        |row| row.get(0),
+    ).unwrap();
+    assert_eq!(baseline_count, 1);
+    let history_count: i64 = migrated.query_row(
+        "SELECT COUNT(*) FROM operation_history WHERE task_id = 42 AND operation = 'task.create'",
+        [],
+        |row| row.get(0),
+    ).unwrap();
+    assert_eq!(history_count, 1);
+    let lock: (String, String, i64, i64) = migrated.query_row(
+        "SELECT state, owner_id, length(token_hash), fencing_generation FROM task_locks WHERE task_id = 42",
         [],
         |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
     ).unwrap();
-    assert_eq!(values, ("legacy v2 task".into(), "preserved v2 body".into(), 0, None));
+    assert_eq!(lock, ("active".into(), "legacy-owner".into(), 32, 7));
+
     let migration_count: i64 = migrated.query_row(
         "SELECT COUNT(*) FROM schema_migrations WHERE version = 3",
         [],
         |row| row.get(0),
     ).unwrap();
     assert_eq!(migration_count, 1);
+    let extension_table_count: i64 = migrated.query_row(
+        "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table'
+         AND name IN ('task_external_references', 'task_reviews')",
+        [],
+        |row| row.get(0),
+    ).unwrap();
+    assert_eq!(extension_table_count, 2);
 }
-
 
 #[test]
 fn failed_archive_schema_migration_rolls_back_all_ddl_and_version_changes() {
