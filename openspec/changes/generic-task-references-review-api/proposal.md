@@ -10,8 +10,8 @@ and ordinary Git commit references. It does not provide the generic external lin
 structured Review history with `revision_count`, or an explicit final commit marker
 required by previously approved consumer requirements.
 
-These capabilities must be implemented in Todoing as reusable task-management
-mechanisms. Todoing must remain independent of Manifest, OpenSpec, and any agent
+These capabilities are implemented in Todoing as reusable task-management
+mechanisms. Todoing remains independent of Manifest, OpenSpec, and any agent
 harness.
 
 ## What Changes
@@ -23,7 +23,8 @@ harness.
   new `changes_requested` Review record.
 - Make Review creation idempotent by `review_id`.
 - Add a distinct final Git commit marker, separate from ordinary commit references.
-- Extend JSON API v1 schemas, operation documentation, error catalogue, and tests.\n- Add snapshot verification and full SQLite restore with a retained pre-restore safety snapshot.
+- Extend JSON API v1 schemas, operation documentation, error catalogue, and tests.
+- Add snapshot verification and full SQLite restore with a retained pre-restore safety snapshot.
 - Migrate existing SQLite stores non-destructively to the new schema.
 
 ## Capabilities
