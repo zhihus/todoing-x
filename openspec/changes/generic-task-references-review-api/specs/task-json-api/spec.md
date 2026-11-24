@@ -63,3 +63,24 @@ references. Review history is retrieved through task.review.list.
 
 - **WHEN** a client reads an unlocked task
 - **THEN** the response includes revision_count, final_commit_sha, and active external references
+
+### Requirement: Expose SQLite snapshot verification and restore
+
+The JSON API v1 MUST expose `store.snapshot.verify` and
+`store.snapshot.restore`. Both accept a non-empty `snapshot_path`; an optional
+`expected_sha256` binds the operation to a caller-known digest. Verification
+returns project/schema compatibility, integrity diagnostics, file size, and
+SHA-256. Restore returns the restored integrity report and retained safety
+snapshot metadata.
+
+#### Scenario: Verify a snapshot through the API
+
+- **WHEN** a client invokes `store.snapshot.verify` for a valid snapshot
+- **THEN** the API returns the integrity report and SHA-256
+- **AND** rejects an expected checksum mismatch
+
+#### Scenario: Restore a snapshot through the API
+
+- **WHEN** a client invokes `store.snapshot.restore` with a verified same-project
+  snapshot and no active task locks
+- **THEN** the API restores the complete store and returns safety snapshot metadata
