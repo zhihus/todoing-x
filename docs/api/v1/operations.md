@@ -70,7 +70,7 @@ All locked tasks are omitted entirely from list/search results, including their 
 Required:
 - task_id: positive integer.
 
-Result: current task fields, labels, commit references, dependency IDs, current outcome, current version number, baseline version number if one exists, revision_count, and final_commit_sha.
+Result: current task fields, labels, commit references, dependency IDs, active external references, current outcome, current version number, baseline version number if one exists, revision_count, and final_commit_sha.
 
 A locked task is readable only by its lock owner with a valid lock token. Archived tasks remain readable by ID when not locked, but are omitted from the default task.list result.
 
