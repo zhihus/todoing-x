@@ -256,7 +256,6 @@ fn store_error(error: StoreError) -> ApiError {
         StoreError::InvalidTask(message) if message == "external_ref_not_found" => ("external_ref_not_found", false),
         StoreError::InvalidTask(message) if message == "review_id_conflict" => ("review_id_conflict", false),
         StoreError::InvalidTask(message) if message == "review_version_not_found" => ("review_version_not_found", false),
-        StoreError::InvalidTask(message) if message == "final_commit_reopen_required" => ("final_commit_reopen_required", false),
         StoreError::ProjectIdMismatch { .. } => ("project_id_mismatch", false),
         StoreError::InvalidConfig(_) => ("config_invalid", false),
         StoreError::HistoryRecordFailed(_) => ("history_record_failed", false),
