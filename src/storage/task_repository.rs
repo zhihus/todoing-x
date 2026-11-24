@@ -1366,7 +1366,7 @@ impl TaskRepository {
             params![reference_id, task_id.get(), namespace.trim(), value.trim(), relation.trim(), scope, now],
         )?;
         let after = snapshot_json(&tx, &task)?;
-        record_extension_change(&tx, task_id, actor, "task.external_reference.add", &before, &after, &now)?;
+        record_extension_change(&tx, task_id, actor, "task.external-ref.add", &before, &after, &now)?;
         tx.commit()?;
         Ok(json!({"reference_id": reference_id, "task_id": task_id,
             "namespace": namespace.trim(), "value": value.trim(),
@@ -1419,7 +1419,7 @@ impl TaskRepository {
             params![now, actor.actor_id().as_str(), reference_id, task_id.get()],
         )?;
         let after = snapshot_json(&tx, &task)?;
-        record_extension_change(&tx, task_id, actor, "task.external_reference.remove", &before, &after, &now)?;
+        record_extension_change(&tx, task_id, actor, "task.external-ref.remove", &before, &after, &now)?;
         tx.commit()?;
         Ok(json!({"reference_id": reference_id, "no_op": false}))
     }
@@ -1449,7 +1449,16 @@ impl TaskRepository {
         if let Some((v, r, o, c, a)) = existing {
             if v == version_no && r == reviewer.trim() && o == outcome && c == comments_json && a == actor.actor_id().as_str() {
                 tx.commit()?;
-                return Ok(json!({"review_id": review_id, "task_id": task_id, "version_no": version_no,
+                let revision_count: i64 = tx.query_row(
+                    "SELECT revision_count FROM tasks WHERE task_id = ?1", params![task_id.get()], |row| row.get(0)
+                )?;
+                let task_version_no: i64 = tx.query_row(
+                    "SELECT COALESCE(MAX(version_no), 0) FROM task_versions WHERE task_id = ?1",
+                    params![task_id.get()], |row| row.get(0)
+                )?;
+                tx.commit()?;
+                return Ok(json!({"review_id": review_id, "task_id": task_id, "reviewed_version_no": version_no,
+                    "task_version_no": task_version_no, "revision_count": revision_count,
                     "reviewer": reviewer.trim(), "outcome": outcome, "comments": comments, "no_op": true}));
             }
             return Err(StoreError::InvalidTask("review_id_conflict".into()));
@@ -1472,27 +1481,36 @@ impl TaskRepository {
         }
         let after = snapshot_json(&tx, &task)?;
         record_extension_change(&tx, task_id, actor, "task.review.add", &before, &after, &now)?;
+        let task_version_no = next_version_no(&tx, task_id)? - 1;
+        let revision_count: i64 = tx.query_row(
+            "SELECT revision_count FROM tasks WHERE task_id = ?1", params![task_id.get()], |row| row.get(0)
+        )?;
         tx.commit()?;
-        Ok(json!({"review_id": review_id, "task_id": task_id, "version_no": version_no,
+        Ok(json!({"review_id": review_id, "task_id": task_id, "reviewed_version_no": version_no,
+            "task_version_no": task_version_no, "revision_count": revision_count,
             "reviewer": reviewer.trim(), "outcome": outcome, "comments": comments, "no_op": false}))
     }
 
-    pub fn review_list(&self, task_id: TaskId) -> Result<Value, StoreError> {
+    pub fn review_list(&self, task_id: TaskId, before_record_id: Option<i64>, limit: Option<usize>) -> Result<Value, StoreError> {
+        let limit = limit.unwrap_or(100);
+        if limit == 0 { return Err(StoreError::InvalidTask("limit must be a positive integer".into())); }
         let mut connection = self.store.connection()?;
         let tx = connection.transaction()?;
         self.check_lock(&tx, task_id)?;
         let _task = load_task(&tx, task_id)?;
         let mut statement = tx.prepare(
-            "SELECT review_id, version_no, reviewer, outcome, comments_json, actor_id, created_at
-             FROM task_reviews WHERE task_id = ?1 ORDER BY review_record_id"
+            "SELECT review_record_id, review_id, version_no, reviewer, outcome, comments_json, actor_id, created_at
+             FROM task_reviews WHERE task_id = ?1 AND (?2 IS NULL OR review_record_id < ?2)
+             ORDER BY review_record_id DESC LIMIT ?3"
         )?;
-        let rows = statement.query_map(params![task_id.get()], |row| {
-            let comments: String = row.get(4)?;
+        let rows = statement.query_map(params![task_id.get(), before_record_id, limit as i64], |row| {
+            let comments: String = row.get(5)?;
             let comments: Value = serde_json::from_str(&comments).map_err(|e|
-                rusqlite::Error::FromSqlConversionFailure(4, rusqlite::types::Type::Text, Box::new(e)))?;
-            Ok(json!({"review_id": row.get::<_, String>(0)?, "version_no": row.get::<_, i64>(1)?,
-                "reviewer": row.get::<_, String>(2)?, "outcome": row.get::<_, String>(3)?,
-                "comments": comments, "actor_id": row.get::<_, String>(5)?, "created_at": row.get::<_, String>(6)?}))
+                rusqlite::Error::FromSqlConversionFailure(5, rusqlite::types::Type::Text, Box::new(e)))?;
+            Ok(json!({"record_id": row.get::<_, i64>(0)?, "review_id": row.get::<_, String>(1)?,
+                "version_no": row.get::<_, i64>(2)?, "reviewer": row.get::<_, String>(3)?,
+                "outcome": row.get::<_, String>(4)?, "comments": comments,
+                "actor_id": row.get::<_, String>(6)?, "created_at": row.get::<_, String>(7)?}))
         })?.collect::<Result<Vec<_>, _>>()?;
         drop(statement);
         tx.commit()?;
@@ -1519,7 +1537,7 @@ impl TaskRepository {
         if task.outcome.is_some() { return Err(StoreError::TaskTerminal); }
         if current.is_some() {
             let last_set: Option<i64> = tx.query_row(
-                "SELECT MAX(event_id) FROM operation_history WHERE task_id = ?1 AND operation = 'task.final_commit.set'",
+                "SELECT MAX(event_id) FROM operation_history WHERE task_id = ?1 AND operation = 'task.commit.finalize'",
                 params![task_id.get()], |row| row.get(0)
             )?;
             let reopened_after_set: bool = match last_set {
@@ -1531,14 +1549,14 @@ impl TaskRepository {
                 None => false,
             };
             if !reopened_after_set {
-                return Err(StoreError::InvalidTask("final_commit_reopen_required".into()));
+                return Err(StoreError::TaskTerminal);
             }
         }
         let now = now_string();
         let before = snapshot_json(&tx, &task)?;
         tx.execute("UPDATE tasks SET final_commit_sha = ?1 WHERE task_id = ?2", params![sha, task_id.get()])?;
         let after = snapshot_json(&tx, &task)?;
-        record_extension_change(&tx, task_id, actor, "task.final_commit.set", &before, &after, &now)?;
+        record_extension_change(&tx, task_id, actor, "task.commit.finalize", &before, &after, &now)?;
         tx.commit()?;
         Ok(json!({"task_id": task_id, "final_commit_sha": sha, "no_op": false}))
     }
@@ -1551,8 +1569,20 @@ impl TaskRepository {
             "SELECT revision_count, final_commit_sha FROM tasks WHERE task_id = ?1",
             params![task_id.get()], |row| Ok((row.get(0)?, row.get(1)?))
         )?;
+        let mut statement = tx.prepare(
+            "SELECT reference_id, namespace, value, relation, scope, created_at
+             FROM task_external_references WHERE task_id = ?1 AND removed_at IS NULL
+             ORDER BY created_at, reference_id"
+        )?;
+        let external_references = statement.query_map(params![task_id.get()], |row| Ok(json!({
+            "reference_id": row.get::<_, String>(0)?, "namespace": row.get::<_, String>(1)?,
+            "value": row.get::<_, String>(2)?, "relation": row.get::<_, String>(3)?,
+            "scope": row.get::<_, String>(4)?, "created_at": row.get::<_, String>(5)?
+        })))?.collect::<Result<Vec<_>, _>>()?;
+        drop(statement);
         tx.commit()?;
-        Ok(json!({"revision_count": revision_count, "final_commit_sha": final_commit_sha}))
+        Ok(json!({"revision_count": revision_count, "final_commit_sha": final_commit_sha,
+            "external_references": external_references}))
     }
 
 }
