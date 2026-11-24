@@ -10,7 +10,7 @@ to a full SHA before storing it.
 
 #### Scenario: Set the final commit marker
 
-- **WHEN** a lock owner sets a valid final Git revision for a task without a marker
+- **WHEN** a client sets a valid final Git revision for an unlocked task without a marker or supplies the valid token for its active lock
 - **THEN** Todoing stores the full SHA as the final commit marker
 - **AND** creates a task version and operation-history event atomically
 
