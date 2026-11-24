@@ -348,12 +348,6 @@ fn opening_a_v1_store_applies_all_migrations_without_changing_existing_tasks() {
     let report = store.verify().unwrap();
     assert_eq!(report.schema_version, 3);
 
-    let repository = TaskRepository::new(store.clone(), ProjectConfig::default()).unwrap();
-    let legacy_version_diff = repository.compare_versions(
-        TaskId::new(42).unwrap(), 1, 1
-    ).unwrap();
-    assert!(legacy_version_diff.changes.is_empty());
-
     let migrated = store.connection().unwrap();
     let archive_columns: Vec<String> = {
         let mut statement = migrated.prepare("PRAGMA table_info(tasks)").unwrap();
@@ -481,6 +475,12 @@ fn opening_a_v2_store_applies_extensions_migration_and_preserves_existing_data()
     let store = Store::open(root.path(), Some(&ProjectId::new("task-repository-tests").unwrap())).unwrap();
     let report = store.verify().unwrap();
     assert_eq!(report.schema_version, 3);
+
+    let repository = TaskRepository::new(store.clone(), ProjectConfig::default()).unwrap();
+    let legacy_version_diff = repository.compare_versions(
+        TaskId::new(42).unwrap(), 1, 1
+    ).unwrap();
+    assert!(legacy_version_diff.changes.is_empty());
 
     let migrated = store.connection().unwrap();
     let task: (String, String, i64, Option<String>, Option<String>, Option<String>) = migrated.query_row(
