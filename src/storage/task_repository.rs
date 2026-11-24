@@ -1459,7 +1459,6 @@ impl TaskRepository {
         ).optional()?;
         if let Some((v, r, o, c, a)) = existing {
             if v == version_no && r == reviewer.trim() && o == outcome && c == comments_json && a == actor.actor_id().as_str() {
-                tx.commit()?;
                 let revision_count: i64 = tx.query_row(
                     "SELECT revision_count FROM tasks WHERE task_id = ?1", params![task_id.get()], |row| row.get(0)
                 )?;
