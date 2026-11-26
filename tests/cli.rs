@@ -1139,18 +1139,13 @@ fn delete_always_rejects_physical_deletion_without_reading_stdin() {
 }
 
 #[test]
-fn delete_rejection_preserves_task_regardless_of_confirmation_input() {
+fn delete_rejects_physical_deletion_and_preserves_task() {
     let dir = tempdir().unwrap();
     assert!(run(dir.path(), &["add", "keep me"]).status.success());
 
-    let refused = run_with_input(dir.path(), &["delete", "1"], "n\n");
+    let refused = run(dir.path(), &["delete", "1"]);
     assert!(!refused.status.success());
     assert!(String::from_utf8_lossy(&refused.stderr).contains("Physical deletion is disabled"));
-    assert!(String::from_utf8_lossy(&run(dir.path(), &["ls"]).stdout).contains("keep me"));
-
-    let accepted = run_with_input(dir.path(), &["delete", "1"], "yes\n");
-    assert!(!accepted.status.success());
-    assert!(String::from_utf8_lossy(&accepted.stderr).contains("Physical deletion is disabled"));
     assert!(String::from_utf8_lossy(&run(dir.path(), &["ls"]).stdout).contains("keep me"));
 }
 
@@ -1159,7 +1154,7 @@ fn delete_json_returns_versioned_error_and_preserves_task() {
     let dir = tempdir().unwrap();
     assert!(run(dir.path(), &["add", "json delete"]).status.success());
 
-    let refused = run_with_input(dir.path(), &["delete", "1", "--json"], "n\n");
+    let refused = run(dir.path(), &["delete", "1", "--json"]);
     assert!(!refused.status.success());
     let result: Value = serde_json::from_slice(&refused.stdout).unwrap();
     assert_eq!(result["api_version"], 1);
