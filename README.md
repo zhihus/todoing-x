@@ -154,7 +154,7 @@ The optional bundled `on-create`, `before-done-git`, and `before-done-openspec` 
   hooks/                 # legacy hook launchers
 ```
 
-Commit the project configuration and database according to the project's Git policy. Use verified snapshots for portable backups. Keep the migration report with the project history.
+**Private project data — never commit it.** The entire `.todoing/` directory is local-only and is excluded from Git by Todoing during `init` and `migrate`. It contains the SQLite database, project-specific `config.toml`, legacy task files, migration reports, and snapshots. Do not force-add these files. Keep backups outside the source repository. Todoing refuses initialization or migration if any `.todoing/` path is already tracked.
 
 ## Product direction
 

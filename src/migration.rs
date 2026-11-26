@@ -38,6 +38,7 @@ pub fn migrate(
     actor_id: &ActorId,
     dry_run: bool,
 ) -> Result<MigrationReport, StoreError> {
+    crate::git_safety::protect_private_project_data(root)?;
     let todoing_dir = root.join(TODOING_DIR);
     let database_path = todoing_dir.join("todoing.db");
     if database_path.exists() {

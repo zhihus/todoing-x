@@ -39,9 +39,9 @@ Manifest may consume Todoing through its public CLI/JSON contract and apply its 
 - Each project has its own Todoing task store.
 - An agent operates on the task store belonging to its current project.
 - A central task database shared by unrelated projects is out of scope for the MVP.
-- Todoing is local-first; Git may version project data, but Git is not the transaction manager or backup system.
+- Git versions only Todoing application source, specifications, tests, and documentation. Project task data is private local data and MUST NOT enter any Git repository.
 - Todoing must preserve data integrity independently of whether the project is under Git.
-- Each project has its own .todoing/todoing.db store. Human CLI initialization uses todoing init and generates a project ID when --project-id is omitted. JSON API initialization uses store.init with an explicit project_id; every later API request must provide that same ID, which Todoing verifies against database metadata. The consuming framework owns the stable ID. A project ID is a namespace guard, not an authentication credential.
+- Each project has its own private `.todoing/` directory, excluded from Git. It contains the database, user configuration, legacy source data, migration reports, and snapshots. Human CLI initialization uses `todoing init` and generates a project ID when `--project-id` is omitted. JSON API initialization uses store.init with an explicit project_id; every later API request must provide that same ID, which Todoing verifies against database metadata. The consuming framework owns the stable ID. A project ID is a namespace guard, not an authentication credential.
 
 ## 4. Task lifecycle and status configuration
 
@@ -157,7 +157,7 @@ Deferred capabilities include generic lifecycle events/hooks, automatic archival
 5. A task lock is exclusive for the full work session.
 6. Status configuration is user-controlled; no hard-coded Manifest workflow.
 7. Machine interfaces are stable, versioned contracts.
-8. Git is useful for traceability but is not a database transaction or backup mechanism.
+8. Git contains application development files only; all project task data remains local and is never committed.
 9. Undecided technical choices remain explicitly undecided until investigated and approved.
 
 

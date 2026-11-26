@@ -17,6 +17,7 @@ pub fn initialize(
     root: &Path,
     requested_project_id: Option<ProjectId>,
 ) -> Result<InitializationReport, StoreError> {
+    crate::git_safety::protect_private_project_data(root)?;
     let todoing_dir = root.join(TODOING_DIR);
     fs::create_dir_all(&todoing_dir)?;
 
