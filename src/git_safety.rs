@@ -12,8 +12,7 @@ const PRIVATE_DATA_IGNORE_RULE: &str = "/.todoing/";
 pub(crate) fn protect_private_project_data(root: &Path) -> Result<(), StoreError> {
     let inside_worktree = match git(root, ["rev-parse", "--is-inside-work-tree"]) {
         Ok(output) => {
-            output.status.success()
-                && String::from_utf8_lossy(&output.stdout).trim() == "true"
+            output.status.success() && String::from_utf8_lossy(&output.stdout).trim() == "true"
         }
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => false,
         Err(error) => return Err(StoreError::Io(error)),
@@ -55,10 +54,7 @@ pub(crate) fn protect_private_project_data(root: &Path) -> Result<(), StoreError
     Ok(())
 }
 
-fn git<const N: usize>(
-    root: &Path,
-    args: [&str; N],
-) -> std::io::Result<std::process::Output> {
+fn git<const N: usize>(root: &Path, args: [&str; N]) -> std::io::Result<std::process::Output> {
     Command::new("git").arg("-C").arg(root).args(args).output()
 }
 
@@ -115,10 +111,13 @@ mod tests {
         let ignore = fs::read_to_string(root.path().join(".gitignore")).unwrap();
         assert!(ignore.lines().any(|line| line == PRIVATE_DATA_IGNORE_RULE));
         assert!(
-            git(root.path(), ["check-ignore", "--quiet", ".todoing/todoing.db"])
-                .unwrap()
-                .status
-                .success()
+            git(
+                root.path(),
+                ["check-ignore", "--quiet", ".todoing/todoing.db"]
+            )
+            .unwrap()
+            .status
+            .success()
         );
     }
 
