@@ -164,3 +164,7 @@ The target requirements, accepted decisions, preliminary choices, and open archi
 - [Architecture decision register](docs/architecture/decisions.md)
 
 A feature is not considered complete until its corresponding OpenSpec tasks and cross-platform checks are complete.
+
+## Development and publication
+
+Todoing is developed as an independent product. Local development may use multiple branches and local-only supporting files; only reviewed, distilled product changes are published from `main`. See [project boundaries and publication rules](docs/project-boundaries-and-publication.md). Agent entry rules are in [AGENTS.md](AGENTS.md).
