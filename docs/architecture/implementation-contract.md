@@ -361,6 +361,7 @@ The request and response envelopes are specified in docs/api/v1/request.schema.j
 | config_invalid | Status configuration is invalid. |
 | task_not_found | Task ID does not exist. |
 | task_terminal | Task already has a completed/cancelled outcome and must be reopened first. |
+| task_archived | Task is archived; ordinary mutations and new lock acquisition are rejected until restored. |
 | task_locked | Task is locked by another client. |
 | lock_expired | Lock lease expired. |
 | stale_lock | Owner/token/fencing generation is no longer valid. |
@@ -374,6 +375,13 @@ The request and response envelopes are specified in docs/api/v1/request.schema.j
 | io_error | Filesystem or persistence operation failed. |
 | history_record_failed | Rejected operation could not be appended to history. |
 | internal_error | Unexpected failure; no implementation details leaked. |
+| external_ref_conflict | An active external reference reuses the same namespace/value pair with a different relation or scope. |
+| external_ref_not_found | External reference ID does not exist. |
+| review_id_conflict | A Review reuses an existing review_id with a different payload. |
+| review_version_not_found | The reviewed task version does not exist. |
+| store_already_initialized | A store already exists; re-initialization is rejected. |
+| migration_required | The project has legacy data that must be migrated before initialization. |
+| snapshot_checksum_mismatch | Snapshot digest does not match the expected SHA-256 checksum. |
 
 ### Process exit codes
 

@@ -1197,7 +1197,11 @@ fn api_exit_code(code: &str) -> i32 {
         | "dependency_cycle"
         | "external_ref_conflict"
         | "review_id_conflict" => 4,
-        "io_error" | "store_corrupt" | "store_busy" | "history_record_failed" => 5,
+        "io_error"
+        | "store_corrupt"
+        | "store_busy"
+        | "history_record_failed"
+        | "snapshot_checksum_mismatch" => 5,
         "migration_conflict" | "store_already_initialized" => 6,
         _ => 70,
     }
@@ -1926,6 +1930,7 @@ mod contract_tests {
         assert_eq!(api_exit_code("review_version_not_found"), 3);
         assert_eq!(api_exit_code("external_ref_conflict"), 4);
         assert_eq!(api_exit_code("review_id_conflict"), 4);
+        assert_eq!(api_exit_code("snapshot_checksum_mismatch"), 5);
         assert_eq!(api_exit_code("internal_error"), 70);
     }
 
