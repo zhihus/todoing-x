@@ -119,3 +119,12 @@ This section records static repository inspection. It does not claim that tests 
 - The existing application test suite, release build, installation, and binary smoke test also passed on both platforms after restoring missing Clap argument type definitions used by the existing hooks commands.
 - These results validate the prototype scenarios only. The production storage layer, full lease protocol, migration, version/history implementation, and API are not yet implemented.
 - SQLite, rollback-journal mode, rusqlite bundled, TOML configuration, and JSON API v1 are selected for the MVP implementation baseline.
+
+
+## 9. Private data boundary (accepted)
+
+- The Git repository contains Todoing application source, tests, specifications, and documentation only.
+- All project task data is private and local: the complete `.todoing/` directory, including SQLite databases, project configuration, legacy files, migration reports, and snapshots.
+- `.todoing/` MUST be ignored by Git. `init` and `migrate` MUST refuse to proceed if any path under it is already tracked, and MUST verify the ignore rule before creating or activating the store.
+- Todoing does not synchronize task data to GitHub, online databases, or other projects. No hybrid/offline replication mode is provided.
+- Existing tracked private files are never automatically untracked or erased. The user must remove them from the index and assess repository history.

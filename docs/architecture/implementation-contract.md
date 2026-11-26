@@ -456,3 +456,12 @@ No async runtime, HTTP framework, ORM, or external database service is required.
 8. Add CLI commands and JSON API v1 schemas/contract tests.
 9. Add non-destructive migration and snapshot backup.
 10. Verify cross-platform tests and update current-behavior specs only after implementation is actually present and tested.
+
+
+## 12. Private project data and Git boundary
+
+The `.todoing/` directory is private, project-local runtime data. It MUST be excluded from Git in every consuming project. It contains the SQLite database, user-edited `config.toml`, legacy task files and index, migration reports, and snapshots. None of these files may be committed, pushed, or replicated through the application repository.
+
+Before `init` creates the directory or `migrate` reads or writes it, Todoing checks whether the project root is inside a Git worktree. If so, it refuses to continue when any `.todoing/` path is already tracked, ensures the project-root `.gitignore` contains `/.todoing/`, and verifies the ignore rule with Git. It never automatically removes tracked files from the index or rewrites history. The user must remove already-tracked private files from the index and review any published history before retrying.
+
+Git ignore rules prevent ordinary accidental staging; they are not a security boundary against deliberate `git add -f`. Consumers must never force-add private data. Todoing does not synchronize task data to GitHub or any online database.

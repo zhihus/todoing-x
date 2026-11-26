@@ -1,8 +1,8 @@
 pub mod api;
 pub mod config;
 pub mod domain;
-pub mod initialization;
 mod git_safety;
+pub mod initialization;
 pub mod migration;
 pub mod storage;
 

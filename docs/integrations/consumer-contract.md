@@ -127,3 +127,8 @@ The following are not inferred by Todoing and must be resolved by each consuming
 - Backup destination, retention, and replication policy.
 
 No consumer-specific behavior should be added to Todoing core to resolve these questions.
+
+
+## Private data and repository boundary
+
+The consumer's complete `.todoing/` directory is private local data. It MUST NOT be committed or synchronized through the consumer's Git repository. This includes `todoing.db`, `config.toml`, legacy task files, migration reports, and snapshots. Todoing adds a `/.todoing/` ignore rule and refuses `init` or `migrate` when any path under `.todoing/` is already tracked. Consumers must not bypass the ignore rule with force-add operations. Backup destinations must remain outside Git repositories.
