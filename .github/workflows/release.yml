@@ -1,0 +1,104 @@
+name: Release build
+
+# Builds release artifacts on each supported platform's native runner and
+# attaches them to a DRAFT GitHub Release. It never publishes a release,
+# never creates or pushes tags, and never pushes commits. Publishing the draft
+# is a separate, manual, explicitly-approved step (see release/RELEASE.md).
+#
+# Triggers:
+#   - workflow_dispatch (manual) with a version and optional notes.
+#   - push of a v* tag (builds and refreshes the draft release for that tag).
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version (must match Cargo.toml)"
+        required: true
+      notes:
+        description: "Brief changelog for the release manifest"
+        required: false
+        default: "Release build."
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+          - os: ubuntu-latest
+          - os: macos-latest
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@1.96.0
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Sanity checks
+        run: |
+          cargo fmt --check
+          cargo clippy --all-targets -- -D warnings
+
+      - name: Build release artifacts (bash)
+        if: runner.os != 'Windows'
+        run: |
+          chmod +x release/*.sh
+          bash release/build.sh --notes "${{ github.event.inputs.notes || 'Release build.' }}"
+
+      - name: Build release artifacts (PowerShell)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $notes = $env:NOTES
+          if (-not $notes) { $notes = "Release build." }
+          [Environment]::SetEnvironmentVariable("NOTES", $notes)
+          ./release/build.ps1 -Notes $notes
+
+      - name: Set notes env for bash builds
+        if: runner.os != 'Windows'
+        run: echo "NOTES=${{ github.event.inputs.notes || 'Release build.' }}" >> "$GITHUB_ENV"
+
+      - name: Upload artifacts to workflow
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ runner.os }}-${{ runner.arch }}
+          path: release/dist/
+
+  # Aggregate the per-platform artifacts into a single draft release.
+  # Runs only when a tag is present (so a version/tag exists to attach to).
+  publish-draft:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts/
+      - name: Create/refresh DRAFT release (never published)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF#refs/tags/}"
+          # Collect every dist/<version>/<platform-arch> directory.
+          for d in artifacts/release-*/release/dist/*/*/; do
+            [ -d "$d" ] || continue
+            while IFS= read -r -d '' f; do
+              gh release view "$TAG" >/dev/null 2>&1 || \
+                gh release create "$TAG" --draft --title "Todoing ${TAG#v}" --notes "Draft release. Review before publishing."
+              gh release upload "$TAG" "$f" --clobber
+            done < <(find "$d" -maxdepth 1 -type f -print0)
+          done
+          echo "Draft release '$TAG' refreshed. Publish it manually after review."
