@@ -1,134 +1,49 @@
 # External Consumer Integration Contract
 
-**Status:** Current public integration contract for external orchestrators and project tools.
-**Scope:** Generic consumer integration. Todoing remains standalone and contains no consumer-specific workflow policy.
+**Scope:** Generic contract for external orchestrators. Todoing stays consumer-agnostic.
 
-## 1. Responsibility boundary
+## 1. Responsibility
+**Todoing:** per-project SQLite store; configurable statuses/transitions; tasks, dependencies, immutable versions and append-only history; lease/fencing locks; CLI and JSON API v1; generic external refs, append-only Reviews, revision counters, final Git commit marker; verified snapshots.
 
-### Todoing provides
+**Consumer:** project identity/selection; agent roles, sequencing and model; user approval and completion policy; OpenSpec/Git/review rules; cross-system checks; actor authentication and lock-token custody; backup destination/retention/replication.
 
-- One local SQLite task store per project.
-- Configurable workflow statuses and permitted transitions.
-- Task state, dependencies, immutable versions, append-only operation history, and approval baselines.
-- Exclusive task locks with leases and fencing generations.
-- CLI and versioned JSON API v1.
-- Generic external references, append-only Review records, revision counters, and a distinct final Git commit marker.
-- Ordinary Git commit references as task traceability metadata.
-- Verified SQLite snapshots.
+Todoing does not parse OpenSpec, authenticate actors or enforce consumer workflow/role policy. Integrations and checks are optional and consumer-configured.
 
-### The consuming workflow owns
+## 2. Project isolation and bootstrap
+Each project has its own `.todoing/todoing.db`; no central multi-project store.
+- CLI: `todoing init [--project-id ID]`. CLI generates an ID if omitted; orchestrators should supply a stable ID.
+- API: `store.init` with `api_version=1`, `project_id`, `actor_id`, `operation`, `args`.
+- Every request must use the same project ID; mismatch with DB metadata is rejected. ID is a namespace guard, not authentication.
+- Never initialize over legacy Markdown task data; use non-destructive migration.
 
-- Stable project identity and project selection.
-- Agent orchestration, role assignment, sequencing, and model selection.
-- User approval and project-specific completion policy.
-- OpenSpec workflow and Git branch/commit/review policy.
-- Consistency checks across Todoing, OpenSpec, Git, and other connected components.
-- Actor authentication and secure handling of lock tokens.
-- Snapshot destination, retention, and replication.
+## 3. JSON API v1
+One request per `todoing api` process. Required envelope: `api_version`, `project_id`, `actor_id`, `operation`, `args`; optional: `request_id`, `lock_token`.
+One JSON response goes to stdout; diagnostics to stderr. Supplied `request_id` is echoed. Errors have stable codes and non-zero exit codes.
 
-Todoing does not parse OpenSpec, decide Git workflow, authenticate actors, or enforce a consumer's role policy. Integrations are optional; a consumer runs checks only for components it has connected and configured.
+`actor_id` is history attribution, not authentication. The consumer owns identity/trust. Normative operations and schemas: `docs/api/v1/` and `../api/v1/operations.md`.
 
-## 2. Project initialization and isolation
+## 4. Statuses and outcomes
+Definitions/transitions live in `.todoing/config.toml` (TOML v1). The project controls IDs, labels, order, enabled state and transitions; Todoing imposes no consumer-specific status set or automatic sync.
+Disabled statuses remain in history but cannot be newly selected. Outcome (`completed|cancelled`) is distinct from status. Consumer owns status mapping; Todoing must not infer it from names/labels.
 
-Each project has its own .todoing/todoing.db database. There is no central multi-project task database.
+## 5. Exclusive locks
+For an exclusive agent session: acquire → retain owner ID/token/fencing generation → pass `lock_token` in API envelope → heartbeat → release.
+- Token is returned once; only its SHA-256 is stored. Keep it secret; never put it in task content, logs, CLI args or Git. CLI reads `TODOING_LOCK_TOKEN`.
+- While locked, task-scoped reads/writes (including history, versions, refs and Reviews) require the owner token; non-owners are rejected without protected data. `task.list/search` omit locked tasks.
+- Expiry does not transfer ownership automatically. Recovery is explicit; fencing blocks former owners.
+- Actor ID is attribution only. Consumer protects credentials and controls which process may act as owner.
 
-For a new project, a human can initialize the store with:
+## 6. References, Reviews, Git and snapshots
+- **External refs:** `task.external-ref.add/list/remove`; typed namespace/value/relation with task or project scope. Active uniqueness applies within scope. Removal deactivates but preserves history; identical retries are no-ops.
+- **Reviews:** `task.review.add/list`; append-only, linked to immutable task versions. Review ID is unique per task; identical retry is a no-op, conflicting payload rejected. Each accepted `changes_requested` increments `revision_count` once; `approved` does not. Consumer defines approval policy.
+- **Git:** `task.commit.add` stores traceability refs. `task.commit.finalize` resolves a revision to full SHA and records one final marker. Same SHA retry is a no-op; replacement requires reopening the task. A commit is not proof of completion; branch/review/merge policy belongs to consumer.
+- **Snapshots:** `store.snapshot` creates a consistent SQLite backup. `store.snapshot.verify` checks project identity, supported schema, SQLite/FK integrity, size and SHA-256; mismatch returns `snapshot_checksum_mismatch`. `store.snapshot.restore` restores a verified same-project snapshot via SQLite Online Backup API; digest mismatch fails before mutation. Create/restore are rejected while any task lock is active. Restore takes an exclusive DB lock, retains a verified pre-restore backup in `.todoing/backups/`, and rolls back from it if verification fails. Restore affects Todoing SQLite only, not Git/OpenSpec/consumer artifacts. Consumer owns destination and retention. Never copy the live DB as a substitute.
 
-```bash
-todoing init
-todoing init --project-id my-project
-```
+## 7. Hooks and cross-system checks
+SQLite does not run legacy Markdown completion hooks. No generic lifecycle event delivery, ordering, retry or failure guarantees exist. Consumers must not rely on Todoing hooks; their own configured checks and consistency across Todoing, OpenSpec, Git and other systems remain consumer-owned.
 
-The CLI generates a random project ID when the option is omitted. A consuming orchestrator should own a stable project ID and pass it explicitly.
+## 8. Consumer decisions
+Where relevant, each consumer must define: status mapping; actor authentication/trust; secure lock-token custody; task-ID/external-ID relationship; any future event requirements; backup destination/retention/replication. Do not add consumer-specific policy to Todoing core.
 
-The JSON API initializes a project through store.init:
-
-```json
-{
-  "api_version": 1,
-  "project_id": "my-project",
-  "actor_id": "orchestrator",
-  "operation": "store.init",
-  "args": {}
-}
-```
-
-Every subsequent API request MUST include the same project_id. Todoing compares it with database metadata and rejects a mismatch. The project ID is a namespace guard, not an authentication credential.
-
-Do not call init over legacy Markdown task data. Todoing refuses this case and directs the caller to the non-destructive migration operation.
-
-## 3. JSON API request model
-
-API v1 processes one JSON request per todoing api process:
-
-- Required envelope fields: api_version, project_id, actor_id, operation, args.
-- Optional fields: request_id and lock_token.
-- request_id is echoed unchanged when supplied.
-- One JSON response is written to stdout. Diagnostics go to stderr.
-- Errors contain a stable machine-readable code and are accompanied by a non-zero process exit code.
-
-actor_id is attribution recorded in history; it is not authentication. A consuming orchestrator is responsible for its own trust and identity model.
-
-The normative operation list and argument/result contracts are in ../api/v1/operations.md. Request and response schemas are in ../api/v1/.
-
-## 4. Workflow status and outcomes
-
-Status definitions and transitions are stored in .todoing/config.toml using TOML format version 1.
-
-- Status IDs, display labels, ordering, enabled state, and permitted transitions are project-controlled.
-- Todoing does not impose a consumer-specific status set and does not automatically synchronize status definitions.
-- A consumer may provide a recommended configuration, but applying or changing it is an explicit project configuration action.
-- A disabled status remains visible in historical task data but cannot be selected for new transitions.
-- Task outcome (completed or cancelled) is distinct from workflow status. Explicit completion/cancellation operations can set an outcome without changing status.
-
-Status mapping between a consumer's workflow and Todoing's configurable statuses is a consumer-side decision. Todoing must not infer a mapping from labels or status names.
-
-## 5. Exclusive task locks
-
-A consumer that requires exclusive ownership for an agent work session should:
-
-1. Acquire a task lock.
-2. Keep the returned owner ID, lock token, and fencing generation.
-3. Supply lock_token in the JSON API request envelope for owner operations.
-4. Renew the lease with heartbeat while work continues.
-5. Release the lock at the end of the session.
-
-The raw token is returned once and only its SHA-256 hash is stored by Todoing. Consumers must keep it secret and must not place it in task content, logs, command-line arguments, or Git. For CLI owner operations, the token is read from TODOING_LOCK_TOKEN.
-
-While a task is locked, task.get and task-scoped reads/writes (including history, versions, external references, and Review records) require the valid owner token; non-owner requests are rejected without disclosing protected data. task.list/search omit locked tasks. Unlocked tasks may be read or changed without a token. Recovery is explicit; an expired lock does not silently grant ownership. Fencing generations prevent a former owner from resuming after recovery.
-
-Todoing's local actor ID is attribution only. The consumer remains responsible for protecting credentials and deciding which process may act as an owner.
-
-## 6. External references, Review history, Git, and snapshots
-
-`task.external-ref.add/list/remove` store generic typed references such as OpenSpec Change IDs or issue identifiers. Each reference has a namespace, value, relation, and task/project scope. Active uniqueness is enforced within the selected scope; removal marks a reference inactive and preserves its history. Identical retries are no-ops.
-
-`task.review.add/list` persist append-only Review records linked to immutable task versions. A Review ID is unique within a task; an identical retry is a no-op and a conflicting payload is rejected. Each newly accepted `changes_requested` record increments `revision_count` exactly once; `approved` does not. Todoing does not decide whether a review outcome satisfies a consumer's approval policy.
-
-`task.commit.add` stores ordinary Git commit references as traceability metadata. `task.commit.finalize` resolves a supplied Git revision to a full commit SHA and stores one explicit final commit marker. Repeating the same SHA is a no-op; replacing it requires reopening the task after the prior assignment. A linked or final commit is not proof of completion, and Todoing does not enforce branch, commit, review, or merge policy.
-
-store.snapshot creates a consistent SQLite snapshot. `store.snapshot.verify` checks a supplied snapshot's project identity, supported schema, SQLite and foreign-key integrity, size, and SHA-256; an expected digest mismatch returns `snapshot_checksum_mismatch`. `store.snapshot.restore` restores the entire Todoing store from a verified same-project snapshot through SQLite Online Backup API; a supplied digest mismatch returns `snapshot_checksum_mismatch` before mutation. Snapshot creation and restore are rejected while any task lock is active. Restore holds an exclusive SQLite lock, creates and retains a verified pre-restore safety snapshot under `.todoing/backups/`, and attempts rollback from it if restore verification fails. Restore affects only Todoing SQLite; it does not roll back Git, OpenSpec, or consumer-owned artifacts. The consumer chooses snapshot destination and owns retention, replication, and backup scheduling. Copying the live database file is not a substitute for the snapshot operation.
-
-## 7. Events, hooks, and cross-component checks
-
-The SQLite backend does not execute the legacy Markdown completion hooks. A generic lifecycle event API is deferred; no delivery, ordering, retry, or failure semantics are currently promised.
-
-A consumer must not depend on Todoing hooks for correctness. It may run its own configured checks before or after Todoing operations. Cross-component consistency among tasks, OpenSpec artifacts, Git branches/commits, and other connected systems belongs to the consumer, not to Todoing.
-
-## 8. Explicitly unresolved consumer decisions
-
-The following are not inferred by Todoing and must be resolved by each consuming workflow where relevant:
-
-- Mapping between consumer workflow states and Todoing status IDs.
-- Actor authentication and trust boundaries.
-- Secure lock-token custody across processes and sessions.
-- Any relationship between Todoing task IDs and external specification/work-item identifiers.
-- Event delivery semantics, if a concrete use case later justifies a generic event mechanism.
-- Backup destination, retention, and replication policy.
-
-No consumer-specific behavior should be added to Todoing core to resolve these questions.
-
-
-## Private data and repository boundary
-
-The consumer's complete `.todoing/` directory is private local data. It MUST NOT be committed or synchronized through the consumer's Git repository. This includes `todoing.db`, `config.toml`, legacy task files, migration reports, and snapshots. Todoing adds a `/.todoing/` ignore rule and refuses `init` or `migrate` when any path under `.todoing/` is already tracked. Consumers must not bypass the ignore rule with force-add operations. Backup destinations must remain outside Git repositories.
+## Private data
+The entire `.todoing/` directory is private local data and must never be committed or synchronized: DB, config, legacy tasks, migration reports and snapshots. Todoing adds `/.todoing/` to Git ignore and rejects `init/migrate` if any path below it is tracked. Never force-add it; keep backups outside Git repositories.
