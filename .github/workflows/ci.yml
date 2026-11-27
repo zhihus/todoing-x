@@ -39,6 +39,112 @@ jobs:
             target/install-check/bin/todoing version
           fi
 
+  release-packaging:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: \${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@1.96.0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build release artifacts (Ubuntu)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          chmod +x release/*.sh
+          bash release/build.sh --notes "CI verification only."
+
+      - name: Build release artifacts (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./release/build.ps1 -Notes "CI verification only."
+
+      - name: Verify portable archive contents and provenance
+        shell: bash
+        run: |
+          python - <<'PY'
+          import hashlib
+          import json
+          import os
+          import zipfile
+          from pathlib import Path
+
+          dist = Path("release/dist")
+          manifests = list(dist.glob("*/*/*-release-manifest.json"))
+          if len(manifests) != 1:
+              raise SystemExit(f"Expected exactly one release manifest, found {len(manifests)}")
+
+          manifest_path = manifests[0]
+          manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+          platform = {"Linux": "linux", "Windows": "windows"}.get(os.environ["RUNNER_OS"])
+          arch = {"X64": "x64", "ARM64": "arm64"}.get(os.environ["RUNNER_ARCH"])
+          if not platform or not arch:
+              raise SystemExit("Unsupported CI runner platform or architecture")
+
+          expected_dir = f"{manifest['version']}/{platform}-{arch}"
+          if manifest_path.parent.relative_to(dist).as_posix() != expected_dir:
+              raise SystemExit("Manifest directory does not match version/platform/architecture")
+          if (manifest["platform"], manifest["arch"]) != (platform, arch):
+              raise SystemExit("Manifest platform/architecture does not match runner")
+          if manifest["source_commit"] != os.popen("git rev-parse HEAD").read().strip():
+              raise SystemExit("Manifest source commit does not match checked-out commit")
+
+          artifact_dir = manifest_path.parent
+          binary = artifact_dir / manifest["binary"]
+          portable = artifact_dir / manifest["portable"]
+          binary_hash = hashlib.sha256(binary.read_bytes()).hexdigest()
+          portable_hash = hashlib.sha256(portable.read_bytes()).hexdigest()
+          if binary_hash != manifest["binary_sha256"].lower():
+              raise SystemExit("Binary SHA256 does not match manifest")
+          if portable_hash != manifest["portable_sha256"].lower():
+              raise SystemExit("Portable ZIP SHA256 does not match manifest")
+
+          for sidecar_name, expected_hash, expected_file in (
+              (manifest["sha256_file"], binary_hash, manifest["binary"]),
+              (manifest["portable"].removesuffix(".zip") + ".sha256", portable_hash, manifest["portable"]),
+          ):
+              fields = (artifact_dir / sidecar_name).read_text(encoding="ascii").split()
+              if len(fields) != 2 or fields[0].lower() != expected_hash or fields[1] != expected_file:
+                  raise SystemExit(f"Invalid SHA256 sidecar: {sidecar_name}")
+
+          expected_root = f"todoing-{manifest['version']}-{platform}-{arch}-portable/"
+          expected_members = {
+              expected_root + ("todoing.exe" if platform == "windows" else "todoing"),
+              expected_root + "README.md",
+              expected_root + "VERSION.txt",
+          }
+          with zipfile.ZipFile(portable) as archive:
+              names = archive.namelist()
+              if len(names) != len(set(names)) or set(names) != expected_members:
+                  raise SystemExit(f"Unexpected portable archive contents: {names}")
+              if archive.testzip() is not None:
+                  raise SystemExit("Portable ZIP CRC check failed")
+              packaged_binary = archive.read(expected_root + ("todoing.exe" if platform == "windows" else "todoing"))
+              if hashlib.sha256(packaged_binary).hexdigest() != binary_hash:
+                  raise SystemExit("Packaged executable differs from release binary")
+              version_txt = archive.read(expected_root + "VERSION.txt").decode("utf-8-sig")
+              if manifest["source_commit"] not in version_txt or manifest["version"] not in version_txt:
+                  raise SystemExit("Portable VERSION.txt provenance is incomplete")
+
+          print(f"PASS: {manifest['version']} {platform}-{arch} release package verified")
+          PY
+
+      - name: Upload verified CI artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-\${{ runner.os }}-\${{ runner.arch }}
+          path: release/dist/
+          if-no-files-found: error
+          retention-days: 7
+
   sqlite-lock-spike:
     strategy:
       fail-fast: false
