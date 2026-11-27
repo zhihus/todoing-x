@@ -19,10 +19,12 @@ output. `--skip-build` reuses `target/release`.
 Both must pass.
 
 GitHub Actions:
-- Manual **Run workflow**: validate version, build Windows/Linux/macOS and upload
-  workflow artifacts only. No tag or GitHub Release is created.
-- Push `v<VERSION>`: validate the tag against `Cargo.toml`, build all runners and
-  create/refresh a **draft** GitHub Release. It is never published automatically.
+- Manual **Run workflow**: validate version, build Windows and Ubuntu artifacts,
+  and upload workflow artifacts only. No tag or GitHub Release is created.
+- Push `v<VERSION>`: validate the tag against `Cargo.toml`, build Windows and
+  Ubuntu artifacts, and create/refresh a **draft** GitHub Release. It is never
+  published automatically.
+- macOS builds and native verification are deferred roadmap work.
 
 Publish only after explicit approval and review of every platform artifact,
 manifest and checksum. Publish the draft manually; never distribute an unverified build.
