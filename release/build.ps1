@@ -144,15 +144,16 @@ $manifest | ConvertTo-Json -Depth 5 | Set-Content -Path (Join-Path $Out $Manifes
 Remove-Item $Stage -Recurse -Force
 
 Write-Host ""
-Write-Host ">> artifacts in $Out:"
+Write-Host ">> artifacts in ${Out}:"
 Get-ChildItem $Out -Name
 Write-Host ""
 Write-Host ">> running checks"
 $bash = Get-Command bash -ErrorAction SilentlyContinue
 if ($bash) {
   & bash "release/check-artifacts.sh" $Out
+  if ($LASTEXITCODE -ne 0) { Fail "check-artifacts.sh failed" }
   & bash "release/verify-manifest.sh" $Out
-  if ($LASTEXITCODE -ne 0) { Fail "artifact checks failed" }
+  if ($LASTEXITCODE -ne 0) { Fail "verify-manifest.sh failed" }
 } else {
   # Inline fallback check: every manifest-named file exists and hashes match.
   $m = Get-Content (Join-Path $Out $ManifestName) -Raw | ConvertFrom-Json

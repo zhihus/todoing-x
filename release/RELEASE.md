@@ -81,13 +81,22 @@ build scripts. The steps are:
 > **Do not publish, tag, or push without explicit approval.** The build scripts
 > never perform these steps.
 
-## 4. GitHub Actions (prepared)
+## 4. GitHub Actions
 
-`.github/workflows/release.yml` is prepared to build artifacts on each
-supported platform's native runner and upload them to a draft GitHub Release.
-It is triggered only by a manual workflow_dispatch or by a `v*` tag push, and
-it creates a **draft** release — it does not publish. Review the draft, then
-publish it manually. See the workflow file for the exact job layout.
+`.github/workflows/release.yml` builds artifacts on each supported platform's
+native runner. It has two triggers with different behavior:
+
+- **Manual `workflow_dispatch`** (with a `version` and optional `notes`):
+  validates the `version` input against `Cargo.toml`, builds the artifacts,
+  and uploads them as workflow artifacts only. It does **not** create a tag
+  and does **not** create a GitHub Release.
+- **`v*` tag push**: validates the tag against `Cargo.toml`, builds the
+  artifacts, and creates/refreshes a **draft** GitHub Release for that tag.
+  It never publishes the draft.
+
+The workflow never creates or pushes tags, never publishes a release, and
+never pushes commits. Review a draft release, then publish it manually. See
+the workflow file for the exact job layout.
 
 ## 5. Recovering a specific version
 

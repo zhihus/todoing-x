@@ -30,6 +30,15 @@ done
 
 fail() { echo "FAIL: $1" >&2; exit 1; }
 
+# Portable SHA256: sha256sum (Linux/Git Bash) or shasum -a 256 (stock macOS).
+sha256_of() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$1" | awk '{print $1}'
+  else
+    shasum -a 256 "$1" | awk '{print $1}'
+  fi
+}
+
 # --- Version / provenance -------------------------------------------------
 VERSION=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n 1)
 [[ -n $VERSION ]] || fail "cannot determine version from Cargo.toml"
@@ -97,7 +106,7 @@ PORTABLE_DIR="$STAGE/todoing-${VERSION}-${PLATFORM_ARCH}-portable"
 mkdir -p "$PORTABLE_DIR"
 cp "$SRC_BIN" "$PORTABLE_DIR/todoing${EXE}"
 
-BIN_SHA256=$(sha256sum "$OUT/$BIN_NAME" | awk '{print $1}')
+BIN_SHA256=$(sha256_of "$OUT/$BIN_NAME")
 
 export P_DIR="$PORTABLE_DIR" P_VERSION="$VERSION" P_PLATFORM_ARCH="$PLATFORM_ARCH" \
        P_COMMIT="$COMMIT" P_BRANCH="$BRANCH" P_EXE="$EXE" P_BIN_SHA="$BIN_SHA256" \
@@ -176,7 +185,7 @@ PYEOF
 )
 
 # --- SHA256 files ---------------------------------------------------------
-PORTABLE_SHA256=$(sha256sum "$OUT/$PORTABLE_NAME" | awk '{print $1}')
+PORTABLE_SHA256=$(sha256_of "$OUT/$PORTABLE_NAME")
 printf '%s  %s\n' "$BIN_SHA256" "$BIN_NAME" > "$OUT/$SHA256_NAME"
 printf '%s  %s\n' "$PORTABLE_SHA256" "$PORTABLE_NAME" > "$OUT/$PORTABLE_SHA256_NAME"
 

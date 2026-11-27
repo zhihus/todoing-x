@@ -1,13 +1,19 @@
 name: Release build
 
-# Builds release artifacts on each supported platform's native runner and
-# attaches them to a DRAFT GitHub Release. It never publishes a release,
-# never creates or pushes tags, and never pushes commits. Publishing the draft
-# is a separate, manual, explicitly-approved step (see release/RELEASE.md).
+# Builds release artifacts on each supported platform's native runner.
 #
-# Triggers:
-#   - workflow_dispatch (manual) with a version and optional notes.
-#   - push of a v* tag (builds and refreshes the draft release for that tag).
+# Triggers and behavior:
+#   - workflow_dispatch (manual): validates the `version` input against
+#     Cargo.toml, builds artifacts on every platform, and uploads them as
+#     workflow artifacts only. It does NOT create a tag and does NOT create
+#     a GitHub Release.
+#   - push of a v* tag: validates the tag against Cargo.toml, builds
+#     artifacts on every platform, and creates/refreshes a DRAFT GitHub
+#     Release for that tag. It never publishes the draft.
+#
+# It never creates or pushes tags, never publishes a release, and never
+# pushes commits. Publishing a draft is a separate, manual, explicitly-
+# approved step (see release/RELEASE.md).
 on:
   workflow_dispatch:
     inputs:
@@ -26,7 +32,34 @@ permissions:
   contents: write
 
 jobs:
+  # Fail fast if the requested version (workflow_dispatch input, or the tag
+  # name on a tag push) does not match the version in Cargo.toml. This makes
+  # the `version` input explicit and prevents it from being silently ignored.
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate version against Cargo.toml
+        run: |
+          set -euo pipefail
+          CARGO_VERSION=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n 1)
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            EXPECTED="${{ github.event.inputs.version }}"
+            SOURCE="workflow_dispatch input"
+          else
+            EXPECTED="${GITHUB_REF#refs/tags/v}"
+            SOURCE="tag"
+          fi
+          echo "Cargo.toml version: $CARGO_VERSION"
+          echo "Expected version ($SOURCE): $EXPECTED"
+          if [ "$CARGO_VERSION" != "$EXPECTED" ]; then
+            echo "FAIL: version mismatch — $SOURCE says '$EXPECTED' but Cargo.toml says '$CARGO_VERSION'"
+            exit 1
+          fi
+          echo "Version OK: $CARGO_VERSION"
+
   build:
+    needs: validate
     strategy:
       fail-fast: false
       matrix:
@@ -59,14 +92,7 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          $notes = $env:NOTES
-          if (-not $notes) { $notes = "Release build." }
-          [Environment]::SetEnvironmentVariable("NOTES", $notes)
-          ./release/build.ps1 -Notes $notes
-
-      - name: Set notes env for bash builds
-        if: runner.os != 'Windows'
-        run: echo "NOTES=${{ github.event.inputs.notes || 'Release build.' }}" >> "$GITHUB_ENV"
+          ./release/build.ps1 -Notes "${{ github.event.inputs.notes || 'Release build.' }}"
 
       - name: Upload artifacts to workflow
         uses: actions/upload-artifact@v4
