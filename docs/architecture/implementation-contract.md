@@ -338,18 +338,13 @@ The API is a one-request-per-process interface. The todoing api command reads on
 
 Errors are JSON responses on stdout. Human diagnostics, if any, go to stderr. No non-JSON text may be mixed into API stdout.
 
-### Initial operation namespace
+### Operation namespace
 
-- store.info, store.verify, store.migrate, store.snapshot
-- task.create, task.list, task.get, task.update, task.status.set, task.complete, task.cancel, task.reopen
-- task.label.add, task.label.remove
-- task.commit.add
-- task.dependency.add, task.dependency.remove, task.dependency.list
-- task.history.list
-- task.version.list, task.version.get, task.version.compare, task.version.approve
-- task.lock.acquire, task.lock.heartbeat, task.lock.release, task.lock.recover
+The complete list of operations is normative in the `operation` enum of docs/api/v1/request.schema.json; src/api.rs implements the same set. Operation arguments, results, lock semantics, and no-op behavior are specified in docs/api/v1/operations.md.
 
-The request and response envelopes are specified in docs/api/v1/request.schema.json and docs/api/v1/response.schema.json. Operation arguments, results, lock semantics, and no-op behavior are specified in docs/api/v1/operations.md. Per-operation JSON Schema definitions are added before their handlers are implemented. Unknown operations and unsupported envelope fields are rejected, not silently ignored.
+The request and response schemas describe the envelope only. In the request schema, `args` is represented as an object; the per-operation argument and result structures are defined in docs/api/v1/operations.md, not as separate JSON Schema documents. The implementation validates the argument structure strictly and rejects unknown fields and invalid types. Per-operation JSON Schema files do not exist.
+
+Unknown operations and unsupported envelope fields are rejected, not silently ignored.
 
 ### Error codes
 
@@ -389,10 +384,10 @@ The request and response envelopes are specified in docs/api/v1/request.schema.j
 |---:|---|
 | 0 | Request succeeded. |
 | 2 | Invalid CLI usage, JSON, configuration, or request. |
-| 3 | Requested task/version/dependency not found. |
+| 3 | Requested task, version, dependency, or external reference not found. |
 | 4 | Domain or concurrency conflict (lock, stale owner, invalid transition, dependency cycle). |
 | 5 | Storage, integrity, or filesystem failure. |
-| 6 | Migration failure/conflict. |
+| 6 | Migration or initialization failure/conflict. |
 | 70 | Unexpected internal error. |
 
 A JSON API error response is still emitted on stdout for non-zero exit codes.
