@@ -116,7 +116,7 @@ Set-Content -Path (Join-Path $PortableDir "README.md") -Value $readme -Encoding 
 
 # --- Create the ZIP -------------------------------------------------------
 $ZipPath = Join-Path $Out $PortableName
-Compress-Archive -Path (Join-Path $PortableDir "*") -DestinationPath $ZipPath -Force
+Compress-Archive -Path $PortableDir -DestinationPath $ZipPath -Force
 $PortableSha256 = (Get-FileHash $ZipPath -Algorithm SHA256).Hash.ToLower()
 
 # --- SHA256 files ---------------------------------------------------------
