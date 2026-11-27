@@ -10,8 +10,9 @@ Scripts must conform; disagreement is a script defect.
 - Binary: `.exe` on Windows, no suffix on Unix.
 - Portable ZIP: `-portable.zip`; SHA256 sidecar: `.sha256`;
   manifest: `-release-manifest.json`.
-- Local scripts build the current host only. CI builds on native Windows, Ubuntu
-  and macOS runners; no cross-compilation.
+- Local scripts build the current host only. Current CI release verification and
+  release builds target native Windows and Ubuntu runners; no cross-compilation.
+  macOS support and native CI verification are deferred roadmap work.
 
 ## Portable archive
 One top-level `todoing-<VERSION>-<PLATFORM>-<ARCH>-portable/` directory:
